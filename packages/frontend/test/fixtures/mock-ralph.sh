@@ -49,12 +49,30 @@ fi
 if [[ "${mode}" == "run" ]]; then
   shift || true
   prompt=""
+  prompt_file="PROMPT.md"
 
   for arg in "$@"; do
     if [[ "${arg}" == --prompt=* ]]; then
       prompt="${arg#--prompt=}"
+    elif [[ "${arg}" == "--prompt-file" ]]; then
+      continue
+    elif [[ "${arg}" == "--prompt-file="* ]]; then
+      prompt_file="${arg#--prompt-file=}"
     fi
   done
+
+  for ((i = 1; i <= $#; i++)); do
+    if [[ "${!i}" == "--prompt-file" ]]; then
+      next_index=$((i + 1))
+      if [[ "${next_index}" -le "$#" ]]; then
+        prompt_file="${!next_index}"
+      fi
+    fi
+  done
+
+  if [[ -z "${prompt}" ]] && [[ -f "${prompt_file}" ]]; then
+    prompt="$(<"${prompt_file}")"
+  fi
 
   if [[ "${prompt}" == *"complete"* ]]; then
     echo 'Event: loop.iteration - {"iteration":1,"sourceHat":"builder","tokensUsed":42}'

@@ -3,6 +3,9 @@
 `ralph-orchestrator-web` is a monorepo app for running and observing Ralph Orchestrator workflows.
 It has a Fastify + tRPC backend and a React + Vite frontend.
 
+it uses the amazing Ralph orchestrator
+https://github.com/mikeyobrien/ralph-orchestrator 
+
 ## Stupid-Simple Setup
 
 Copy and run from repo root:

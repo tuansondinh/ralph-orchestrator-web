@@ -14,6 +14,26 @@ function formatTimestamp(timestamp: number) {
   })
 }
 
+function BellIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M15 17H9M18 17H6l1.3-1.5A2 2 0 0 0 8 14.2V10a4 4 0 1 1 8 0v4.2a2 2 0 0 0 .7 1.3L18 17Zm-7.2 0a1.2 1.2 0 0 0 2.4 0"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
 export function NotificationCenter({
   notifications,
   unreadCount,
@@ -30,15 +50,15 @@ export function NotificationCenter({
         aria-label={accessibleName}
         aria-expanded={isOpen}
         aria-haspopup="menu"
-        className="relative rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900"
+        className="relative inline-flex h-10 w-10 items-center justify-center rounded-md border border-zinc-800 text-zinc-200 hover:bg-zinc-900"
         onClick={() => setIsOpen((current) => !current)}
         type="button"
       >
-        <span aria-hidden="true">Bell</span>
+        <BellIcon />
         {unreadCount > 0 ? (
           <span
             aria-hidden="true"
-            className="absolute -right-2 -top-2 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+            className="absolute right-1 top-1 min-w-4 rounded-full bg-red-500 px-1 text-center text-[10px] font-semibold leading-4 text-white"
           >
             {unreadCount}
           </span>

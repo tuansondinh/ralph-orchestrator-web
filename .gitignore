@@ -30,6 +30,7 @@ recent_debug.log
 
 # Ralph Runtime
 .ralph/
+.ralph-ui/
 .agent/
 
 # OS
@@ -61,7 +62,10 @@ packages/frontend/test/.tmp/
 # Generated Projects
 projects/
 workspaces/
+spec/
 specs/
+PROMPT.md
+prompt.md
 
 # Database
 *.db

@@ -1,6 +1,6 @@
 # ralph-orchestrator-web
 
-`ralph-orchestrator-web` is a monorepo app for running and observing Ralph Orchestrator workflows. You can manage multiple projects and receive notifications. The app is currently in Experimental mode and is unstable/buggy.
+`ralph-orchestrator-web` is a monorepo app for running and observing Ralph Orchestrator workflows. You can manage multiple projects, receive notifications, review changes. The app is currently in Experimental mode and is unstable/buggy.
 
 It has a Fastify + tRPC backend and a React + Vite frontend.
 

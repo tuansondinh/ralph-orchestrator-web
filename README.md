@@ -132,6 +132,11 @@ See [SECURITY.md](SECURITY.md) for details.
 - Typecheck all workspaces: `npm run typecheck`
 - Build all workspaces: `npm run build -ws`
 
+## License
+
+This project is licensed under the MIT License.
+See [LICENSE](LICENSE).
+
 ## Repository Layout
 
 - `packages/backend`: API, services, runtime/process integration

@@ -641,7 +641,8 @@ const terminalRouter = t.router({
       z.object({
         projectId: z.string().min(1),
         cols: z.number().int().positive().optional(),
-        rows: z.number().int().positive().optional()
+        rows: z.number().int().positive().optional(),
+        initialCommand: z.string().trim().min(1).optional()
       })
     )
     .mutation(({ ctx, input }) => {

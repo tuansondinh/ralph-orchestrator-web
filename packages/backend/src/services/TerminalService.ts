@@ -234,6 +234,7 @@ export class TerminalService {
     projectId: string
     cols?: number
     rows?: number
+    initialCommand?: string
   }): Promise<TerminalSessionSummary> {
     const project = this.db
       .select()
@@ -322,6 +323,12 @@ export class TerminalService {
     }
     projectSessions.add(sessionId)
     this.events.emit(`${STATE_EVENT_PREFIX}${sessionId}`, 'active' satisfies TerminalSessionState)
+
+    const initialCommand = input.initialCommand?.trim()
+    if (initialCommand) {
+      terminal.write(`${initialCommand}\r`)
+    }
+
     this.logger.info(
       {
         projectId: input.projectId,

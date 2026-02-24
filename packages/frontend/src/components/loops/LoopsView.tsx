@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { LoopDetail } from '@/components/loops/LoopDetail'
 import { LoopList } from '@/components/loops/LoopList'
 import { StartLoopDialog } from '@/components/loops/StartLoopDialog'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { loopApi, type StartLoopInput } from '@/lib/loopApi'
 import { projectApi } from '@/lib/projectApi'
+import { terminalApi } from '@/lib/terminalApi'
 import { useLoopStore } from '@/stores/loopStore'
+import { useTerminalStore } from '@/stores/terminalStore'
 
 interface LoopsViewProps {
   projectId: string
@@ -13,8 +16,6 @@ interface LoopsViewProps {
 
 const EMPTY_LOOPS: ReturnType<typeof useLoopStore.getState>['loopsByProject'][string] = []
 const EMPTY_OUTPUT: string[] = []
-const EMPTY_PROMPT_MESSAGE =
-  'Here you can see the generated prompt.md when you use ralph plan or ralph task.'
 
 function asMetricNumber(value: unknown, fallback: number) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -33,10 +34,13 @@ function asFilesChanged(value: unknown, fallback: string[]) {
 }
 
 export function LoopsView({ projectId }: LoopsViewProps) {
+  const navigate = useNavigate()
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [terminalActionError, setTerminalActionError] = useState<string | null>(null)
+  const [runningTerminalCommand, setRunningTerminalCommand] = useState<string | null>(null)
   const [promptContent, setPromptContent] = useState('')
-  const hasPromptContent = promptContent.trim().length > 0
+  const [promptPath, setPromptPath] = useState('PROMPT.md')
 
   const loops = useLoopStore((state) => state.loopsByProject[projectId] ?? EMPTY_LOOPS)
   const selectedLoopId = useLoopStore(
@@ -50,6 +54,8 @@ export function LoopsView({ projectId }: LoopsViewProps) {
   const appendOutput = useLoopStore((state) => state.appendOutput)
   const setMetrics = useLoopStore((state) => state.setMetrics)
   const setSelectedLoop = useLoopStore((state) => state.setSelectedLoop)
+  const addTerminalSession = useTerminalStore((state) => state.addSession)
+  const setActiveTerminalSession = useTerminalStore((state) => state.setActiveSession)
 
   const selectedLoop = useMemo(
     () => loops.find((loop) => loop.id === selectedLoopId) ?? null,
@@ -98,17 +104,20 @@ export function LoopsView({ projectId }: LoopsViewProps) {
   useEffect(() => {
     let cancelled = false
     setPromptContent('')
+    setPromptPath('PROMPT.md')
 
     projectApi
       .getPrompt(projectId)
       .then((prompt) => {
         if (!cancelled) {
           setPromptContent(prompt.content)
+          setPromptPath(prompt.path)
         }
       })
       .catch(() => {
         if (!cancelled) {
           setPromptContent('')
+          setPromptPath('PROMPT.md')
         }
       })
 
@@ -254,40 +263,79 @@ export function LoopsView({ projectId }: LoopsViewProps) {
     [loadMetrics, projectId, setSelectedLoop, upsertLoop]
   )
 
+  const startTerminalCommand = useCallback(
+    async (command: 'ralph plan' | 'ralph task') => {
+      setRunningTerminalCommand(command)
+      setTerminalActionError(null)
+
+      try {
+        const session = await terminalApi.startSession({
+          projectId,
+          initialCommand: command
+        })
+        addTerminalSession(projectId, session)
+        setActiveTerminalSession(projectId, session.id)
+        navigate(`/project/${projectId}/terminal`)
+      } catch (nextError) {
+        setTerminalActionError(
+          nextError instanceof Error
+            ? nextError.message
+            : `Failed to start terminal command: ${command}`
+        )
+      } finally {
+        setRunningTerminalCommand(null)
+      }
+    },
+    [addTerminalSession, navigate, projectId, setActiveTerminalSession]
+  )
+
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">Loops</h2>
-        <div className="flex items-center gap-3">
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold">Loops</h2>
           <span className="text-xs text-zinc-400">
             {isConnected ? 'Live connected' : 'Connecting...'}
           </span>
         </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            className="rounded-lg border border-cyan-500/70 bg-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-950 shadow-sm transition-colors hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={runningTerminalCommand !== null}
+            onClick={() => {
+              void startTerminalCommand('ralph plan')
+            }}
+            type="button"
+          >
+            Ralph Plan
+          </button>
+          <button
+            className="rounded-lg border border-amber-500/70 bg-amber-500 px-4 py-2 text-sm font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={runningTerminalCommand !== null}
+            onClick={() => {
+              void startTerminalCommand('ralph task')
+            }}
+            type="button"
+          >
+            Ralph Task
+          </button>
+        </div>
+        <p className="text-xs text-zinc-400">
+          Pro tip: use ralph plan or ralph task to create a plan for Ralph.
+        </p>
       </div>
 
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
-      <p className="text-xs text-zinc-400">
-        If Stop does not work, use Kill Ralph process under{' '}
-        <a className="text-zinc-200 underline underline-offset-4 hover:text-white" href="/settings">
-          Global settings
-        </a>
-        .
-      </p>
+      {terminalActionError ? <p className="text-sm text-red-400">{terminalActionError}</p> : null}
 
-      <div className="grid min-h-0 min-w-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)]">
-        <div className="min-h-0 min-w-0 space-y-4 lg:grid lg:grid-rows-[auto_auto_minmax(0,1fr)] lg:gap-4 lg:space-y-0">
-          <section className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900 p-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-zinc-300">
-              Generated prompt.md
-            </p>
-            <pre
-              className="min-h-[4.5rem] max-h-32 overflow-auto rounded-md border border-zinc-700 bg-zinc-950 p-3 text-xs leading-relaxed whitespace-pre-wrap text-zinc-100"
-              data-testid="generated-prompt-content"
-            >
-              {hasPromptContent ? promptContent : EMPTY_PROMPT_MESSAGE}
-            </pre>
-          </section>
-          <StartLoopDialog projectId={projectId} onStart={startLoop} />
+      <div className="grid min-h-0 min-w-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[3fr_7fr]">
+        <div className="min-h-0 min-w-0 space-y-4 lg:grid lg:grid-rows-[auto_minmax(0,1fr)] lg:gap-4 lg:space-y-0">
+          <StartLoopDialog
+            projectId={projectId}
+            onStart={startLoop}
+            initialPrompt={promptContent}
+            promptPath={promptPath}
+          />
           {isLoading ? (
             <section className="space-y-3" data-testid="loops-loading-skeleton">
               <div className="h-24 animate-pulse rounded-lg bg-zinc-900/70" />

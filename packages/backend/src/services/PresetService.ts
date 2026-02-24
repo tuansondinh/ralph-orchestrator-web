@@ -71,7 +71,7 @@ export class PresetService {
       // Avoid duplicates if the project config has the same name as a global preset
       if (!presets.some((p) => p.filename === configFilename)) {
         presets.unshift({
-          name: `Project: ${toPresetName(configFilename)}`,
+          name: 'custom preset from settings',
           filename: configFilename
         })
       }

@@ -356,6 +356,12 @@ export function TerminalView({ projectId }: { projectId: string }) {
         </button>
       </div>
 
+      <p className="rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-xs text-zinc-300">
+        Pro tip: <code>ralph plan</code> and <code>ralph task</code> will update the{' '}
+        <code>PROMPT.md</code> for you. Once you finish planning, go back to Loops tab and start
+        the loop.
+      </p>
+
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {sessions.length > 0 ? (

@@ -20,6 +20,7 @@ export const terminalApi = {
     projectId: string
     cols?: number
     rows?: number
+    initialCommand?: string
   }): Promise<TerminalSessionRecord> {
     return trpcClient.terminal.startSession.mutate(input)
   },

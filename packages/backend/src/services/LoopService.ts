@@ -132,6 +132,7 @@ interface StopLoopInput {
 
 const STOP_ATTEMPTS = 3
 const STOP_WAIT_MS_PER_ATTEMPT = 700
+const DEFAULT_OUTPUT_BUFFER_LINES = 500
 
 const OUTPUT_EVENT_PREFIX = 'loop-output:'
 const STATE_EVENT_PREFIX = 'loop-state:'
@@ -306,7 +307,7 @@ export class LoopService {
     this.resolveBinary = options.resolveBinary ?? (() => resolveRalphBinary())
     this.stopLoopWithCli = options.stopLoop ?? stopLoopWithCli
     this.now = options.now ?? (() => new Date())
-    this.bufferLines = options.bufferLines ?? Number.POSITIVE_INFINITY
+    this.bufferLines = options.bufferLines ?? DEFAULT_OUTPUT_BUFFER_LINES
   }
 
   async start(projectId: string, options: LoopStartOptions = {}): Promise<LoopSummary> {

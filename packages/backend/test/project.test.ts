@@ -207,7 +207,7 @@ describe('project tRPC routes', () => {
     )
   })
 
-  it('copies parent ralph.yml into opened projects and uses ralph.yml as config', async () => {
+  it('keeps existing project config files when opening a project', async () => {
     const caller = await createCaller()
     const parentDir = await createTempDir('project-open-existing-yaml')
     const projectDir = join(parentDir, 'existing-app')
@@ -218,6 +218,31 @@ describe('project tRPC routes', () => {
 
     const created = await caller.project.create({
       name: 'Existing YAML Project',
+      path: projectDir,
+      createIfMissing: false
+    })
+
+    expect(created.path).toBe(resolve(projectDir))
+    expect(created.type).toBe('node')
+    expect(created.ralphConfig).toBe('ralph.yaml')
+    await expect(readFile(join(projectDir, 'ralph.yaml'), 'utf8')).resolves.toContain(
+      'model: gpt-5-mini'
+    )
+    await expect(access(join(projectDir, 'ralph.yml'))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+  })
+
+  it('copies parent ralph.yml into opened projects when project config is missing', async () => {
+    const caller = await createCaller()
+    const parentDir = await createTempDir('project-open-existing-parent-template')
+    const projectDir = join(parentDir, 'existing-app')
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(join(parentDir, 'ralph.yml'), 'model: gpt-5\nmax_turns: 12\n', 'utf8')
+    await writeFile(join(projectDir, 'package.json'), '{"name":"existing-app"}\n', 'utf8')
+
+    const created = await caller.project.create({
+      name: 'Existing Project Without Config',
       path: projectDir,
       createIfMissing: false
     })

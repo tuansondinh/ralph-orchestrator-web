@@ -201,6 +201,11 @@ async function ensureProjectRalphConfig(
   path: string,
   options: { seedFromTemplate: boolean }
 ) {
+  const existingConfig = await detectRalphConfig(path)
+  if (existingConfig) {
+    return existingConfig
+  }
+
   const configPath = join(path, PRIMARY_RALPH_CONFIG_FILENAME)
   const configContent = options.seedFromTemplate
     ? await resolveRalphConfigTemplate(path)

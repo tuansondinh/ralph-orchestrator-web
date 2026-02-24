@@ -140,12 +140,9 @@ function buildPreviewUrl(baseUrl: string, port: number) {
 
 function normalizeUrl(rawUrl: string, fallbackPort: number, baseUrl: string) {
   try {
-    const parsed = new URL(rawUrl)
-
-    const parsedPort = parsed.port ? Number(parsed.port) : fallbackPort
-    const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : fallbackPort
-
-    return buildPreviewUrl(baseUrl, port)
+    // Treat parsed URLs as a readiness signal only and keep the manager-assigned port.
+    new URL(rawUrl)
+    return buildPreviewUrl(baseUrl, fallbackPort)
   } catch {
     return buildPreviewUrl(baseUrl, fallbackPort)
   }
@@ -177,7 +174,7 @@ function extractReadyUrl(output: string, port: number, baseUrl: string) {
     if (hostPortMatch) {
       return normalizeUrl(
         `http://${hostPortMatch[1]}:${hostPortMatch[2]}`,
-        Number(hostPortMatch[2]),
+        port,
         baseUrl
       )
     }

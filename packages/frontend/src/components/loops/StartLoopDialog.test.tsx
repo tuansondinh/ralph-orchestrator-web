@@ -78,7 +78,7 @@ describe('StartLoopDialog', () => {
     })
     expect(await screen.findByText('Default preset saved.')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Prompt'), {
+    fireEvent.change(screen.getByLabelText('PROMPT.md'), {
       target: { value: 'Ship it' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'Start' }))
@@ -103,7 +103,7 @@ describe('StartLoopDialog', () => {
       )
     ).toBeInTheDocument()
     expect(screen.getByLabelText('Preset')).toHaveValue('code-assist.yml')
-    fireEvent.change(screen.getByLabelText('Prompt'), {
+    fireEvent.change(screen.getByLabelText('PROMPT.md'), {
       target: { value: 'Ship it' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'Start' }))
@@ -133,7 +133,7 @@ describe('StartLoopDialog', () => {
     expect(await screen.findByText('Worktree "feature-a" created.')).toBeInTheDocument()
     expect(screen.getByLabelText('Worktree (Optional)')).toHaveValue('feature-a')
 
-    fireEvent.change(screen.getByLabelText('Prompt'), {
+    fireEvent.change(screen.getByLabelText('PROMPT.md'), {
       target: { value: 'Ship with named branch' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'Start' }))

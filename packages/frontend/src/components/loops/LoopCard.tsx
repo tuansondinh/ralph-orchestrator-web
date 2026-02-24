@@ -68,21 +68,30 @@ export function LoopCard({
           <p>Tokens: {loop.tokensUsed}</p>
         </div>
       </button>
-      <div className="flex items-center gap-2">
-        <button
-          className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
-          type="button"
-          onClick={() => onStop(loop.id)}
-        >
-          Stop
-        </button>
-        <button
-          className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
-          type="button"
-          onClick={() => onRestart(loop.id)}
-        >
-          Restart
-        </button>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <button
+            className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
+            type="button"
+            onClick={() => onStop(loop.id)}
+          >
+            Stop
+          </button>
+          <button
+            className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
+            type="button"
+            onClick={() => onRestart(loop.id)}
+          >
+            Restart
+          </button>
+        </div>
+        <p className="text-[11px] leading-4 text-zinc-500">
+          If Stop does not work, use Kill Ralph process under{' '}
+          <a className="text-zinc-300 underline underline-offset-2 hover:text-zinc-100" href="/settings">
+            Global settings
+          </a>
+          .
+        </p>
       </div>
     </article>
   )

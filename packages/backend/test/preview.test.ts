@@ -69,6 +69,7 @@ async function createMockNodePreviewProject(
     name: string
     dependencies?: Record<string, string>
     scripts?: Record<string, string>
+    announcedPort?: number
   }
 ) {
   const projectPath = join(rootDir, options.name)
@@ -85,6 +86,7 @@ const resolvedPort = Number(
   hasPortArg ? args[portArgIndex + 1] : process.env.PORT || '3001'
 )
 const port = Number.isFinite(resolvedPort) ? resolvedPort : 3001
+const announcedPort = ${typeof options.announcedPort === 'number' ? options.announcedPort : 'null'}
 
 const server = createServer((_req, res) => {
   res.statusCode = 200
@@ -92,7 +94,7 @@ const server = createServer((_req, res) => {
 })
 
 server.listen(port, '127.0.0.1', () => {
-  process.stdout.write(\`Local: http://127.0.0.1:\${port}\\n\`)
+  process.stdout.write(\`Local: http://127.0.0.1:\${announcedPort ?? port}\\n\`)
 })
 
 process.on('SIGTERM', () => {
@@ -388,6 +390,33 @@ describe('preview tRPC routes', () => {
 
     const ready = await caller.preview.status({ projectId })
     expect(ready?.url).toBe(`http://my-machine.local:${ready?.port}`)
+
+    await caller.preview.stop({ projectId })
+  })
+
+  it('keeps assigned preview port when process output announces an unrelated URL port', async () => {
+    const { caller, connection, tempDir } = await setupCaller({
+      portStart: 4301,
+      portEnd: 4310
+    })
+    const projectPath = await createMockNodePreviewProject(tempDir, {
+      name: 'mismatched-announced-port-app',
+      announcedPort: 5174
+    })
+    const projectId = await createProject(connection, projectPath)
+
+    const starting = await caller.preview.start({ projectId })
+    expect(starting.port).toBeGreaterThanOrEqual(4301)
+
+    await waitFor(async () => {
+      const status = await caller.preview.status({ projectId })
+      return status?.state === 'ready'
+    })
+
+    const ready = await caller.preview.status({ projectId })
+    expect(ready?.state).toBe('ready')
+    expect(ready?.url).toBe(`http://localhost:${starting.port}`)
+    expect(ready?.url).not.toContain(':5174')
 
     await caller.preview.stop({ projectId })
   })

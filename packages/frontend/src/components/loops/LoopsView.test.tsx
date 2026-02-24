@@ -1,12 +1,15 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoopsView } from '@/components/loops/LoopsView'
 import { loopApi, type LoopMetrics, type LoopSummary } from '@/lib/loopApi'
 import { presetApi } from '@/lib/presetApi'
 import { projectApi } from '@/lib/projectApi'
 import { settingsApi } from '@/lib/settingsApi'
+import { terminalApi } from '@/lib/terminalApi'
 import { worktreeApi } from '@/lib/worktreeApi'
 import { resetLoopStore } from '@/stores/loopStore'
+import { resetTerminalStore } from '@/stores/terminalStore'
 
 vi.mock('@/lib/loopApi', () => ({
   loopApi: {
@@ -42,6 +45,12 @@ vi.mock('@/lib/worktreeApi', () => ({
   worktreeApi: {
     list: vi.fn(),
     create: vi.fn()
+  }
+}))
+
+vi.mock('@/lib/terminalApi', () => ({
+  terminalApi: {
+    startSession: vi.fn()
   }
 }))
 
@@ -126,8 +135,19 @@ const metrics: LoopMetrics = {
 }
 
 describe('LoopsView', () => {
+  const renderLoopsView = () =>
+    render(
+      <MemoryRouter initialEntries={['/project/project-1/loops']}>
+        <Routes>
+          <Route path="/project/:id/:tab" element={<LoopsView projectId="project-1" />} />
+          <Route path="/project/:id/terminal" element={<div>Terminal Destination</div>} />
+        </Routes>
+      </MemoryRouter>
+    )
+
   beforeEach(() => {
     resetLoopStore()
+    resetTerminalStore()
     vi.clearAllMocks()
     MockWebSocket.instances = []
 
@@ -158,6 +178,18 @@ describe('LoopsView', () => {
       branch: 'feature-a',
       isPrimary: false
     })
+    vi.mocked(terminalApi.startSession).mockResolvedValue({
+      id: 'terminal-1',
+      projectId: 'project-1',
+      state: 'active',
+      shell: '/bin/zsh',
+      cwd: '/tmp/project',
+      pid: 1234,
+      cols: 120,
+      rows: 36,
+      createdAt: fixedNow,
+      endedAt: null
+    })
   })
 
   afterEach(() => {
@@ -167,18 +199,17 @@ describe('LoopsView', () => {
   })
 
   it('starts, renders, streams, and stops loops', async () => {
-    render(<LoopsView projectId="project-1" />)
+    renderLoopsView()
 
     await waitFor(() => {
       expect(loopApi.list).toHaveBeenCalledWith('project-1')
     })
-    expect(await screen.findByText('Generated prompt.md')).toBeInTheDocument()
-    expect(await screen.findByTestId('generated-prompt-content')).toHaveTextContent(
-      'Follow the checklist.'
+    expect(await screen.findByLabelText('PROMPT.md')).toHaveValue(
+      '# Loop Prompt\nFollow the checklist.'
     )
 
 
-    fireEvent.change(screen.getByLabelText('Prompt'), {
+    fireEvent.change(screen.getByLabelText('PROMPT.md'), {
       target: { value: 'Ship it' }
     })
     expect(await screen.findByDisplayValue('hatless-baseline')).toBeInTheDocument()
@@ -264,23 +295,49 @@ describe('LoopsView', () => {
   it('shows loading skeleton while loop list is fetching', async () => {
     vi.mocked(loopApi.list).mockImplementation(() => new Promise(() => { }))
 
-    render(<LoopsView projectId="project-1" />)
+    renderLoopsView()
 
     expect(await screen.findByTestId('loops-loading-skeleton')).toBeInTheDocument()
   })
 
-  it('shows an empty generated prompt box when prompt file is missing', async () => {
+  it('keeps prompt input empty when prompt file is missing', async () => {
     vi.mocked(projectApi.getPrompt).mockRejectedValueOnce(
       new Error('Prompt file not found: PROMPT.md')
     )
 
-    render(<LoopsView projectId="project-1" />)
+    renderLoopsView()
 
-    const promptBox = await screen.findByTestId('generated-prompt-content')
-    expect(promptBox).toBeInTheDocument()
-    expect(promptBox).toHaveTextContent(
-      'Here you can see the generated prompt.md when you use ralph plan or ralph task.'
-    )
+    expect(await screen.findByLabelText('PROMPT.md')).toHaveValue('')
     expect(screen.queryByText('Prompt file not found: PROMPT.md')).not.toBeInTheDocument()
+  })
+
+  it('opens terminal tab and runs Ralph Plan command', async () => {
+    renderLoopsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Ralph Plan' }))
+
+    await waitFor(() => {
+      expect(terminalApi.startSession).toHaveBeenCalledWith({
+        projectId: 'project-1',
+        initialCommand: 'ralph plan'
+      })
+    })
+
+    expect(await screen.findByText('Terminal Destination')).toBeInTheDocument()
+  })
+
+  it('opens terminal tab and runs Ralph Task command', async () => {
+    renderLoopsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Ralph Task' }))
+
+    await waitFor(() => {
+      expect(terminalApi.startSession).toHaveBeenCalledWith({
+        projectId: 'project-1',
+        initialCommand: 'ralph task'
+      })
+    })
+
+    expect(await screen.findByText('Terminal Destination')).toBeInTheDocument()
   })
 })

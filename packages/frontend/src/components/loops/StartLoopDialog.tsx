@@ -7,6 +7,8 @@ import { worktreeApi, type WorktreeSummary } from '@/lib/worktreeApi'
 interface StartLoopDialogProps {
   projectId: string
   onStart: (input: StartLoopInput) => Promise<void>
+  initialPrompt?: string
+  promptPath?: string
 }
 
 const FALLBACK_PRESET_FILENAME = 'hatless-baseline.yml'
@@ -21,7 +23,12 @@ function selectAvailablePreset(presets: PresetSummary[], preferred: string) {
   return presets[0]?.filename ?? ''
 }
 
-export function StartLoopDialog({ projectId, onStart }: StartLoopDialogProps) {
+export function StartLoopDialog({
+  projectId,
+  onStart,
+  initialPrompt = '',
+  promptPath = 'PROMPT.md'
+}: StartLoopDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSavingDefault, setIsSavingDefault] = useState(false)
   const [isPresetLoading, setIsPresetLoading] = useState(false)
@@ -29,7 +36,8 @@ export function StartLoopDialog({ projectId, onStart }: StartLoopDialogProps) {
   const [isCreatingWorktree, setIsCreatingWorktree] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
-  const [prompt, setPrompt] = useState('')
+  const [prompt, setPrompt] = useState(initialPrompt)
+  const [promptDirty, setPromptDirty] = useState(false)
   const [presets, setPresets] = useState<PresetSummary[]>([])
   const [worktrees, setWorktrees] = useState<WorktreeSummary[]>([])
   const [selectedWorktree, setSelectedWorktree] = useState('')
@@ -39,14 +47,25 @@ export function StartLoopDialog({ projectId, onStart }: StartLoopDialogProps) {
   const [exclusive, setExclusive] = useState(false)
 
   const resetForm = useCallback(() => {
-    setPrompt('')
+    setPrompt(initialPrompt)
+    setPromptDirty(false)
     setSelectedPreset(selectAvailablePreset(presets, defaultPreset))
     setSelectedWorktree('')
     setNewWorktreeName('')
     setExclusive(false)
     setError(null)
     setStatusMessage(null)
-  }, [defaultPreset, presets])
+  }, [defaultPreset, initialPrompt, presets])
+
+  useEffect(() => {
+    setPromptDirty(false)
+  }, [projectId])
+
+  useEffect(() => {
+    if (!promptDirty) {
+      setPrompt(initialPrompt)
+    }
+  }, [initialPrompt, promptDirty])
 
 
 
@@ -223,15 +242,21 @@ export function StartLoopDialog({ projectId, onStart }: StartLoopDialogProps) {
       <form className="space-y-3" onSubmit={handleSubmit}>
         <div className="space-y-1">
           <label className="block text-xs uppercase text-zinc-400" htmlFor="loop-prompt">
-            Prompt
+            PROMPT.md
           </label>
           <textarea
             id="loop-prompt"
             className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-            rows={3}
+            rows={8}
             value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
+            onChange={(event) => {
+              setPrompt(event.target.value)
+              setPromptDirty(true)
+            }}
           />
+          <p className="text-xs text-zinc-400">
+            Loaded from <code>{promptPath}</code>. You can edit this before starting the loop.
+          </p>
         </div>
         <div className="space-y-1">
           <label className="block text-xs uppercase text-zinc-400" htmlFor="loop-preset">
@@ -336,9 +361,9 @@ export function StartLoopDialog({ projectId, onStart }: StartLoopDialogProps) {
         </div>
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
         {statusMessage ? <p className="text-sm text-emerald-400">{statusMessage}</p> : null}
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center justify-center">
           <button
-            className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-200 disabled:opacity-50"
+            className="w-full max-w-sm rounded-md bg-zinc-100 px-6 py-2.5 text-sm font-semibold text-zinc-900 shadow-sm hover:bg-zinc-200 disabled:opacity-50"
             disabled={isSubmitting || isPresetLoading || !selectedPreset}
             type="submit"
           >

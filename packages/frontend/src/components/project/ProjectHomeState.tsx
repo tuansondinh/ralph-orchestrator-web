@@ -75,20 +75,26 @@ export function ProjectHomeState({
             <p className="text-xs uppercase tracking-wide text-zinc-400">Build Flow</p>
             <div className="mt-3 space-y-2 text-sm text-zinc-200">
               <p>
-                <span className="text-emerald-300">1.</span> Plan work in chat
+                <span className="text-emerald-300">1.</span> Plan work with Ralph
               </p>
               <p>
                 <span className="text-emerald-300">2.</span> Execute loops with runtime tracking
               </p>
               <p>
-                <span className="text-emerald-300">3.</span> Inspect monitor and preview signals
+                <span className="text-emerald-300">3.</span> Inspect monitor and preview app
+              </p>
+              <p>
+                <span className="text-emerald-300">4.</span> Review changes
+              </p>
+              <p>
+                <span className="text-emerald-300">5.</span> Manage multiple projects
               </p>
             </div>
             <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900 p-3 font-mono text-[11px] leading-relaxed text-zinc-300">
-              <p className="text-zinc-500">$ ralph run --project active-service</p>
-              <p>Planning queued tasks...</p>
-              <p>Executing autonomous loop...</p>
-              <p className="text-emerald-300">Status: synchronized</p>
+              <p className="text-zinc-500">Project &gt; Loops</p>
+              <p>PROMPT.md loaded and editable</p>
+              <p>Preset selected: code-assist.yml</p>
+              <p className="text-emerald-300">Live loop status: running</p>
             </div>
           </div>
         </div>

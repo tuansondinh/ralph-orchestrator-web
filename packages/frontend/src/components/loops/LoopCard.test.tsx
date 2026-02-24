@@ -61,4 +61,43 @@ describe('LoopCard runtime', () => {
 
     expect(screen.getByText('Runtime: 15s')).toBeInTheDocument()
   })
+
+  it('shows PROMPT.md label with hover text from saved loop prompt', () => {
+    render(
+      <LoopCard
+        loop={buildLoop({ prompt: '# Prompt Snapshot\nShip it.' })}
+        isSelected={false}
+        onSelect={() => {}}
+        onStop={noop}
+        onRestart={noop}
+      />
+    )
+
+    expect(screen.getByText('PROMPT.md')).toHaveAttribute(
+      'title',
+      '# Prompt Snapshot\nShip it.'
+    )
+    expect(screen.getByRole('tooltip')).toHaveTextContent('# Prompt Snapshot')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Ship it.')
+  })
+
+  it('shows explanatory hover text when no prompt snapshot is stored', () => {
+    render(
+      <LoopCard
+        loop={buildLoop({ prompt: null })}
+        isSelected={false}
+        onSelect={() => {}}
+        onStop={noop}
+        onRestart={noop}
+      />
+    )
+
+    expect(screen.getByText('PROMPT.md')).toHaveAttribute(
+      'title',
+      'Prompt snapshot was not saved for this loop. This can happen on older loops or when PROMPT.md was unavailable at loop start.'
+    )
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'Prompt snapshot was not saved for this loop.'
+    )
+  })
 })

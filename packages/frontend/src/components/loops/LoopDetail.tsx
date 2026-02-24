@@ -12,10 +12,14 @@ interface LoopDetailProps {
 type LoopDetailTab = 'output' | 'review'
 
 const REVIEWABLE_STATES = new Set(['completed', 'needs-review', 'merged', 'stopped'])
+const ACTIVE_OUTPUT_STATES = new Set(['running', 'queued', 'merging'])
 
 export function LoopDetail({ loop, metrics, outputLines }: LoopDetailProps) {
   const [activeTab, setActiveTab] = useState<LoopDetailTab>('output')
   const showReviewTab = Boolean(loop && REVIEWABLE_STATES.has(loop.state))
+  const outputEmptyMessage = ACTIVE_OUTPUT_STATES.has(loop.state)
+    ? 'Waiting for loop output...'
+    : 'No persisted logs found for this loop.'
 
   useEffect(() => {
     setActiveTab('output')
@@ -47,7 +51,7 @@ export function LoopDetail({ loop, metrics, outputLines }: LoopDetailProps) {
       {showReviewTab ? (
         <div
           aria-label="Loop detail sections"
-          className="inline-flex rounded-md border border-zinc-800 bg-zinc-900/50 p-1"
+          className="inline-flex gap-1 rounded-md border border-zinc-800 bg-zinc-900/50 p-1"
           role="tablist"
         >
           <button
@@ -64,9 +68,9 @@ export function LoopDetail({ loop, metrics, outputLines }: LoopDetailProps) {
           </button>
           <button
             aria-selected={activeTab === 'review'}
-            className={`rounded px-3 py-1.5 text-sm transition-colors ${activeTab === 'review'
-              ? 'bg-zinc-200 text-zinc-900'
-              : 'text-zinc-300 hover:bg-zinc-800'
+            className={`rounded px-3 py-1.5 text-sm font-semibold transition-colors ${activeTab === 'review'
+              ? 'bg-amber-300 text-amber-950 shadow-sm'
+              : 'border border-amber-500/60 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25'
               }`}
             onClick={() => setActiveTab('review')}
             role="tab"
@@ -83,7 +87,7 @@ export function LoopDetail({ loop, metrics, outputLines }: LoopDetailProps) {
             <DiffViewer loopId={loop.id} />
           </div>
         ) : (
-          <TerminalOutput lines={outputLines} />
+          <TerminalOutput lines={outputLines} emptyMessage={outputEmptyMessage} />
         )}
       </div>
     </section>

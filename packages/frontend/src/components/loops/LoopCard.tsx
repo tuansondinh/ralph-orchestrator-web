@@ -36,6 +36,9 @@ function runtimeSeconds(loop: LoopSummary) {
   return Math.max(0, Math.floor((effectiveEndMs - startedAtMs) / 1_000))
 }
 
+const MISSING_PROMPT_SNAPSHOT_MESSAGE =
+  'Prompt snapshot was not saved for this loop. This can happen on older loops or when PROMPT.md was unavailable at loop start.'
+
 export function LoopCard({
   loop,
   isSelected,
@@ -43,9 +46,11 @@ export function LoopCard({
   onStop,
   onRestart
 }: LoopCardProps) {
+  const promptTooltip = loop.prompt ?? MISSING_PROMPT_SNAPSHOT_MESSAGE
+
   return (
     <article
-      className={`min-w-0 overflow-hidden space-y-3 rounded-lg border p-3 ${isSelected
+      className={`min-w-0 overflow-visible space-y-3 rounded-lg border p-3 ${isSelected
         ? 'border-zinc-300 bg-zinc-900'
         : 'border-zinc-800 bg-zinc-900/50 hover:border-zinc-700'
         }`}
@@ -67,6 +72,23 @@ export function LoopCard({
           <p>Runtime: {runtimeSeconds(loop)}s</p>
           <p>Tokens: {loop.tokensUsed}</p>
         </div>
+        <p className="text-xs text-zinc-500">
+          <span
+            className="group/prompt relative inline-flex cursor-help rounded border border-zinc-700 px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-zinc-300"
+            title={promptTooltip}
+            tabIndex={0}
+          >
+            PROMPT.md
+            <span
+              className="pointer-events-none invisible absolute left-0 top-full z-20 mt-1 w-[22rem] max-w-[75vw] rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1 text-left normal-case tracking-normal text-zinc-200 opacity-0 shadow-xl transition-opacity group-hover/prompt:visible group-hover/prompt:opacity-100 group-focus/prompt:visible group-focus/prompt:opacity-100"
+              role="tooltip"
+            >
+              <span className="block max-h-56 overflow-y-auto whitespace-pre-wrap break-words">
+                {promptTooltip}
+              </span>
+            </span>
+          </span>
+        </p>
       </button>
       <div className="space-y-2">
         <div className="flex items-center gap-2">

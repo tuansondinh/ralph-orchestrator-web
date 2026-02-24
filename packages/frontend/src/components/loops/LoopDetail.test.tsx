@@ -59,4 +59,22 @@ describe('LoopDetail', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Review Changes' }))
     expect(screen.getByText('DiffViewer for loop-1')).toBeInTheDocument()
   })
+
+  it('shows waiting message when active loop has no output yet', () => {
+    render(<LoopDetail loop={baseLoop} metrics={metrics} outputLines={[]} />)
+
+    expect(screen.getByText('Waiting for loop output...')).toBeInTheDocument()
+  })
+
+  it('shows missing persisted log message when completed loop has no output', () => {
+    render(
+      <LoopDetail
+        loop={{ ...baseLoop, state: 'completed', processId: null, endedAt: 1_770_768_010_000 }}
+        metrics={metrics}
+        outputLines={[]}
+      />
+    )
+
+    expect(screen.getByText('No persisted logs found for this loop.')).toBeInTheDocument()
+  })
 })

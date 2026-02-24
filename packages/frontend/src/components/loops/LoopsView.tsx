@@ -241,6 +241,15 @@ export function LoopsView({ projectId }: LoopsViewProps) {
     [loadMetrics, projectId, setSelectedLoop, upsertLoop]
   )
 
+  const savePrompt = useCallback(
+    async (content: string) => {
+      const updated = await projectApi.updatePrompt(projectId, { content })
+      setPromptContent(updated.content)
+      setPromptPath(updated.path)
+    },
+    [projectId]
+  )
+
   const stopLoop = useCallback(
     async (loopId: string) => {
       await loopApi.stop(loopId)
@@ -328,21 +337,24 @@ export function LoopsView({ projectId }: LoopsViewProps) {
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
       {terminalActionError ? <p className="text-sm text-red-400">{terminalActionError}</p> : null}
 
-      <div className="grid min-h-0 min-w-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[3fr_7fr]">
-        <div className="min-h-0 min-w-0 space-y-4 lg:grid lg:grid-rows-[auto_minmax(0,1fr)] lg:gap-4 lg:space-y-0">
+      <div className="grid min-h-0 min-w-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(320px,1.3fr)_minmax(260px,1fr)_minmax(0,2fr)]">
+        <div className="h-full min-h-0 min-w-0 overflow-hidden">
           <StartLoopDialog
             projectId={projectId}
             onStart={startLoop}
             initialPrompt={promptContent}
             promptPath={promptPath}
+            onPromptSave={savePrompt}
           />
+        </div>
+        <div className="h-full min-h-0 min-w-0 overflow-hidden">
           {isLoading ? (
-            <section className="space-y-3" data-testid="loops-loading-skeleton">
-              <div className="h-24 animate-pulse rounded-lg bg-zinc-900/70" />
-              <div className="h-40 animate-pulse rounded-lg bg-zinc-900/50" />
+            <section className="h-full space-y-3" data-testid="loops-loading-skeleton">
+              <div className="h-20 animate-pulse rounded-lg bg-zinc-900/70" />
+              <div className="h-56 animate-pulse rounded-lg bg-zinc-900/50" />
             </section>
           ) : (
-            <div className="min-h-0 max-h-[26rem] overflow-y-auto pr-1">
+            <div className="h-full min-h-0 overflow-y-auto pr-1">
               <LoopList
                 loops={loops}
                 selectedLoopId={selectedLoopId}
@@ -353,7 +365,7 @@ export function LoopsView({ projectId }: LoopsViewProps) {
             </div>
           )}
         </div>
-        <div className="w-full min-h-0 min-w-0 overflow-hidden">
+        <div className="h-full w-full min-h-0 min-w-0 overflow-hidden">
           {isLoading ? (
             <section className="h-full space-y-3">
               <div className="h-16 animate-pulse rounded-lg bg-zinc-900/60" />

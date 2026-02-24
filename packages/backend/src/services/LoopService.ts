@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { execFile as execFileCallback } from 'node:child_process'
-import { readFile, readdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { mkdir, readFile, readdir } from 'node:fs/promises'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { desc, eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
@@ -46,6 +47,7 @@ export class LoopServiceError extends Error {
 export interface LoopStartOptions {
   config?: string
   prompt?: string
+  promptSnapshot?: string
   promptFile?: string
   exclusive?: boolean
   worktree?: string
@@ -167,6 +169,12 @@ function getErrorOutput(error: unknown) {
   return 'Unknown error'
 }
 
+function isMissingGitRevisionError(output: string) {
+  return /\b(invalid revision range|bad revision|unknown revision|bad object|ambiguous argument)\b/i.test(
+    output
+  )
+}
+
 function asNumber(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value
@@ -219,11 +227,13 @@ function parsePersistedConfig(config: string | null) {
   const parsed = parseConfigRecord(config)
   return {
     config: asString(parsed.config),
+    prompt: asString(parsed.prompt),
     promptFile: asString(parsed.promptFile),
     exclusive: Boolean(parsed.exclusive),
     worktree: asString(parsed.worktree),
     startCommit: asString(parsed.startCommit),
-    endCommit: asString(parsed.endCommit)
+    endCommit: asString(parsed.endCommit),
+    outputLogFile: asString(parsed.outputLogFile)
   }
 }
 
@@ -272,10 +282,10 @@ function quoteShellArg(value: string) {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-function buildRunCommand(binaryPath: string, options: LoopStartOptions) {
+function buildRunCommand(binaryPath: string, options: LoopStartOptions, outputLogFile: string) {
   const runArgs = buildRunArgs(options)
   const command = [binaryPath, ...runArgs].map(quoteShellArg).join(' ')
-  return `set -o pipefail; ${command} 2>&1 | tee debug.log`
+  return `set -o pipefail; ${command} 2>&1 | tee debug.log ${quoteShellArg(outputLogFile)}`
 }
 
 function toMilliseconds(timestamp: number | null | undefined) {
@@ -333,7 +343,10 @@ export class LoopService {
 
     const loopId = randomUUID()
     const startCommit = await this.resolveHeadCommit(project.path)
-    const shellCommand = buildRunCommand(binaryPath, options)
+    const promptSnapshot = await this.resolvePromptSnapshot(project.path, options)
+    const outputLogFile = join('.ralph-ui', 'loop-logs', `${loopId}.log`)
+    await mkdir(join(project.path, '.ralph-ui', 'loop-logs'), { recursive: true })
+    const shellCommand = buildRunCommand(binaryPath, options, outputLogFile)
     const handle = await this.processManager.spawn(projectId, 'bash', ['-lc', shellCommand], {
       cwd: project.path
     })
@@ -341,11 +354,13 @@ export class LoopService {
     const nowMs = this.now().getTime()
     const configPayload = JSON.stringify({
       config: options.config ?? null,
+      prompt: options.prompt ?? null,
       promptFile: options.promptFile ?? null,
       exclusive: Boolean(options.exclusive),
       worktree: options.worktree ?? null,
       startCommit,
-      endCommit: null
+      endCommit: null,
+      outputLogFile
     })
 
     try {
@@ -356,7 +371,7 @@ export class LoopService {
           projectId,
           state: 'running',
           config: configPayload,
-          prompt: options.prompt ?? null,
+          prompt: promptSnapshot,
           worktree: options.worktree ?? null,
           iterations: 0,
           tokensUsed: 0,
@@ -516,7 +531,8 @@ export class LoopService {
     const persistedConfig = parsePersistedConfig(run.config)
     const restartOptions: LoopStartOptions = {
       config: persistedConfig.config,
-      prompt: run.prompt ?? undefined,
+      prompt: persistedConfig.prompt,
+      promptSnapshot: run.prompt ?? undefined,
       promptFile: persistedConfig.promptFile,
       exclusive: persistedConfig.exclusive,
       worktree: run.worktree ?? persistedConfig.worktree
@@ -608,11 +624,41 @@ export class LoopService {
       }
     }
 
+    const [hasStartCommit, hasEndCommit] = await Promise.all([
+      this.commitExists(project.path, persistedConfig.startCommit),
+      this.commitExists(project.path, persistedConfig.endCommit)
+    ])
+    if (!hasEndCommit) {
+      const missing =
+        !hasStartCommit
+          ? 'start and end commits'
+          : 'end commit'
+      return {
+        available: false,
+        reason: `Stored commit-range metadata is no longer available in this repository (missing ${missing}).`
+      }
+    }
+
+    let diffStartCommit = persistedConfig.startCommit
+    if (!hasStartCommit) {
+      const fallbackStartCommit = await this.resolveParentCommit(
+        project.path,
+        persistedConfig.endCommit
+      )
+      if (!fallbackStartCommit) {
+        return {
+          available: false,
+          reason: 'Stored commit-range metadata is no longer available in this repository (missing start commit).'
+        }
+      }
+      diffStartCommit = fallbackStartCommit
+    }
+
     let rawDiff = ''
     try {
       const result = await execFile(
         'git',
-        ['diff', `${persistedConfig.startCommit}..${persistedConfig.endCommit}`, '--'],
+        ['diff', `${diffStartCommit}..${persistedConfig.endCommit}`, '--'],
         {
           cwd: project.path,
           encoding: 'utf8'
@@ -620,16 +666,23 @@ export class LoopService {
       )
       rawDiff = result.stdout
     } catch (error) {
+      const output = getErrorOutput(error)
+      if (isMissingGitRevisionError(output)) {
+        return {
+          available: false,
+          reason: 'Stored commit-range metadata is no longer available in this repository.'
+        }
+      }
       throw new LoopServiceError(
         'BAD_REQUEST',
-        `Unable to load commit-range diff for loop: ${getErrorOutput(error)}`
+        `Unable to load commit-range diff for loop: ${output}`
       )
     }
 
     const files = parseDiff(rawDiff)
     return {
       available: true,
-      baseBranch: persistedConfig.startCommit,
+      baseBranch: diffStartCommit,
       worktreeBranch: persistedConfig.endCommit,
       files,
       stats: summarizeDiff(files)
@@ -693,7 +746,30 @@ export class LoopService {
 
   replayOutput(loopId: string) {
     const runtime = this.runtimes.get(loopId)
-    return runtime ? runtime.buffer.replay() : []
+    if (runtime) {
+      return runtime.buffer.replay()
+    }
+
+    const run = this.db.select().from(loopRuns).where(eq(loopRuns.id, loopId)).get()
+    if (!run) {
+      return []
+    }
+
+    const project = this.db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, run.projectId))
+      .get()
+    if (!project) {
+      return []
+    }
+
+    const persistedConfig = parsePersistedConfig(run.config)
+    const outputLogPath = persistedConfig.outputLogFile
+      ? join(project.path, persistedConfig.outputLogFile)
+      : join(project.path, 'debug.log')
+
+    return this.readOutputReplayFromDisk(outputLogPath)
   }
 
   async listNotifications(options: { projectId?: string; limit?: number } = {}) {
@@ -1082,6 +1158,86 @@ export class LoopService {
       })
       const commit = result.stdout.trim()
       return commit.length > 0 ? commit : null
+    } catch {
+      return null
+    }
+  }
+
+  private async resolvePromptSnapshot(
+    projectPath: string,
+    options: LoopStartOptions
+  ): Promise<string | null> {
+    if (typeof options.promptSnapshot === 'string') {
+      return options.promptSnapshot
+    }
+
+    if (typeof options.prompt === 'string') {
+      return options.prompt
+    }
+
+    const promptFilePath = options.promptFile ?? 'PROMPT.md'
+    if (isAbsolute(promptFilePath)) {
+      return null
+    }
+
+    const absolutePath = resolve(projectPath, promptFilePath)
+    const relativePath = relative(projectPath, absolutePath)
+    if (
+      !relativePath ||
+      relativePath.startsWith(`..${sep}`) ||
+      relativePath === '..' ||
+      isAbsolute(relativePath)
+    ) {
+      return null
+    }
+
+    try {
+      return await readFile(absolutePath, 'utf8')
+    } catch {
+      return null
+    }
+  }
+
+  private readOutputReplayFromDisk(filePath: string): string[] {
+    const maxLines =
+      Number.isFinite(this.bufferLines) && this.bufferLines > 0
+        ? Math.floor(this.bufferLines)
+        : 500
+
+    try {
+      const raw = readFileSync(filePath, 'utf8')
+      const normalized = raw.replace(/\r\n/g, '\n')
+      const lines = normalized.split('\n')
+
+      if (lines.length > 0 && lines[lines.length - 1] === '') {
+        lines.pop()
+      }
+
+      return lines.slice(Math.max(0, lines.length - maxLines))
+    } catch {
+      return []
+    }
+  }
+
+  private async commitExists(projectPath: string, commit: string): Promise<boolean> {
+    try {
+      await execFile('git', ['cat-file', '-e', `${commit}^{commit}`], {
+        cwd: projectPath
+      })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  private async resolveParentCommit(projectPath: string, commit: string): Promise<string | null> {
+    try {
+      const result = await execFile('git', ['rev-parse', `${commit}^`], {
+        cwd: projectPath,
+        encoding: 'utf8'
+      })
+      const resolved = result.stdout.trim()
+      return resolved.length > 0 ? resolved : null
     } catch {
       return null
     }

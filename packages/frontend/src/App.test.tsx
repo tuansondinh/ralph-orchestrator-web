@@ -13,6 +13,7 @@ vi.mock('@/lib/projectApi', () => ({
     create: vi.fn(),
     delete: vi.fn(),
     getPrompt: vi.fn(),
+    updatePrompt: vi.fn(),
     selectDirectory: vi.fn()
   }
 }))
@@ -93,6 +94,11 @@ beforeEach(() => {
     projectId,
     path: '/tmp/.prompt.md',
     content: ''
+  }))
+  vi.mocked(projectApi.updatePrompt).mockImplementation(async (projectId: string, input) => ({
+    projectId,
+    path: '/tmp/.prompt.md',
+    content: input.content
   }))
   vi.mocked(worktreeApi.list).mockResolvedValue([])
   vi.mocked(projectApi.selectDirectory).mockResolvedValue({

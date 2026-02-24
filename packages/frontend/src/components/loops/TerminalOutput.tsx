@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 interface TerminalOutputProps {
   lines: string[]
+  emptyMessage?: string
 }
 
 const colorClasses: Record<string, string> = {
@@ -79,7 +80,7 @@ function parseAnsiLine(input: string): Segment[] {
     ]
 }
 
-export function TerminalOutput({ lines }: TerminalOutputProps) {
+export function TerminalOutput({ lines, emptyMessage = 'Waiting for loop output...' }: TerminalOutputProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const renderedLines = useMemo(
@@ -123,7 +124,7 @@ export function TerminalOutput({ lines }: TerminalOutputProps) {
         onScroll={handleScroll}
       >
         {renderedLines.length === 0 ? (
-          <p className="text-zinc-500">Waiting for loop output...</p>
+          <p className="text-zinc-500">{emptyMessage}</p>
         ) : (
           renderedLines.map((lineSegments, lineIndex) => (
             <p className="whitespace-pre-wrap break-words" key={`line-${lineIndex}`}>

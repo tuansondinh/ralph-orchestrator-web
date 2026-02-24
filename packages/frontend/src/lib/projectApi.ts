@@ -26,6 +26,10 @@ export interface ProjectPromptSnapshot {
   content: string
 }
 
+export interface UpdateProjectPromptInput {
+  content: string
+}
+
 export const projectApi = {
   list(): Promise<ProjectRecord[]> {
     return trpcClient.project.list.query()
@@ -38,6 +42,15 @@ export const projectApi = {
   },
   getPrompt(projectId: string): Promise<ProjectPromptSnapshot> {
     return trpcClient.project.getPrompt.query({ projectId })
+  },
+  updatePrompt(
+    projectId: string,
+    input: UpdateProjectPromptInput
+  ): Promise<ProjectPromptSnapshot> {
+    return trpcClient.project.updatePrompt.mutate({
+      projectId,
+      content: input.content
+    })
   },
   selectDirectory(): Promise<SelectDirectoryResult | null> {
     return trpcClient.project.selectDirectory.mutate()

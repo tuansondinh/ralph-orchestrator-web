@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { EventTimeline } from '@/components/monitor/EventTimeline'
-import { FileChanges } from '@/components/monitor/FileChanges'
 import { MetricsPanel } from '@/components/monitor/MetricsPanel'
 import { StatusCards } from '@/components/monitor/StatusCards'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -178,8 +177,6 @@ export function MonitorView({ projectId }: MonitorViewProps) {
     onMessage: handleMessage
   })
 
-  const fileChanges = metrics?.fileChanges ?? EMPTY_FILE_CHANGES
-
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -206,8 +203,6 @@ export function MonitorView({ projectId }: MonitorViewProps) {
         />
         <EventTimeline events={events} />
       </div>
-
-      <FileChanges fileChanges={fileChanges} loopId={selectedLoopId} />
     </section>
   )
 }

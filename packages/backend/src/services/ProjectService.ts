@@ -1,6 +1,6 @@
 import { constants } from 'node:fs'
 import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { join, resolve, isAbsolute, relative, sep, basename } from 'node:path'
+import { join, resolve, isAbsolute, relative, sep, basename, dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -57,6 +57,10 @@ export interface UpdateProjectConfigInput {
   config?: Record<string, unknown>
 }
 
+export interface UpdateProjectPromptInput {
+  content: string
+}
+
 export interface SelectDirectoryResult {
   path: string
 }
@@ -81,9 +85,9 @@ event_loop:
   max_iterations: 100
   # max_runtime_seconds: 14400    # 4 hours max
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 # Additional Configuration (uncomment to customize)
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 
 # core:
 #   scratchpad: ".ralph/agent/scratchpad.md"
@@ -161,56 +165,14 @@ async function validateProjectPath(path: string, options: ValidateProjectPathOpt
   return absolutePath
 }
 
-async function readIfExists(path: string) {
-  try {
-    return await readFile(path, 'utf8')
-  } catch {
-    return null
-  }
-}
-
-function normalizeYamlContent(content: string) {
-  const trimmed = content.trim()
-  if (!trimmed) {
-    return DEFAULT_RALPH_CONFIG_CONTENT
-  }
-
-  return content.endsWith('\n') ? content : `${content}\n`
-}
-
-async function resolveRalphConfigTemplate(path: string) {
-  const parentPath = resolve(path, '..')
-  const candidates = [
-    join(parentPath, PRIMARY_RALPH_CONFIG_FILENAME),
-    join(parentPath, SECONDARY_RALPH_CONFIG_FILENAME),
-    join(path, PRIMARY_RALPH_CONFIG_FILENAME),
-    join(path, SECONDARY_RALPH_CONFIG_FILENAME)
-  ]
-
-  for (const candidatePath of candidates) {
-    const content = await readIfExists(candidatePath)
-    if (content !== null) {
-      return normalizeYamlContent(content)
-    }
-  }
-
-  return DEFAULT_RALPH_CONFIG_CONTENT
-}
-
-async function ensureProjectRalphConfig(
-  path: string,
-  options: { seedFromTemplate: boolean }
-) {
+async function ensureProjectRalphConfig(path: string) {
   const existingConfig = await detectRalphConfig(path)
   if (existingConfig) {
     return existingConfig
   }
 
   const configPath = join(path, PRIMARY_RALPH_CONFIG_FILENAME)
-  const configContent = options.seedFromTemplate
-    ? await resolveRalphConfigTemplate(path)
-    : DEFAULT_RALPH_CONFIG_CONTENT
-  await writeFile(configPath, configContent, 'utf8')
+  await writeFile(configPath, DEFAULT_RALPH_CONFIG_CONTENT, 'utf8')
   return PRIMARY_RALPH_CONFIG_FILENAME
 }
 
@@ -467,9 +429,7 @@ export class ProjectService {
       createIfMissing
     })
     const type = await detectProjectType(path)
-    const ralphConfig = await ensureProjectRalphConfig(path, {
-      seedFromTemplate: !createIfMissing
-    })
+    const ralphConfig = await ensureProjectRalphConfig(path)
     const id = randomUUID()
 
     try {
@@ -597,21 +557,7 @@ export class ProjectService {
 
   async getPrompt(projectId: string): Promise<ProjectPromptSnapshot> {
     const project = await this.get(projectId)
-    const configName = await this.resolveConfigName(project)
-    const configPath = join(project.path, configName)
-
-    let promptFilePath = 'PROMPT.md'
-    try {
-      const yaml = await readFile(configPath, 'utf8')
-      const configuredPromptPath = parsePromptFilePath(yaml)
-      if (configuredPromptPath) {
-        promptFilePath = configuredPromptPath
-      }
-    } catch {
-      // Fallback to the default prompt path when config is unavailable.
-    }
-
-    const resolvedPromptPath = resolvePromptFilePath(project.path, promptFilePath)
+    const resolvedPromptPath = await this.resolvePromptPath(project)
 
     let content: string
     try {
@@ -627,6 +573,23 @@ export class ProjectService {
       projectId: project.id,
       path: resolvedPromptPath.relativePath,
       content
+    }
+  }
+
+  async updatePrompt(
+    projectId: string,
+    input: UpdateProjectPromptInput
+  ): Promise<ProjectPromptSnapshot> {
+    const project = await this.get(projectId)
+    const resolvedPromptPath = await this.resolvePromptPath(project)
+
+    await mkdir(dirname(resolvedPromptPath.absolutePath), { recursive: true })
+    await writeFile(resolvedPromptPath.absolutePath, input.content, 'utf8')
+
+    return {
+      projectId: project.id,
+      path: resolvedPromptPath.relativePath,
+      content: input.content
     }
   }
 
@@ -740,6 +703,24 @@ export class ProjectService {
       .run()
 
     return resolved
+  }
+
+  private async resolvePromptPath(project: Project) {
+    const configName = await this.resolveConfigName(project)
+    const configPath = join(project.path, configName)
+
+    let promptFilePath = 'PROMPT.md'
+    try {
+      const yaml = await readFile(configPath, 'utf8')
+      const configuredPromptPath = parsePromptFilePath(yaml)
+      if (configuredPromptPath) {
+        promptFilePath = configuredPromptPath
+      }
+    } catch {
+      // Fallback to the default prompt path when config is unavailable.
+    }
+
+    return resolvePromptFilePath(project.path, promptFilePath)
   }
 
   private async runGit(cwd: string, args: string[]) {

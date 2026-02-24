@@ -30,7 +30,8 @@ vi.mock('@/lib/presetApi', () => ({
 
 vi.mock('@/lib/projectApi', () => ({
   projectApi: {
-    getPrompt: vi.fn()
+    getPrompt: vi.fn(),
+    updatePrompt: vi.fn()
   }
 }))
 
@@ -164,6 +165,11 @@ describe('LoopsView', () => {
       path: 'PROMPT.md',
       content: '# Loop Prompt\nFollow the checklist.'
     })
+    vi.mocked(projectApi.updatePrompt).mockImplementation(async (projectId, input) => ({
+      projectId,
+      path: 'PROMPT.md',
+      content: input.content
+    }))
     vi.mocked(presetApi.list).mockResolvedValue([
       { name: 'code-assist', filename: 'code-assist.yml' },
       { name: 'hatless-baseline', filename: 'hatless-baseline.yml' },
@@ -216,9 +222,14 @@ describe('LoopsView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start' }))
 
     await waitFor(() => {
+      expect(projectApi.updatePrompt).toHaveBeenCalledWith('project-1', {
+        content: 'Ship it'
+      })
+    })
+    await waitFor(() => {
       expect(loopApi.start).toHaveBeenCalledWith('project-1', {
-        prompt: 'Ship it',
         exclusive: false,
+        promptSnapshot: 'Ship it',
         presetFilename: 'hatless-baseline.yml'
       })
     })

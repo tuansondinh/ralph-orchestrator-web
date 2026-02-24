@@ -54,6 +54,7 @@ export interface StartLoopInput {
   config?: string
   presetFilename?: string
   prompt?: string
+  promptSnapshot?: string
   promptFile?: string
   exclusive?: boolean
   worktree?: string

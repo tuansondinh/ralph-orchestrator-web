@@ -177,6 +177,18 @@ const projectRouter = t.router({
           config: input.config
         })
         .catch((error) => asTRPCError(error))
+    ),
+  updatePrompt: t.procedure
+    .input(
+      z.object({
+        projectId: z.string().min(1),
+        content: z.string()
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      new ProjectService(ctx.db)
+        .updatePrompt(input.projectId, { content: input.content })
+        .catch((error) => asTRPCError(error))
     )
 })
 
@@ -199,6 +211,7 @@ const loopRouter = t.router({
         config: z.string().trim().min(1).optional(),
         presetFilename: z.string().trim().min(1).optional(),
         prompt: z.string().trim().min(1).optional(),
+        promptSnapshot: z.string().optional(),
         promptFile: z.string().trim().min(1).optional(),
         exclusive: z.boolean().optional(),
         worktree: z.string().trim().min(1).optional()
@@ -220,6 +233,7 @@ const loopRouter = t.router({
         .start(input.projectId, {
           config,
           prompt: input.prompt,
+          promptSnapshot: input.promptSnapshot,
           promptFile: input.promptFile,
           exclusive: input.exclusive,
           worktree: input.worktree

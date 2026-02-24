@@ -9,6 +9,7 @@ interface StartLoopDialogProps {
   onStart: (input: StartLoopInput) => Promise<void>
   initialPrompt?: string
   promptPath?: string
+  onPromptSave?: (content: string) => Promise<void>
 }
 
 const FALLBACK_PRESET_FILENAME = 'hatless-baseline.yml'
@@ -27,10 +28,12 @@ export function StartLoopDialog({
   projectId,
   onStart,
   initialPrompt = '',
-  promptPath = 'PROMPT.md'
+  promptPath = 'PROMPT.md',
+  onPromptSave
 }: StartLoopDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSavingDefault, setIsSavingDefault] = useState(false)
+  const [isSavingPrompt, setIsSavingPrompt] = useState(false)
   const [isPresetLoading, setIsPresetLoading] = useState(false)
   const [isWorktreeLoading, setIsWorktreeLoading] = useState(false)
   const [isCreatingWorktree, setIsCreatingWorktree] = useState(false)
@@ -165,10 +168,19 @@ export function StartLoopDialog({
 
     try {
       const payload: StartLoopInput = {
-        prompt: prompt.trim() || undefined,
         presetFilename: selectedPreset,
         exclusive
       }
+
+      if (onPromptSave) {
+        setIsSavingPrompt(true)
+        await onPromptSave(prompt)
+        setPromptDirty(false)
+        payload.promptSnapshot = prompt
+      } else {
+        payload.prompt = prompt.trim() || undefined
+      }
+
       if (selectedWorktree) {
         payload.worktree = selectedWorktree
       }
@@ -178,6 +190,7 @@ export function StartLoopDialog({
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Failed to start loop')
     } finally {
+      setIsSavingPrompt(false)
       setIsSubmitting(false)
     }
   }
@@ -238,8 +251,8 @@ export function StartLoopDialog({
 
 
   return (
-    <section className="w-full space-y-3 rounded-lg border border-zinc-700 bg-zinc-900 p-4">
-      <form className="space-y-3" onSubmit={handleSubmit}>
+    <section className="h-full min-h-0 w-full rounded-lg border border-zinc-700 bg-zinc-900 p-4">
+      <form className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-1" onSubmit={handleSubmit}>
         <div className="space-y-1">
           <label className="block text-xs uppercase text-zinc-400" htmlFor="loop-prompt">
             PROMPT.md
@@ -249,14 +262,39 @@ export function StartLoopDialog({
             className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
             rows={8}
             value={prompt}
+            onBlur={() => {
+              if (!promptDirty || !onPromptSave) {
+                return
+              }
+
+              setIsSavingPrompt(true)
+              void onPromptSave(prompt)
+                .then(() => {
+                  setPromptDirty(false)
+                })
+                .catch((nextError) => {
+                  setError(
+                    nextError instanceof Error
+                      ? nextError.message
+                      : 'Failed to save prompt file'
+                  )
+                })
+                .finally(() => {
+                  setIsSavingPrompt(false)
+                })
+            }}
             onChange={(event) => {
               setPrompt(event.target.value)
               setPromptDirty(true)
+              setError(null)
             }}
           />
           <p className="text-xs text-zinc-400">
             Loaded from <code>{promptPath}</code>. You can edit this before starting the loop.
           </p>
+          {isSavingPrompt ? (
+            <p className="text-xs text-zinc-400">Saving {promptPath}...</p>
+          ) : null}
         </div>
         <div className="space-y-1">
           <label className="block text-xs uppercase text-zinc-400" htmlFor="loop-preset">
@@ -361,10 +399,10 @@ export function StartLoopDialog({
         </div>
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
         {statusMessage ? <p className="text-sm text-emerald-400">{statusMessage}</p> : null}
-        <div className="flex items-center justify-center">
+        <div className="flex items-center justify-center pt-1">
           <button
             className="w-full max-w-sm rounded-md bg-zinc-100 px-6 py-2.5 text-sm font-semibold text-zinc-900 shadow-sm hover:bg-zinc-200 disabled:opacity-50"
-            disabled={isSubmitting || isPresetLoading || !selectedPreset}
+            disabled={isSubmitting || isSavingPrompt || isPresetLoading || !selectedPreset}
             type="submit"
           >
             Start

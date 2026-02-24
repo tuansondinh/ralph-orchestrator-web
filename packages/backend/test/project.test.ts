@@ -183,6 +183,9 @@ describe('project tRPC routes', () => {
     await expect(readFile(join(projectDir, 'ralph.yml'), 'utf8')).resolves.toContain(
       'completion_promise: "LOOP_COMPLETE"'
     )
+    await expect(readFile(join(projectDir, 'ralph.yml'), 'utf8')).resolves.toContain(
+      '# ─────────────────────────────────────────────────────────────────────────────'
+    )
   })
 
   it('keeps newly created project ralph.yml at default template even if parent has a template', async () => {
@@ -233,7 +236,7 @@ describe('project tRPC routes', () => {
     })
   })
 
-  it('copies parent ralph.yml into opened projects when project config is missing', async () => {
+  it('writes default ralph.yml into opened projects when project config is missing', async () => {
     const caller = await createCaller()
     const parentDir = await createTempDir('project-open-existing-parent-template')
     const projectDir = join(parentDir, 'existing-app')
@@ -251,7 +254,10 @@ describe('project tRPC routes', () => {
     expect(created.type).toBe('node')
     expect(created.ralphConfig).toBe('ralph.yml')
     await expect(readFile(join(projectDir, 'ralph.yml'), 'utf8')).resolves.toContain(
-      'max_turns: 12'
+      'backend: "claude"'
+    )
+    await expect(readFile(join(projectDir, 'ralph.yml'), 'utf8')).resolves.not.toContain(
+      'model: gpt-5'
     )
   })
 
@@ -419,6 +425,35 @@ describe('project tRPC routes', () => {
     expect(prompt.projectId).toBe(created.id)
     expect(prompt.path).toBe('prompts/current.md')
     expect(prompt.content).toContain('# Current Prompt')
+  })
+
+  it('updates prompt file content using configured event_loop.prompt_file', async () => {
+    const caller = await createCaller()
+    const projectDir = await createTempDir('project-prompt-update')
+    await mkdir(join(projectDir, 'prompts'), { recursive: true })
+    await writeFile(
+      join(projectDir, 'ralph.yml'),
+      'model: gpt-5\nevent_loop:\n  prompt_file: prompts/current.md\n',
+      'utf8'
+    )
+
+    const created = await caller.project.create({
+      name: 'Prompt Update Project',
+      path: projectDir,
+      createIfMissing: false
+    })
+
+    const updated = await caller.project.updatePrompt({
+      projectId: created.id,
+      content: '# Updated Prompt\nShip it.\n'
+    })
+
+    expect(updated.projectId).toBe(created.id)
+    expect(updated.path).toBe('prompts/current.md')
+    expect(updated.content).toBe('# Updated Prompt\nShip it.\n')
+    await expect(readFile(join(projectDir, 'prompts', 'current.md'), 'utf8')).resolves.toBe(
+      '# Updated Prompt\nShip it.\n'
+    )
   })
 
   it('creates and lists named git worktrees for a project', async () => {

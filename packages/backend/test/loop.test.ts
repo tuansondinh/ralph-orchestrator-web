@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { execFile as execFileCallback } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import {
   chmod,
   mkdtemp,
@@ -276,11 +277,36 @@ describe('loop tRPC routes', () => {
     await expect(readFile(join(projectPath, 'debug.log'), 'utf8')).resolves.toBeTypeOf(
       'string'
     )
+    await expect(
+      readFile(join(projectPath, '.ralph-ui', 'loop-logs', `${started.id}.log`), 'utf8')
+    ).resolves.toBeTypeOf('string')
 
     const stopArgs = JSON.parse(
       await readFile(join(tempDir, 'mock-ralph-stop-args.log'), 'utf8')
     )
     expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', started.id])
+  })
+
+  it('persists prompt snapshots for loops started from PROMPT.md content', async () => {
+    const { caller, connection, tempDir } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      promptSnapshot: '# Loop Prompt\nUse the file snapshot.\n'
+    })
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+
+    expect(persisted?.prompt).toBe('# Loop Prompt\nUse the file snapshot.\n')
+
+    await caller.loop.stop({ loopId: started.id })
   })
 
   it('falls back to process kill when ralph loops stop does not terminate runtime', async () => {
@@ -349,6 +375,7 @@ describe('loop tRPC routes', () => {
 
     expect(parsedConfig.startCommit).toBe(initialHead)
     expect(parsedConfig.endCommit).toBe(initialHead)
+    expect(parsedConfig.outputLogFile).toBe(`.ralph-ui/loop-logs/${started.id}.log`)
   })
 
   it('treats stop as a no-op for an already-stopped loop', async () => {
@@ -385,6 +412,36 @@ describe('loop tRPC routes', () => {
 
     expect(afterStop?.state).toBe('stopped')
     expect(afterStop?.endedAt).toBe(1_500)
+  })
+
+  it('replays output from persisted loop log files when runtime state is unavailable', async () => {
+    const { caller, connection, processManager, tempDir } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'exit-fast'
+    })
+
+    await waitFor(() => {
+      const row = connection.db
+        .select()
+        .from(loopRuns)
+        .where(eq(loopRuns.id, started.id))
+        .get()
+      return row?.state === 'completed'
+    })
+
+    const perLoopLogPath = join(projectPath, '.ralph-ui', 'loop-logs', `${started.id}.log`)
+    const persistedLog = readFileSync(perLoopLogPath, 'utf8')
+    expect(persistedLog.length).toBeGreaterThan(0)
+
+    const replayService = new LoopService(connection.db, processManager)
+    const replayed = replayService.replayOutput(started.id)
+    expect(replayed.length).toBeGreaterThan(0)
+    expect(replayed.join('\n')).toMatch(/(boot|tick|Event: loop:iteration)/)
   })
 
   it('tracks completed state and parses iteration/hat metadata from Ralph events', async () => {
@@ -592,6 +649,47 @@ describe('loop tRPC routes', () => {
         })
       ])
     )
+  })
+
+  it('returns unavailable when commit-range metadata points to missing commits', async () => {
+    const { caller, connection, tempDir } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+
+    await runGit(projectPath, ['init', '-b', 'main'])
+    await runGit(projectPath, ['config', 'user.name', 'Test User'])
+    await runGit(projectPath, ['config', 'user.email', 'test@example.com'])
+    await writeFile(join(projectPath, 'README.md'), 'hello\n', 'utf8')
+    await runGit(projectPath, ['add', '.'])
+    await runGit(projectPath, ['commit', '-m', 'initial'])
+
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'completed',
+        config: JSON.stringify({
+          startCommit: '001dc19077a1a4fb534fcd45f1af4bbb8e5f519d',
+          endCommit: '5d8f4e80c77e07dbffc0b70f1b95e16bca40e4f6'
+        }),
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: 1_000,
+        endedAt: 2_000
+      })
+      .run()
+
+    await expect(caller.loop.getDiff({ loopId })).resolves.toEqual({
+      available: false,
+      reason:
+        'Stored commit-range metadata is no longer available in this repository (missing start and end commits).'
+    })
   })
 
   it('returns parsed diff and summary stats for a loop worktree branch', async () => {

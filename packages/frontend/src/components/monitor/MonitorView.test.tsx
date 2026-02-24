@@ -198,13 +198,6 @@ describe('MonitorView', () => {
 
     expect(await screen.findByText('Iterations: 4')).toBeInTheDocument()
     expect(screen.getByText('Runtime: 32s')).toBeInTheDocument()
-    expect(screen.getByText('src/main.ts')).toBeInTheDocument()
-    expect(screen.getByText('+12')).toBeInTheDocument()
-    expect(screen.getByText('-3')).toBeInTheDocument()
-    fireEvent.click(screen.getByLabelText('Show file content for src/main.ts'))
-    expect(await screen.findByText(/export const value = 1/)).toBeInTheDocument()
-    expect(monitoringApi.fileContent).toHaveBeenCalledWith('loop-1', 'src/main.ts')
-
     const timelineRows = await screen.findAllByTestId('event-row')
     expect(
       timelineRows.map((row) => within(row).getByTestId('event-topic').textContent)
@@ -234,7 +227,6 @@ describe('MonitorView', () => {
 
     expect(await screen.findByText('Iterations: 9')).toBeInTheDocument()
     expect(screen.getByText('Runtime: 71s')).toBeInTheDocument()
-    expect(screen.getByText('src/components/App.tsx')).toBeInTheDocument()
 
     await waitFor(() => {
       expect(monitoringApi.projectStatus).toHaveBeenCalledTimes(2)
@@ -261,7 +253,6 @@ describe('MonitorView', () => {
     })
 
     expect(screen.getByText('No loop metrics yet.')).toBeInTheDocument()
-    expect(screen.getByText('No file changes detected yet.')).toBeInTheDocument()
     expect(screen.getByText('No events found.')).toBeInTheDocument()
   })
 })

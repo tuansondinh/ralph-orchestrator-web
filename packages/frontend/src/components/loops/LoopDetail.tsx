@@ -17,7 +17,7 @@ const ACTIVE_OUTPUT_STATES = new Set(['running', 'queued', 'merging'])
 export function LoopDetail({ loop, metrics, outputLines }: LoopDetailProps) {
   const [activeTab, setActiveTab] = useState<LoopDetailTab>('output')
   const showReviewTab = Boolean(loop && REVIEWABLE_STATES.has(loop.state))
-  const outputEmptyMessage = ACTIVE_OUTPUT_STATES.has(loop.state)
+  const outputEmptyMessage = ACTIVE_OUTPUT_STATES.has(loop?.state ?? '')
     ? 'Waiting for loop output...'
     : 'No persisted logs found for this loop.'
 

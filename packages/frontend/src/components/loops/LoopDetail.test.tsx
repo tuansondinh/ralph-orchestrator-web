@@ -37,6 +37,14 @@ describe('LoopDetail', () => {
     cleanup()
   })
 
+  it('renders empty selection state without crashing when no loop is selected', () => {
+    render(<LoopDetail loop={null} metrics={null} outputLines={[]} />)
+
+    expect(
+      screen.getByText('Select a loop to inspect metrics and terminal output.')
+    ).toBeInTheDocument()
+  })
+
   it('hides the Review Changes tab for non-reviewable loop states', () => {
     render(<LoopDetail loop={baseLoop} metrics={metrics} outputLines={['line-1']} />)
 

@@ -427,6 +427,31 @@ describe('project tRPC routes', () => {
     expect(prompt.content).toContain('# Current Prompt')
   })
 
+  it('creates missing prompt file when loading prompt for an existing project', async () => {
+    const caller = await createCaller()
+    const projectDir = await createTempDir('project-prompt-missing')
+    await writeFile(
+      join(projectDir, 'ralph.yml'),
+      'model: gpt-5\nevent_loop:\n  prompt_file: prompts/current.md\n',
+      'utf8'
+    )
+
+    const created = await caller.project.create({
+      name: 'Prompt Missing Project',
+      path: projectDir,
+      createIfMissing: false
+    })
+
+    const prompt = await caller.project.getPrompt({
+      projectId: created.id
+    })
+
+    expect(prompt.projectId).toBe(created.id)
+    expect(prompt.path).toBe('prompts/current.md')
+    expect(prompt.content).toBe('')
+    await expect(readFile(join(projectDir, 'prompts', 'current.md'), 'utf8')).resolves.toBe('')
+  })
+
   it('updates prompt file content using configured event_loop.prompt_file', async () => {
     const caller = await createCaller()
     const projectDir = await createTempDir('project-prompt-update')

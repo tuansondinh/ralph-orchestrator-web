@@ -562,11 +562,17 @@ export class ProjectService {
     let content: string
     try {
       content = await readFile(resolvedPromptPath.absolutePath, 'utf8')
-    } catch {
-      throw new ProjectServiceError(
-        'NOT_FOUND',
-        `Prompt file not found: ${resolvedPromptPath.relativePath}`
-      )
+    } catch (error) {
+      if (getErrorCode(error) !== 'ENOENT') {
+        throw new ProjectServiceError(
+          'BAD_REQUEST',
+          `Unable to read prompt file: ${resolvedPromptPath.relativePath}`
+        )
+      }
+
+      await mkdir(dirname(resolvedPromptPath.absolutePath), { recursive: true })
+      await writeFile(resolvedPromptPath.absolutePath, '', 'utf8')
+      content = ''
     }
 
     return {

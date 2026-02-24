@@ -168,7 +168,7 @@ describe('preset features', () => {
     expect(preset.filename).toBe('code-assist.yml')
     expect(preset.content.length).toBeGreaterThan(0)
 
-    await expect(caller.settings.getDefaultPreset()).resolves.toBe('ralph.yml')
+    await expect(caller.settings.getDefaultPreset()).resolves.toBe('hatless-baseline.yml')
     await caller.settings.setDefaultPreset({
       filename: 'pdd-to-code-assist.yml'
     })

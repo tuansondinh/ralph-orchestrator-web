@@ -138,7 +138,9 @@ describe('project tRPC routes', () => {
     expect(created.type).toBe('node')
     expect(created.ralphConfig).toBe('ralph.yml')
     await expect(access(join(nodeDir, 'ralph.yml'))).resolves.toBeUndefined()
-    await expect(readFile(join(nodeDir, 'ralph.yml'), 'utf8')).resolves.toContain('model:')
+    await expect(readFile(join(nodeDir, 'ralph.yml'), 'utf8')).resolves.toContain(
+      'backend: "claude"'
+    )
 
     const fetched = await caller.project.get({ id: created.id })
     expect(fetched).toMatchObject({ id: created.id, name: 'Demo' })
@@ -178,12 +180,39 @@ describe('project tRPC routes', () => {
     await expect(access(projectDir)).resolves.toBeUndefined()
     const stats = await stat(projectDir)
     expect(stats.isDirectory()).toBe(true)
-    await expect(readFile(join(projectDir, 'ralph.yml'), 'utf8')).resolves.toContain('model:')
+    await expect(readFile(join(projectDir, 'ralph.yml'), 'utf8')).resolves.toContain(
+      'completion_promise: "LOOP_COMPLETE"'
+    )
   })
 
-  it('uses existing ralph.yaml as the project config when opening an existing project', async () => {
+  it('keeps newly created project ralph.yml at default template even if parent has a template', async () => {
     const caller = await createCaller()
-    const projectDir = await createTempDir('project-open-existing-yaml')
+    const baseDir = await createTempDir('project-create-parent-template')
+    const projectDir = join(baseDir, 'new-project-dir')
+    await writeFile(
+      join(baseDir, 'ralph.yml'),
+      'model: gpt-5-mini\nmax_runtime_seconds: 900\n',
+      'utf8'
+    )
+
+    const created = await caller.project.create({
+      name: 'Created From Parent Template',
+      path: projectDir
+    })
+
+    expect(created.path).toBe(resolve(projectDir))
+    expect(created.ralphConfig).toBe('ralph.yml')
+    await expect(readFile(join(projectDir, 'ralph.yml'), 'utf8')).resolves.toContain(
+      'backend: "claude"'
+    )
+  })
+
+  it('copies parent ralph.yml into opened projects and uses ralph.yml as config', async () => {
+    const caller = await createCaller()
+    const parentDir = await createTempDir('project-open-existing-yaml')
+    const projectDir = join(parentDir, 'existing-app')
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(join(parentDir, 'ralph.yml'), 'model: gpt-5\nmax_turns: 12\n', 'utf8')
     await writeFile(join(projectDir, 'package.json'), '{"name":"existing-app"}\n', 'utf8')
     await writeFile(join(projectDir, 'ralph.yaml'), 'model: gpt-5-mini\n', 'utf8')
 
@@ -195,11 +224,10 @@ describe('project tRPC routes', () => {
 
     expect(created.path).toBe(resolve(projectDir))
     expect(created.type).toBe('node')
-    expect(created.ralphConfig).toBe('ralph.yaml')
-    await expect(readFile(join(projectDir, 'ralph.yaml'), 'utf8')).resolves.toContain(
-      'model: gpt-5-mini'
+    expect(created.ralphConfig).toBe('ralph.yml')
+    await expect(readFile(join(projectDir, 'ralph.yml'), 'utf8')).resolves.toContain(
+      'max_turns: 12'
     )
-    await expect(access(join(projectDir, 'ralph.yml'))).rejects.toThrow()
   })
 
   it('rejects project creation when createIfMissing is false and path does not exist', async () => {
@@ -308,9 +336,14 @@ describe('project tRPC routes', () => {
 
     const initialConfig = await caller.project.getConfig({ projectId: created.id })
     expect(initialConfig.projectId).toBe(created.id)
-    expect(initialConfig.yaml).toContain('model: gpt-5')
+    expect(initialConfig.yaml).toContain('backend: "claude"')
     expect(initialConfig.config).toMatchObject({
-      model: 'gpt-5'
+      cli: {
+        backend: 'claude'
+      },
+      event_loop: {
+        completion_promise: 'LOOP_COMPLETE'
+      }
     })
 
     const updated = await caller.project.updateConfig({

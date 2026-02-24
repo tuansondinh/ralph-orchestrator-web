@@ -99,6 +99,24 @@ export class ProcessManager {
     this.logger = options.logger ?? NOOP_LOGGER
   }
 
+  private signalProcessTree(
+    managed: ManagedProcess,
+    signal: 'SIGTERM' | 'SIGKILL'
+  ) {
+    const pid = managed.handle.pid
+    if (pid > 0) {
+      try {
+        // Child processes are spawned detached, so negative pid targets the whole group.
+        process.kill(-pid, signal)
+        return true
+      } catch {
+        // Fall through to direct child signaling.
+      }
+    }
+
+    return managed.child.kill(signal)
+  }
+
   private emitOutput(
     managed: ManagedProcess,
     stream: 'stdout' | 'stderr',
@@ -195,7 +213,8 @@ export class ProcessManager {
     const child = spawn(spawnCommand, spawnArgs, {
       cwd: opts.cwd,
       env,
-      stdio: 'pipe'
+      stdio: 'pipe',
+      detached: true
     })
 
     const handle: ProcessHandle = {
@@ -295,15 +314,15 @@ export class ProcessManager {
     )
 
     if (signal === 'SIGKILL') {
-      managed.child.kill('SIGKILL')
+      this.signalProcessTree(managed, 'SIGKILL')
       await managed.closePromise
       return
     }
 
-    managed.child.kill('SIGTERM')
+    this.signalProcessTree(managed, 'SIGTERM')
     const timeout = setTimeout(() => {
       if (this.processes.has(processId)) {
-        managed.child.kill('SIGKILL')
+        this.signalProcessTree(managed, 'SIGKILL')
       }
     }, managed.killGraceMs)
 

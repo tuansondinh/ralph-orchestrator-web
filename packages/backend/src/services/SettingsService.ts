@@ -18,7 +18,7 @@ type Database = BetterSQLite3Database<typeof schema>
 const DEFAULT_PORT_START = 3001
 const DEFAULT_PORT_END = 3010
 const DEFAULT_PREVIEW_BASE_URL = 'http://localhost'
-const DEFAULT_PRESET_FILENAME = 'ralph.yml'
+const DEFAULT_PRESET_FILENAME = 'hatless-baseline.yml'
 
 const SETTING_KEYS = {
   ralphBinaryPath: 'ralph.binaryPath',

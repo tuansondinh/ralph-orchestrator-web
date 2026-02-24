@@ -426,6 +426,7 @@ export class LoopService {
         )
       }
 
+      let lastStopCliError: unknown
       for (let attempt = 0; attempt < STOP_ATTEMPTS; attempt += 1) {
         try {
           await this.stopLoopWithCli({
@@ -434,11 +435,7 @@ export class LoopService {
             cwd: project.path
           })
         } catch (error) {
-          runtime.stopRequested = false
-          throw new LoopServiceError(
-            'BAD_REQUEST',
-            error instanceof Error ? error.message : `Unable to stop loop: ${loopId}`
-          )
+          lastStopCliError = error
         }
 
         const didStop = await this.waitForRuntimeStop(
@@ -450,8 +447,35 @@ export class LoopService {
         }
       }
 
+      const processId = runtime.processId
+      if (processId) {
+        try {
+          await this.processManager.kill(processId)
+        } catch {
+          // Ignore and rely on runtime state check below.
+        }
+
+        const didStopViaKill = await this.waitForRuntimeStop(
+          loopId,
+          STOP_WAIT_MS_PER_ATTEMPT * 2
+        )
+        if (didStopViaKill) {
+          return
+        }
+      }
+
       runtime.stopRequested = false
-      throw new LoopServiceError('BAD_REQUEST', `Unable to stop loop: ${loopId}`)
+      if (lastStopCliError instanceof Error) {
+        throw new LoopServiceError(
+          'BAD_REQUEST',
+          `${lastStopCliError.message} (forced stop fallback did not terminate runtime)`
+        )
+      }
+
+      throw new LoopServiceError(
+        'BAD_REQUEST',
+        `Unable to stop loop: ${loopId} (forced stop fallback did not terminate runtime)`
+      )
     }
 
     const updates: Partial<typeof loopRuns.$inferInsert> = {

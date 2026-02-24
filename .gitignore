@@ -60,6 +60,7 @@ packages/frontend/test/.tmp/
 
 # Generated Projects
 projects/
+workspaces/
 specs/
 
 # Database

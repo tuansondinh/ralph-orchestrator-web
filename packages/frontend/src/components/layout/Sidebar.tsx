@@ -31,7 +31,7 @@ export function Sidebar({
         className="rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
         to="/settings"
       >
-        Settings
+        Global settings
       </Link>
     </div>
   )

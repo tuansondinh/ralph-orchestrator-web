@@ -50,14 +50,19 @@ async function createTempDir(prefix: string) {
   return mkdtemp(join(tmpdir(), `ralph-ui-${prefix}-`))
 }
 
-async function createMockRalphBinary(directory: string) {
+async function createMockRalphBinary(
+  directory: string,
+  options: { stopNoop?: boolean } = {}
+) {
   const filePath = join(directory, 'mock-ralph.mjs')
+  const stopNoop = options.stopNoop === true
   const script = `#!/usr/bin/env node
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const args = process.argv.slice(2)
+const stopNoop = ${stopNoop ? 'true' : 'false'}
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const pidFile = join(scriptDir, 'mock-ralph.pid')
 const stopArgsFile = join(scriptDir, 'mock-ralph-stop-args.log')
@@ -67,7 +72,7 @@ let iteration = 0
 
 if (args[0] === 'loops' && args[1] === 'stop') {
   writeFileSync(stopArgsFile, JSON.stringify(args), 'utf8')
-  if (existsSync(pidFile)) {
+  if (!stopNoop && existsSync(pidFile)) {
     const pid = Number(readFileSync(pidFile, 'utf8').trim())
     if (Number.isFinite(pid)) {
       try {
@@ -195,7 +200,7 @@ describe('loop tRPC routes', () => {
     }
   })
 
-  async function setupCaller() {
+  async function setupCaller(options: { stopNoop?: boolean } = {}) {
     const tempDir = await createTempDir('loop')
     tempDirs.push(tempDir)
 
@@ -204,7 +209,9 @@ describe('loop tRPC routes', () => {
     migrateDatabase(connection.db)
     connections.push(connection)
 
-    const binaryPath = await createMockRalphBinary(tempDir)
+    const binaryPath = await createMockRalphBinary(tempDir, {
+      stopNoop: options.stopNoop
+    })
     const processManager = new ProcessManager({ killGraceMs: 100 })
     managers.push(processManager)
 
@@ -269,6 +276,40 @@ describe('loop tRPC routes', () => {
     await expect(readFile(join(projectPath, 'debug.log'), 'utf8')).resolves.toBeTypeOf(
       'string'
     )
+
+    const stopArgs = JSON.parse(
+      await readFile(join(tempDir, 'mock-ralph-stop-args.log'), 'utf8')
+    )
+    expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', started.id])
+  })
+
+  it('falls back to process kill when ralph loops stop does not terminate runtime', async () => {
+    const { caller, connection, processManager, tempDir } = await setupCaller({
+      stopNoop: true
+    })
+    const killSpy = vi.spyOn(processManager, 'kill')
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running'
+    })
+
+    expect(started.processId).toBeTruthy()
+    await caller.loop.stop({ loopId: started.id })
+
+    const afterStop = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+
+    expect(afterStop?.state).toBe('stopped')
+    expect(afterStop?.endedAt).toBeTypeOf('number')
+    expect(processManager.list()).toEqual([])
+    expect(killSpy).toHaveBeenCalledWith(started.processId)
 
     const stopArgs = JSON.parse(
       await readFile(join(tempDir, 'mock-ralph-stop-args.log'), 'utf8')

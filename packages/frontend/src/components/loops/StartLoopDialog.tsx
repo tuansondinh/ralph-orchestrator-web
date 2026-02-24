@@ -9,7 +9,7 @@ interface StartLoopDialogProps {
   onStart: (input: StartLoopInput) => Promise<void>
 }
 
-const FALLBACK_PRESET_FILENAME = 'ralph.yml'
+const FALLBACK_PRESET_FILENAME = 'hatless-baseline.yml'
 
 function selectAvailablePreset(presets: PresetSummary[], preferred: string) {
   const normalizedPreferred = preferred.trim()

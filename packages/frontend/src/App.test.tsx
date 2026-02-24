@@ -250,6 +250,7 @@ describe('App', () => {
     expect(within(projectSections).getByRole('link', { name: 'Monitor' })).toBeInTheDocument()
     expect(within(projectSections).getByRole('link', { name: 'Preview' })).toBeInTheDocument()
     expect(within(projectSections).getByRole('link', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'Global settings' }).length).toBeGreaterThan(0)
   })
 
   it('navigates between project tabs', async () => {

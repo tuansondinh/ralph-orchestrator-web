@@ -266,6 +266,13 @@ export function LoopsView({ projectId }: LoopsViewProps) {
       </div>
 
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
+      <p className="text-xs text-zinc-400">
+        If Stop does not work, use Kill Ralph process under{' '}
+        <a className="text-zinc-200 underline underline-offset-4 hover:text-white" href="/settings">
+          Global settings
+        </a>
+        .
+      </p>
 
       <div className="grid min-h-0 min-w-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)]">
         <div className="min-h-0 min-w-0 space-y-4 lg:grid lg:grid-rows-[auto_auto_minmax(0,1fr)] lg:gap-4 lg:space-y-0">

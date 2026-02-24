@@ -172,9 +172,8 @@ describe('LoopsView', () => {
     await waitFor(() => {
       expect(loopApi.list).toHaveBeenCalledWith('project-1')
     })
-    expect(await screen.findByText('Current Prompt')).toBeInTheDocument()
-    expect(await screen.findByText('PROMPT.md')).toBeInTheDocument()
-    expect(await screen.findByTestId('current-prompt-content')).toHaveTextContent(
+    expect(await screen.findByText('Generated prompt.md')).toBeInTheDocument()
+    expect(await screen.findByTestId('generated-prompt-content')).toHaveTextContent(
       'Follow the checklist.'
     )
 
@@ -268,5 +267,20 @@ describe('LoopsView', () => {
     render(<LoopsView projectId="project-1" />)
 
     expect(await screen.findByTestId('loops-loading-skeleton')).toBeInTheDocument()
+  })
+
+  it('shows an empty generated prompt box when prompt file is missing', async () => {
+    vi.mocked(projectApi.getPrompt).mockRejectedValueOnce(
+      new Error('Prompt file not found: PROMPT.md')
+    )
+
+    render(<LoopsView projectId="project-1" />)
+
+    const promptBox = await screen.findByTestId('generated-prompt-content')
+    expect(promptBox).toBeInTheDocument()
+    expect(promptBox).toHaveTextContent(
+      'Here you can see the generated prompt.md when you use ralph plan or ralph task.'
+    )
+    expect(screen.queryByText('Prompt file not found: PROMPT.md')).not.toBeInTheDocument()
   })
 })

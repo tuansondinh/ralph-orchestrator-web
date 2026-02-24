@@ -13,6 +13,8 @@ interface LoopsViewProps {
 
 const EMPTY_LOOPS: ReturnType<typeof useLoopStore.getState>['loopsByProject'][string] = []
 const EMPTY_OUTPUT: string[] = []
+const EMPTY_PROMPT_MESSAGE =
+  'Here you can see the generated prompt.md when you use ralph plan or ralph task.'
 
 function asMetricNumber(value: unknown, fallback: number) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -33,10 +35,8 @@ function asFilesChanged(value: unknown, fallback: string[]) {
 export function LoopsView({ projectId }: LoopsViewProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [isPromptLoading, setIsPromptLoading] = useState(true)
-  const [promptPath, setPromptPath] = useState('PROMPT.md')
   const [promptContent, setPromptContent] = useState('')
-  const [promptError, setPromptError] = useState<string | null>(null)
+  const hasPromptContent = promptContent.trim().length > 0
 
   const loops = useLoopStore((state) => state.loopsByProject[projectId] ?? EMPTY_LOOPS)
   const selectedLoopId = useLoopStore(
@@ -97,31 +97,18 @@ export function LoopsView({ projectId }: LoopsViewProps) {
 
   useEffect(() => {
     let cancelled = false
-    setIsPromptLoading(true)
-    setPromptError(null)
+    setPromptContent('')
 
     projectApi
       .getPrompt(projectId)
       .then((prompt) => {
-        if (cancelled) {
-          return
-        }
-
-        setPromptPath(prompt.path)
-        setPromptContent(prompt.content)
-      })
-      .catch((nextError) => {
         if (!cancelled) {
-          setPromptError(
-            nextError instanceof Error ? nextError.message : 'Failed to load prompt file'
-          )
-          setPromptPath('PROMPT.md')
+          setPromptContent(prompt.content)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
           setPromptContent('')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsPromptLoading(false)
         }
       })
 
@@ -282,23 +269,16 @@ export function LoopsView({ projectId }: LoopsViewProps) {
 
       <div className="grid min-h-0 min-w-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)]">
         <div className="min-h-0 min-w-0 space-y-4 lg:grid lg:grid-rows-[auto_auto_minmax(0,1fr)] lg:gap-4 lg:space-y-0">
-          <section className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-medium text-zinc-200">Current Prompt</h3>
-              <span className="text-xs text-zinc-400">{promptPath}</span>
-            </div>
-            {isPromptLoading ? <p className="text-sm text-zinc-400">Loading prompt...</p> : null}
-            {!isPromptLoading && promptError ? (
-              <p className="text-sm text-red-400">{promptError}</p>
-            ) : null}
-            {!isPromptLoading && !promptError ? (
-              <pre
-                className="max-h-60 overflow-auto rounded-md border border-zinc-700 bg-zinc-950 p-3 text-xs leading-relaxed whitespace-pre-wrap text-zinc-100"
-                data-testid="current-prompt-content"
-              >
-                {promptContent}
-              </pre>
-            ) : null}
+          <section className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900 p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-300">
+              Generated prompt.md
+            </p>
+            <pre
+              className="min-h-[4.5rem] max-h-32 overflow-auto rounded-md border border-zinc-700 bg-zinc-950 p-3 text-xs leading-relaxed whitespace-pre-wrap text-zinc-100"
+              data-testid="generated-prompt-content"
+            >
+              {hasPromptContent ? promptContent : EMPTY_PROMPT_MESSAGE}
+            </pre>
           </section>
           <StartLoopDialog projectId={projectId} onStart={startLoop} />
           {isLoading ? (

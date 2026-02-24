@@ -10,6 +10,10 @@ import { DevPreviewManagerError } from '../services/DevPreviewManager.js'
 import { SettingsService, SettingsServiceError } from '../services/SettingsService.js'
 import { PresetService, PresetServiceError } from '../services/PresetService.js'
 import { TerminalServiceError } from '../services/TerminalService.js'
+import {
+  allowsDangerousOperations,
+  getDangerousOperationBlockMessage
+} from '../lib/safety.js'
 
 const t = initTRPC.context<Context>().create()
 
@@ -31,6 +35,17 @@ function asTRPCError(error: unknown): never {
   }
 
   throw error
+}
+
+function assertDangerousOperationAllowed(operation: string) {
+  if (allowsDangerousOperations()) {
+    return
+  }
+
+  throw new TRPCError({
+    code: 'FORBIDDEN',
+    message: getDangerousOperationBlockMessage(operation)
+  })
 }
 
 const projectRouter = t.router({
@@ -597,9 +612,12 @@ const settingsRouter = t.router({
         .optional()
     )
     .mutation(({ ctx, input }) =>
-      new SettingsService(ctx.db)
-        .testBinary(input?.path)
-        .catch((error) => asTRPCError(error))
+      {
+        assertDangerousOperationAllowed('settings.testBinary')
+        return new SettingsService(ctx.db)
+          .testBinary(input?.path)
+          .catch((error) => asTRPCError(error))
+      }
     ),
   clearData: t.procedure
     .input(
@@ -608,9 +626,12 @@ const settingsRouter = t.router({
       })
     )
     .mutation(({ ctx, input }) =>
-      new SettingsService(ctx.db)
-        .clearData(input.confirm)
-        .catch((error) => asTRPCError(error))
+      {
+        assertDangerousOperationAllowed('settings.clearData')
+        return new SettingsService(ctx.db)
+          .clearData(input.confirm)
+          .catch((error) => asTRPCError(error))
+      }
     )
 })
 
@@ -624,6 +645,7 @@ const terminalRouter = t.router({
       })
     )
     .mutation(({ ctx, input }) => {
+      assertDangerousOperationAllowed('terminal.startSession')
       if (!ctx.terminalService) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -641,6 +663,7 @@ const terminalRouter = t.router({
       })
     )
     .query(({ ctx, input }) => {
+      assertDangerousOperationAllowed('terminal.getProjectSession')
       if (!ctx.terminalService) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -658,6 +681,7 @@ const terminalRouter = t.router({
       })
     )
     .query(({ ctx, input }) => {
+      assertDangerousOperationAllowed('terminal.getProjectSessions')
       if (!ctx.terminalService) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -675,6 +699,7 @@ const terminalRouter = t.router({
       })
     )
     .mutation(({ ctx, input }) => {
+      assertDangerousOperationAllowed('terminal.endSession')
       if (!ctx.terminalService) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -694,6 +719,7 @@ const terminalRouter = t.router({
       })
     )
     .query(({ ctx, input }) => {
+      assertDangerousOperationAllowed('terminal.getOutputHistory')
       if (!ctx.terminalService) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -706,6 +732,7 @@ const terminalRouter = t.router({
 
 const ralphRouter = t.router({
   list: t.procedure.query(({ ctx }) => {
+    assertDangerousOperationAllowed('ralph.list')
     if (!ctx.ralphProcessService) {
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
@@ -721,6 +748,7 @@ const ralphRouter = t.router({
       })
     )
     .mutation(({ ctx, input }) => {
+      assertDangerousOperationAllowed('ralph.kill')
       if (!ctx.ralphProcessService) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -730,6 +758,7 @@ const ralphRouter = t.router({
       return ctx.ralphProcessService.kill(input.pid).catch((error) => asTRPCError(error))
     }),
   killAll: t.procedure.mutation(({ ctx }) => {
+    assertDangerousOperationAllowed('ralph.killAll')
     if (!ctx.ralphProcessService) {
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',

@@ -9,6 +9,10 @@ import type { PreviewInfo } from '../services/DevPreviewManager.js'
 import type { LoopNotification } from '../services/LoopService.js'
 import type { TerminalSessionSummary } from '../services/TerminalService.js'
 import { isOriginAllowed, parseAllowedOrigins } from '../lib/origin.js'
+import {
+  allowsDangerousOperations,
+  getDangerousOperationBlockMessage
+} from '../lib/safety.js'
 
 interface SubscribeRequest {
   type: 'subscribe'
@@ -252,6 +256,7 @@ export async function registerWebsocket(app: FastifyInstance) {
   const configuredAllowedOrigins = parseAllowedOrigins(
     process.env.RALPH_UI_ALLOWED_ORIGINS
   )
+  const dangerousOperationsAllowed = allowsDangerousOperations()
 
   app.get('/ws', { websocket: true }, (socket, req) => {
     const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined
@@ -403,6 +408,13 @@ export async function registerWebsocket(app: FastifyInstance) {
 
       const terminalOutputMatch = /^terminal:([^:]+):output$/.exec(channel)
       if (terminalOutputMatch) {
+        if (!dangerousOperationsAllowed) {
+          safeSend(app, socket, {
+            type: 'error',
+            message: getDangerousOperationBlockMessage('terminal.output')
+          })
+          return
+        }
         const sessionId = terminalOutputMatch[1]
         try {
           const replayChunks = app.terminalService.replayOutput(sessionId)
@@ -425,6 +437,13 @@ export async function registerWebsocket(app: FastifyInstance) {
 
       const terminalStateMatch = /^terminal:([^:]+):state$/.exec(channel)
       if (terminalStateMatch) {
+        if (!dangerousOperationsAllowed) {
+          safeSend(app, socket, {
+            type: 'error',
+            message: getDangerousOperationBlockMessage('terminal.state')
+          })
+          return
+        }
         const sessionId = terminalStateMatch[1]
         try {
           const current = app.terminalService.getSession(sessionId)
@@ -477,6 +496,13 @@ export async function registerWebsocket(app: FastifyInstance) {
       }
 
       if (message.type === 'terminal.input') {
+        if (!dangerousOperationsAllowed) {
+          safeSend(app, socket, {
+            type: 'error',
+            message: getDangerousOperationBlockMessage('terminal.input')
+          })
+          return
+        }
         try {
           app.terminalService.sendInput(message.sessionId, message.data)
         } catch {
@@ -489,6 +515,13 @@ export async function registerWebsocket(app: FastifyInstance) {
       }
 
       if (message.type === 'terminal.resize') {
+        if (!dangerousOperationsAllowed) {
+          safeSend(app, socket, {
+            type: 'error',
+            message: getDangerousOperationBlockMessage('terminal.resize')
+          })
+          return
+        }
         try {
           app.terminalService.resizeSession(message.sessionId, message.cols, message.rows)
         } catch {

@@ -188,6 +188,9 @@ export function MonitorView({ projectId }: MonitorViewProps) {
           {isConnected ? 'Live connected' : 'Connecting...'}
         </span>
       </div>
+      <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+        This Monitor tab is experimental and not fully implemented yet.
+      </p>
 
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
       {isLoading ? <p className="text-sm text-zinc-400">Loading monitoring data...</p> : null}

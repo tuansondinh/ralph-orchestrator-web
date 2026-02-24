@@ -82,8 +82,11 @@ This app is intentionally local-only and does not include authentication.
   - `RALPH_UI_ALLOWED_ORIGINS` as a comma-separated list of origins.
 - To bind on a different interface, set:
   - `RALPH_UI_BIND_HOST`
+- Dangerous endpoints (`terminal.*`, `ralph.*`, `settings.clearData`, `settings.testBinary`) are disabled when bind host is non-loopback.
+  - Override only if you understand the risk: `RALPH_UI_ALLOW_REMOTE_UNSAFE_OPS=1`
 
 Do not expose the backend to untrusted networks.
+See `SECURITY.md` for threat model details and non-loopback caveats.
 
 ## Workspace Commands
 

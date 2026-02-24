@@ -10,7 +10,12 @@ export function AppShell({ sidebar, children }: AppShellProps) {
       <aside className="min-h-0 overflow-y-auto border-b border-zinc-800 bg-zinc-900 p-4 md:border-b-0 md:border-r">
         {sidebar}
       </aside>
-      <main className="flex min-h-0 min-w-0 flex-col overflow-hidden p-6">{children}</main>
+      <main className="flex min-h-0 min-w-0 flex-col overflow-hidden p-6">
+        <p className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+          This app is experimental and not fully implemented yet.
+        </p>
+        {children}
+      </main>
     </div>
   )
 }

@@ -5,9 +5,14 @@ interface PreviewToolbarProps {
   url: string | null
   command: string | null
   args: string[]
+  urlInput: string
+  onUrlInputChange: (value: string) => void
+  onSaveUrl: () => void
+  isSavingUrl: boolean
   onCopyUrl: () => void
   onOpenInBrowser: () => void
   onRefresh: () => void
+  onConfigure: () => void
 }
 
 function statusClasses(state: PreviewState) {
@@ -35,9 +40,14 @@ export function PreviewToolbar({
   url,
   command,
   args,
+  urlInput,
+  onUrlInputChange,
+  onSaveUrl,
+  isSavingUrl,
   onCopyUrl,
   onOpenInBrowser,
-  onRefresh
+  onRefresh,
+  onConfigure
 }: PreviewToolbarProps) {
   const commandLabel = command
     ? [command, ...args].join(' ').trim()
@@ -60,6 +70,13 @@ export function PreviewToolbar({
             Refresh
           </button>
           <button
+            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800"
+            onClick={onConfigure}
+            type="button"
+          >
+            Configure
+          </button>
+          <button
             className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={!url}
             onClick={onCopyUrl}
@@ -77,11 +94,27 @@ export function PreviewToolbar({
           </button>
         </div>
       </div>
-      <div className="space-y-1">
-        <p className="text-xs text-zinc-500">URL</p>
-        <p className="break-all rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200">
-          {url ?? 'Waiting for dev server URL...'}
-        </p>
+      <div className="space-y-2">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-zinc-500">Preview URL</span>
+          <input
+            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
+            onChange={(event) => onUrlInputChange(event.target.value)}
+            placeholder="http://localhost:3001"
+            type="text"
+            value={urlInput}
+          />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="rounded-md border border-zinc-700 bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isSavingUrl}
+            onClick={onSaveUrl}
+            type="button"
+          >
+            {isSavingUrl ? 'Saving URL...' : 'Save URL'}
+          </button>
+        </div>
       </div>
       <p className="truncate text-xs text-zinc-500" title={commandLabel}>
         Command: {commandLabel}

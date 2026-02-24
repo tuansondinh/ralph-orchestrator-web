@@ -194,6 +194,27 @@ describe('PreviewView', () => {
     })
   })
 
+  it('allows configuring the preview URL from the preview toolbar', async () => {
+    render(<PreviewView projectId="project-1" />)
+
+    await waitFor(() => {
+      expect(previewApi.start).toHaveBeenCalledWith('project-1')
+    })
+
+    fireEvent.change(screen.getByLabelText('Preview URL'), {
+      target: { value: 'https://preview.example.com:9999' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save URL' }))
+
+    await waitFor(() => {
+      expect(previewApi.setSettings).toHaveBeenCalledWith({
+        baseUrl: 'https://preview.example.com:9999'
+      })
+    })
+
+    expect(await screen.findByText('Preview URL saved.')).toBeInTheDocument()
+  })
+
   it('does not stop preview automatically when unmounting the tab', async () => {
     const { unmount } = render(<PreviewView projectId="project-1" />)
 

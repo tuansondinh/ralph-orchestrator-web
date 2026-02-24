@@ -33,6 +33,31 @@ function asArray(value: unknown) {
   return value.filter((candidate): candidate is string => typeof candidate === 'string')
 }
 
+function parseUrl(raw: string) {
+  try {
+    return new URL(raw)
+  } catch {
+    return null
+  }
+}
+
+function stripTrailingSlash(value: string) {
+  return value.endsWith('/') ? value.slice(0, -1) : value
+}
+
+function buildPreviewUrl(baseUrl: string, port: number) {
+  const parsed = parseUrl(baseUrl)
+  if (!parsed) {
+    return null
+  }
+
+  parsed.port = String(port)
+  parsed.pathname = ''
+  parsed.search = ''
+  parsed.hash = ''
+  return stripTrailingSlash(parsed.toString())
+}
+
 function asPreviewStatus(message: Record<string, unknown>): PreviewStatus | null {
   if (message.type !== 'preview.state') {
     return null
@@ -65,8 +90,10 @@ function asPreviewStatus(message: Record<string, unknown>): PreviewStatus | null
 export function PreviewView({ projectId }: PreviewViewProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [isRestarting, setIsRestarting] = useState(false)
+  const [isSavingUrl, setIsSavingUrl] = useState(false)
   const [requestError, setRequestError] = useState<string | null>(null)
   const [preview, setPreview] = useState<PreviewStatus | null>(null)
+  const [previewUrlInput, setPreviewUrlInput] = useState('')
   const [reloadToken, setReloadToken] = useState(0)
   const [isConfigureOpen, setIsConfigureOpen] = useState(false)
   const [previewSettings, setPreviewSettings] = useState<PreviewSettings | null>(null)
@@ -87,6 +114,7 @@ export function PreviewView({ projectId }: PreviewViewProps) {
     setRequestError(null)
     setSettingsSaveMessage(null)
     setPreview(null)
+    setPreviewUrlInput('')
 
     const load = async () => {
       try {
@@ -139,6 +167,20 @@ export function PreviewView({ projectId }: PreviewViewProps) {
     }
   }, [projectId])
 
+  useEffect(() => {
+    if (preview?.url) {
+      setPreviewUrlInput(preview.url)
+      return
+    }
+
+    if (previewSettings?.baseUrl && preview?.port) {
+      const configured = buildPreviewUrl(previewSettings.baseUrl, preview.port)
+      if (configured) {
+        setPreviewUrlInput(configured)
+      }
+    }
+  }, [preview?.port, preview?.url, previewSettings?.baseUrl])
+
   const handleMessage = useCallback(
     (message: Record<string, unknown>) => {
       const nextPreview = asPreviewStatus(message)
@@ -161,6 +203,15 @@ export function PreviewView({ projectId }: PreviewViewProps) {
     onMessage: handleMessage
   })
 
+  const activePreviewUrl = useMemo(() => {
+    const parsedInput = parseUrl(previewUrlInput.trim())
+    if (parsedInput) {
+      return stripTrailingSlash(parsedInput.toString())
+    }
+
+    return preview?.url ?? null
+  }, [preview?.url, previewUrlInput])
+
   const handleRestart = useCallback(async () => {
     setIsRestarting(true)
     try {
@@ -173,20 +224,56 @@ export function PreviewView({ projectId }: PreviewViewProps) {
   }, [startPreview])
 
   const handleCopyUrl = useCallback(() => {
-    if (!preview?.url || !navigator.clipboard?.writeText) {
+    if (!activePreviewUrl || !navigator.clipboard?.writeText) {
       return
     }
 
-    void navigator.clipboard.writeText(preview.url)
-  }, [preview?.url])
+    void navigator.clipboard.writeText(activePreviewUrl)
+  }, [activePreviewUrl])
 
   const handleOpenInBrowser = useCallback(() => {
-    if (!preview?.url) {
+    if (!activePreviewUrl) {
       return
     }
 
-    window.open(preview.url, '_blank', 'noopener,noreferrer')
-  }, [preview?.url])
+    window.open(activePreviewUrl, '_blank', 'noopener,noreferrer')
+  }, [activePreviewUrl])
+
+  const handleSaveUrl = useCallback(async () => {
+    const parsed = parseUrl(previewUrlInput.trim())
+    if (!parsed) {
+      setRequestError('Preview URL must be a valid http(s) URL')
+      return
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      setRequestError('Preview URL must use http:// or https://')
+      return
+    }
+
+    setIsSavingUrl(true)
+    try {
+      const updated = await previewApi.setSettings({
+        baseUrl: parsed.origin
+      })
+      setPreviewSettings(updated)
+      setSettingsSaveMessage('Preview URL saved.')
+      setRequestError(null)
+
+      if (preview?.port) {
+        const nextUrl = buildPreviewUrl(updated.baseUrl, preview.port)
+        if (nextUrl) {
+          setPreview((current) => (current ? { ...current, url: nextUrl } : current))
+          setPreviewUrlInput(nextUrl)
+          setReloadToken((value) => value + 1)
+        }
+      }
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : 'Failed to save preview URL')
+    } finally {
+      setIsSavingUrl(false)
+    }
+  }, [preview?.port, previewUrlInput])
 
   const handleSaveConfig = useCallback(async (config: PreviewConfigInput) => {
     try {
@@ -214,11 +301,16 @@ export function PreviewView({ projectId }: PreviewViewProps) {
       <PreviewToolbar
         args={preview?.args ?? []}
         command={preview?.command ?? null}
+        isSavingUrl={isSavingUrl}
+        onConfigure={() => setIsConfigureOpen(true)}
         onCopyUrl={handleCopyUrl}
         onOpenInBrowser={handleOpenInBrowser}
         onRefresh={() => setReloadToken((value) => value + 1)}
+        onSaveUrl={handleSaveUrl}
+        onUrlInputChange={setPreviewUrlInput}
         state={preview?.state ?? 'stopped'}
-        url={preview?.url ?? null}
+        url={activePreviewUrl}
+        urlInput={previewUrlInput}
       />
 
       {settingsSaveMessage ? (
@@ -245,11 +337,11 @@ export function PreviewView({ projectId }: PreviewViewProps) {
         />
       ) : null}
 
-      {preview?.state === 'ready' && preview.url ? (
+      {preview?.state === 'ready' && activePreviewUrl ? (
         <PreviewFrame
-          key={`${preview.url}-${reloadToken}`}
+          key={`${activePreviewUrl}-${reloadToken}`}
           onError={() => setRequestError('Preview frame failed to load')}
-          url={preview.url}
+          url={activePreviewUrl}
         />
       ) : null}
 

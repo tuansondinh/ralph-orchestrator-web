@@ -1,0 +1,738 @@
+import { constants } from 'node:fs'
+import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { join, resolve, isAbsolute, relative, sep, basename } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { eq } from 'drizzle-orm'
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import { parse, stringify } from 'yaml'
+import { detectProjectType, detectRalphConfig, type ProjectType } from '../lib/detect.js'
+import {
+  chatSessions,
+  loopRuns,
+  notifications,
+  projects,
+  type Project,
+  schema
+} from '../db/schema.js'
+
+type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND' | 'CONFLICT'
+
+export class ProjectServiceError extends Error {
+  code: ServiceErrorCode
+
+  constructor(code: ServiceErrorCode, message: string) {
+    super(message)
+    this.name = 'ProjectServiceError'
+    this.code = code
+  }
+}
+
+export interface CreateProjectInput {
+  name: string
+  path: string
+  createIfMissing?: boolean
+}
+
+export interface UpdateProjectInput {
+  name?: string
+  path?: string
+}
+
+export interface ProjectConfigSnapshot {
+  projectId: string
+  yaml: string
+  config: Record<string, unknown>
+}
+
+export interface ProjectPromptSnapshot {
+  projectId: string
+  path: string
+  content: string
+}
+
+export interface UpdateProjectConfigInput {
+  yaml?: string
+  config?: Record<string, unknown>
+}
+
+export interface SelectDirectoryResult {
+  path: string
+}
+
+export interface ProjectWorktreeSummary {
+  name: string
+  path: string
+  branch: string | null
+  isPrimary: boolean
+}
+
+const DEFAULT_RALPH_CONFIG_CONTENT = 'model: gpt-5\n'
+
+function resolveProjectsBaseDir() {
+  return process.env.PROJECTS_DIR || resolve(process.cwd(), '../../projects')
+}
+
+function normalizeName(name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) {
+    throw new ProjectServiceError('BAD_REQUEST', 'Project name is required')
+  }
+
+  return trimmed
+}
+
+interface ValidateProjectPathOptions {
+  createIfMissing?: boolean
+}
+
+async function validateProjectPath(path: string, options: ValidateProjectPathOptions = {}) {
+  const baseDir = resolveProjectsBaseDir()
+  const absolutePath = isAbsolute(path) ? path : resolve(baseDir, path)
+  let pathStats
+
+  try {
+    pathStats = await stat(absolutePath)
+  } catch {
+    if (options.createIfMissing) {
+      await mkdir(absolutePath, { recursive: true })
+      pathStats = await stat(absolutePath)
+    } else {
+      throw new ProjectServiceError(
+        'BAD_REQUEST',
+        `Project path does not exist: ${absolutePath}`
+      )
+    }
+  }
+
+  if (!pathStats.isDirectory()) {
+    throw new ProjectServiceError(
+      'BAD_REQUEST',
+      `Project path must be a directory: ${absolutePath}`
+    )
+  }
+
+  try {
+    await access(absolutePath, constants.R_OK | constants.X_OK)
+  } catch {
+    throw new ProjectServiceError(
+      'BAD_REQUEST',
+      `Project path is not accessible: ${absolutePath}`
+    )
+  }
+
+  return absolutePath
+}
+
+async function ensureDefaultRalphConfig(path: string) {
+  const configPath = join(path, 'ralph.yml')
+
+  try {
+    await access(configPath, constants.F_OK)
+    return
+  } catch {
+    await writeFile(configPath, DEFAULT_RALPH_CONFIG_CONTENT, {
+      encoding: 'utf8',
+      flag: 'wx'
+    }).catch((error) => {
+      if (error instanceof Error && 'code' in error && error.code === 'EEXIST') {
+        return
+      }
+
+      throw error
+    })
+  }
+}
+
+function parseConfigMap(yamlContent: string) {
+  let parsed: unknown
+  try {
+    parsed = parse(yamlContent) ?? {}
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to parse YAML'
+    throw new ProjectServiceError('BAD_REQUEST', `Invalid YAML syntax: ${message}`)
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new ProjectServiceError(
+      'BAD_REQUEST',
+      'Project config YAML must be a key/value map'
+    )
+  }
+
+  return parsed as Record<string, unknown>
+}
+
+function parsePromptFilePath(yamlContent: string) {
+  let parsed: unknown
+  try {
+    parsed = parse(yamlContent)
+  } catch {
+    return null
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null
+  }
+
+  const eventLoop = (parsed as Record<string, unknown>).event_loop
+  if (!eventLoop || typeof eventLoop !== 'object' || Array.isArray(eventLoop)) {
+    return null
+  }
+
+  const promptFile = (eventLoop as Record<string, unknown>).prompt_file
+  if (typeof promptFile !== 'string') {
+    return null
+  }
+
+  const trimmed = promptFile.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function resolvePromptFilePath(projectPath: string, promptFilePath: string) {
+  if (isAbsolute(promptFilePath)) {
+    throw new ProjectServiceError(
+      'BAD_REQUEST',
+      `Prompt file path must be relative: ${promptFilePath}`
+    )
+  }
+
+  const absolutePath = resolve(projectPath, promptFilePath)
+  const relativePath = relative(projectPath, absolutePath)
+
+  if (
+    !relativePath ||
+    relativePath.startsWith(`..${sep}`) ||
+    relativePath === '..' ||
+    isAbsolute(relativePath)
+  ) {
+    throw new ProjectServiceError(
+      'BAD_REQUEST',
+      `Invalid prompt file path: ${promptFilePath}`
+    )
+  }
+
+  return {
+    absolutePath,
+    relativePath: relativePath.split(sep).join('/')
+  }
+}
+
+function isPathUniqueConstraintError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  return (
+    error.message.includes('UNIQUE constraint failed') &&
+    error.message.includes('projects.path')
+  )
+}
+
+function getErrorCode(error: unknown) {
+  if (error && typeof error === 'object' && 'code' in error) {
+    return String(error.code)
+  }
+
+  return null
+}
+
+function getErrorOutput(error: unknown) {
+  if (error && typeof error === 'object' && 'stderr' in error) {
+    const stderr = error.stderr
+    if (typeof stderr === 'string') {
+      return stderr
+    }
+  }
+
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return ''
+}
+
+function isUserCancelledSelection(error: unknown) {
+  const code = getErrorCode(error)
+  if (code === '1') {
+    return true
+  }
+
+  const output = getErrorOutput(error).toLowerCase()
+  return output.includes('user canceled') || output.includes('canceled')
+}
+
+const execFileAsync = promisify(execFile)
+
+function normalizeSelectedDirectory(pathValue: string) {
+  const trimmed = pathValue.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  if (trimmed === '/' || trimmed === '\\' || /^[A-Za-z]:[\\/]?$/.test(trimmed)) {
+    return trimmed
+  }
+
+  return trimmed.replace(/[\\/]+$/, '')
+}
+
+function normalizeWorktreeName(name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) {
+    throw new ProjectServiceError('BAD_REQUEST', 'Worktree name is required')
+  }
+
+  if (trimmed.length > 64) {
+    throw new ProjectServiceError(
+      'BAD_REQUEST',
+      'Worktree name must be 64 characters or fewer'
+    )
+  }
+
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(trimmed)) {
+    throw new ProjectServiceError(
+      'BAD_REQUEST',
+      'Worktree name can only contain letters, numbers, ".", "_", "-", and "/"'
+    )
+  }
+
+  if (trimmed.includes('..') || trimmed.startsWith('-')) {
+    throw new ProjectServiceError('BAD_REQUEST', 'Invalid worktree name')
+  }
+
+  return trimmed
+}
+
+function parseWorktreeBranch(value: string | undefined) {
+  if (!value) {
+    return null
+  }
+
+  return value.startsWith('refs/heads/') ? value.slice('refs/heads/'.length) : null
+}
+
+async function openNativeFolderPicker() {
+  if (process.platform === 'darwin') {
+    try {
+      const { stdout } = await execFileAsync('osascript', [
+        '-e',
+        'POSIX path of (choose folder with prompt "Select project folder")'
+      ])
+      return normalizeSelectedDirectory(stdout)
+    } catch (error) {
+      if (isUserCancelledSelection(error)) {
+        return null
+      }
+      throw new ProjectServiceError(
+        'BAD_REQUEST',
+        'Unable to open macOS folder picker. Enter the path manually.'
+      )
+    }
+  }
+
+  if (process.platform === 'win32') {
+    const script = [
+      'Add-Type -AssemblyName System.Windows.Forms',
+      "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
+      "$dialog.Description = 'Select project folder'",
+      'if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {',
+      '  Write-Output $dialog.SelectedPath',
+      '}'
+    ].join('; ')
+
+    try {
+      const { stdout } = await execFileAsync('powershell', [
+        '-NoProfile',
+        '-STA',
+        '-Command',
+        script
+      ])
+      return normalizeSelectedDirectory(stdout)
+    } catch (error) {
+      if (isUserCancelledSelection(error)) {
+        return null
+      }
+      throw new ProjectServiceError(
+        'BAD_REQUEST',
+        'Unable to open Windows folder picker. Enter the path manually.'
+      )
+    }
+  }
+
+  try {
+    const { stdout } = await execFileAsync('zenity', [
+      '--file-selection',
+      '--directory',
+      '--title=Select project folder'
+    ])
+    return normalizeSelectedDirectory(stdout)
+  } catch (error) {
+    if (isUserCancelledSelection(error)) {
+      return null
+    }
+    if (getErrorCode(error) === 'ENOENT') {
+      throw new ProjectServiceError(
+        'BAD_REQUEST',
+        'Folder picker is not available on this system. Enter the path manually.'
+      )
+    }
+    throw new ProjectServiceError(
+      'BAD_REQUEST',
+      'Unable to open Linux folder picker. Enter the path manually.'
+    )
+  }
+}
+
+type Database = BetterSQLite3Database<typeof schema>
+
+export class ProjectService {
+  constructor(private readonly db: Database) {}
+
+  async create(input: CreateProjectInput): Promise<Project> {
+    const now = Date.now()
+    const name = normalizeName(input.name)
+    const path = await validateProjectPath(input.path, {
+      createIfMissing: input.createIfMissing ?? true
+    })
+    const type = await detectProjectType(path)
+    let ralphConfig = await detectRalphConfig(path)
+    if (!ralphConfig) {
+      await ensureDefaultRalphConfig(path)
+      ralphConfig = await detectRalphConfig(path)
+    }
+    const id = randomUUID()
+
+    try {
+      await this.db
+        .insert(projects)
+        .values({
+          id,
+          name,
+          path,
+          type,
+          ralphConfig,
+          createdAt: now,
+          updatedAt: now
+        })
+        .run()
+    } catch (error) {
+      if (isPathUniqueConstraintError(error)) {
+        throw new ProjectServiceError(
+          'CONFLICT',
+          `Project path already exists: ${path}`
+        )
+      }
+
+      throw error
+    }
+
+    return this.get(id)
+  }
+
+  async list(): Promise<Project[]> {
+    return this.db.select().from(projects).all()
+  }
+
+  async selectDirectory(): Promise<SelectDirectoryResult | null> {
+    const selected = await openNativeFolderPicker()
+    if (!selected) {
+      return null
+    }
+
+    return {
+      path: selected
+    }
+  }
+
+  async get(id: string): Promise<Project> {
+    const project = this.db.select().from(projects).where(eq(projects.id, id)).get()
+
+    if (!project) {
+      throw new ProjectServiceError('NOT_FOUND', `Project not found: ${id}`)
+    }
+
+    return project
+  }
+
+  async update(id: string, updates: UpdateProjectInput): Promise<Project> {
+    const current = await this.get(id)
+    const nextName =
+      typeof updates.name === 'string' ? normalizeName(updates.name) : current.name
+
+    let nextPath = current.path
+    let nextType = (current.type ?? 'unknown') as ProjectType
+    let nextRalphConfig = current.ralphConfig
+
+    if (typeof updates.path === 'string') {
+      nextPath = await validateProjectPath(updates.path)
+      nextType = await detectProjectType(nextPath)
+      nextRalphConfig = await detectRalphConfig(nextPath)
+    }
+
+    try {
+      await this.db
+        .update(projects)
+        .set({
+          name: nextName,
+          path: nextPath,
+          type: nextType,
+          ralphConfig: nextRalphConfig,
+          updatedAt: Date.now()
+        })
+        .where(eq(projects.id, id))
+        .run()
+    } catch (error) {
+      if (isPathUniqueConstraintError(error)) {
+        throw new ProjectServiceError(
+          'CONFLICT',
+          `Project path already exists: ${nextPath}`
+        )
+      }
+
+      throw error
+    }
+
+    return this.get(id)
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.get(id)
+    await this.db.delete(notifications).where(eq(notifications.projectId, id)).run()
+    await this.db.delete(loopRuns).where(eq(loopRuns.projectId, id)).run()
+    await this.db.delete(chatSessions).where(eq(chatSessions.projectId, id)).run()
+    await this.db.delete(projects).where(eq(projects.id, id)).run()
+  }
+
+  async getConfig(projectId: string): Promise<ProjectConfigSnapshot> {
+    const project = await this.get(projectId)
+    const configName = await this.resolveConfigName(project)
+    const configPath = join(project.path, configName)
+
+    let yaml
+    try {
+      yaml = await readFile(configPath, 'utf8')
+    } catch {
+      throw new ProjectServiceError(
+        'NOT_FOUND',
+        `Project config file not found: ${configPath}`
+      )
+    }
+
+    return {
+      projectId: project.id,
+      yaml,
+      config: parseConfigMap(yaml)
+    }
+  }
+
+  async getPrompt(projectId: string): Promise<ProjectPromptSnapshot> {
+    const project = await this.get(projectId)
+    const configName = await this.resolveConfigName(project)
+    const configPath = join(project.path, configName)
+
+    let promptFilePath = 'PROMPT.md'
+    try {
+      const yaml = await readFile(configPath, 'utf8')
+      const configuredPromptPath = parsePromptFilePath(yaml)
+      if (configuredPromptPath) {
+        promptFilePath = configuredPromptPath
+      }
+    } catch {
+      // Fallback to the default prompt path when config is unavailable.
+    }
+
+    const resolvedPromptPath = resolvePromptFilePath(project.path, promptFilePath)
+
+    let content: string
+    try {
+      content = await readFile(resolvedPromptPath.absolutePath, 'utf8')
+    } catch {
+      throw new ProjectServiceError(
+        'NOT_FOUND',
+        `Prompt file not found: ${resolvedPromptPath.relativePath}`
+      )
+    }
+
+    return {
+      projectId: project.id,
+      path: resolvedPromptPath.relativePath,
+      content
+    }
+  }
+
+  async updateConfig(
+    projectId: string,
+    input: UpdateProjectConfigInput
+  ): Promise<ProjectConfigSnapshot> {
+    if (typeof input.yaml !== 'string' && typeof input.config !== 'object') {
+      throw new ProjectServiceError(
+        'BAD_REQUEST',
+        'Either yaml or config must be provided'
+      )
+    }
+
+    const project = await this.get(projectId)
+    const configName = await this.resolveConfigName(project)
+    const configPath = join(project.path, configName)
+
+    let yaml: string
+    let parsedConfig: Record<string, unknown>
+
+    if (typeof input.yaml === 'string') {
+      parsedConfig = parseConfigMap(input.yaml)
+      yaml = input.yaml
+    } else {
+      const nextConfig = (input.config ?? {}) as Record<string, unknown>
+      yaml = stringify(nextConfig)
+      parsedConfig = nextConfig
+    }
+
+    await writeFile(configPath, yaml.endsWith('\n') ? yaml : `${yaml}\n`, 'utf8')
+
+    return {
+      projectId: project.id,
+      yaml: yaml.endsWith('\n') ? yaml : `${yaml}\n`,
+      config: parsedConfig
+    }
+  }
+
+  async listWorktrees(projectId: string): Promise<ProjectWorktreeSummary[]> {
+    const project = await this.get(projectId)
+    const gitRoot = await this.resolveGitRoot(project.path)
+    const raw = await this.runGit(project.path, ['worktree', 'list', '--porcelain'])
+    const parsed = this.parseWorktreeList(raw, gitRoot)
+
+    return parsed.filter((item) => !item.isPrimary)
+  }
+
+  async createWorktree(projectId: string, name: string): Promise<ProjectWorktreeSummary> {
+    const project = await this.get(projectId)
+    const worktreeName = normalizeWorktreeName(name)
+    const gitRoot = await this.resolveGitRoot(project.path)
+    const existing = await this.listWorktrees(projectId)
+
+    if (
+      existing.some(
+        (candidate) => candidate.name === worktreeName || candidate.branch === worktreeName
+      )
+    ) {
+      throw new ProjectServiceError(
+        'CONFLICT',
+        `Worktree already exists: ${worktreeName}`
+      )
+    }
+
+    const worktreePath = resolve(gitRoot, 'workspaces', worktreeName)
+    await mkdir(resolve(gitRoot, 'workspaces'), { recursive: true })
+
+    try {
+      await access(worktreePath, constants.F_OK)
+      throw new ProjectServiceError(
+        'CONFLICT',
+        `Worktree path already exists: ${worktreePath}`
+      )
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !('code' in error) ||
+        String((error as { code?: string }).code) !== 'ENOENT'
+      ) {
+        throw error
+      }
+    }
+
+    await this.runGit(project.path, ['worktree', 'add', '-b', worktreeName, worktreePath])
+    const updated = await this.listWorktrees(projectId)
+    const created = updated.find((item) => item.name === worktreeName)
+    if (!created) {
+      throw new ProjectServiceError('BAD_REQUEST', `Unable to create worktree: ${worktreeName}`)
+    }
+
+    return created
+  }
+
+  private async resolveConfigName(project: Project) {
+    const configured = project.ralphConfig?.trim()
+    if (configured) {
+      return configured
+    }
+
+    const detected = await detectRalphConfig(project.path)
+    const resolved = detected ?? 'ralph.yml'
+
+    await this.db
+      .update(projects)
+      .set({
+        ralphConfig: resolved,
+        updatedAt: Date.now()
+      })
+      .where(eq(projects.id, project.id))
+      .run()
+
+    return resolved
+  }
+
+  private async runGit(cwd: string, args: string[]) {
+    try {
+      const result = await execFileAsync('git', ['-C', cwd, ...args], { encoding: 'utf8' })
+      return result.stdout
+    } catch (error) {
+      const output = getErrorOutput(error).trim()
+      throw new ProjectServiceError(
+        'BAD_REQUEST',
+        output.length > 0 ? output : 'Git command failed'
+      )
+    }
+  }
+
+  private async resolveGitRoot(projectPath: string) {
+    const root = await this.runGit(projectPath, ['rev-parse', '--show-toplevel'])
+    const trimmed = root.trim()
+    if (!trimmed) {
+      throw new ProjectServiceError('BAD_REQUEST', 'Project is not a git repository')
+    }
+
+    return resolve(trimmed)
+  }
+
+  private parseWorktreeList(raw: string, gitRoot: string): ProjectWorktreeSummary[] {
+    const blocks = raw
+      .split(/\n\s*\n/g)
+      .map((block) => block.trim())
+      .filter(Boolean)
+
+    const summaries: ProjectWorktreeSummary[] = []
+    for (const block of blocks) {
+      const lines = block.split('\n').map((line) => line.trim())
+      const pathLine = lines.find((line) => line.startsWith('worktree '))
+      if (!pathLine) {
+        continue
+      }
+
+      const path = resolve(pathLine.slice('worktree '.length))
+      const branchLine = lines.find((line) => line.startsWith('branch '))
+      const branch = parseWorktreeBranch(branchLine?.slice('branch '.length))
+      const isPrimary = path === gitRoot
+      const relativeToWorkspace = relative(resolve(gitRoot, 'workspaces'), path)
+      const name =
+        !isPrimary &&
+        relativeToWorkspace.length > 0 &&
+        !relativeToWorkspace.startsWith('..')
+          ? relativeToWorkspace.split(sep).join('/')
+          : isPrimary
+            ? 'primary'
+            : basename(path)
+
+      summaries.push({
+        name,
+        path,
+        branch,
+        isPrimary
+      })
+    }
+
+    return summaries
+  }
+}

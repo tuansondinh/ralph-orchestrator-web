@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Start New Loop - Ralph Orchestrator UI</title>
+<!-- Material Symbols Link -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS with Plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Theme Configuration -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#4b2bee",
+                        "primary-hover": "#3a21b8",
+                        "background-light": "#f6f6f8",
+                        "background-dark": "#131022",
+                        "surface-dark": "#1e1933", // Slightly lighter for cards/modals
+                        "border-dark": "#3b3267",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem", 
+                        "lg": "0.5rem", 
+                        "xl": "0.75rem", 
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased min-h-screen flex items-center justify-center p-4">
+<!-- Modal Backdrop Overlay -->
+<div aria-hidden="true" class="fixed inset-0 bg-background-dark/80 backdrop-blur-sm transition-opacity"></div>
+<!-- Modal Panel -->
+<div class="relative w-full max-w-2xl transform overflow-hidden rounded-xl bg-surface-dark border border-border-dark shadow-2xl transition-all">
+<!-- Header -->
+<div class="flex items-center justify-between border-b border-border-dark px-6 py-4">
+<h2 class="text-xl font-bold text-white tracking-tight">Start New Loop</h2>
+<button class="text-slate-400 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-primary rounded-lg p-1">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<!-- Body -->
+<div class="px-6 py-6 space-y-6">
+<!-- Prompt Textarea -->
+<div class="space-y-2">
+<label class="block text-sm font-medium text-slate-300" for="prompt">Prompt</label>
+<div class="relative">
+<textarea class="form-textarea block w-full rounded-lg bg-background-dark border-border-dark text-slate-100 placeholder-slate-500 focus:border-primary focus:ring-primary sm:text-sm font-mono resize-none leading-relaxed p-4" id="prompt" name="prompt" placeholder="Describe the task, bug to fix, or feature to implement..." rows="6"></textarea>
+<div class="absolute bottom-3 right-3 text-slate-600 text-xs select-none">Markdown supported</div>
+</div>
+</div>
+<!-- Divider -->
+<div class="relative">
+<div aria-hidden="true" class="absolute inset-0 flex items-center">
+<div class="w-full border-t border-border-dark"></div>
+</div>
+<div class="relative flex justify-center">
+<span class="bg-surface-dark px-2 text-xs font-medium text-slate-500 uppercase tracking-wide">Or import from file</span>
+</div>
+</div>
+<!-- Prompt File Input -->
+<div class="space-y-2">
+<label class="block text-sm font-medium text-slate-300" for="prompt-file">Prompt file path</label>
+<div class="flex rounded-lg shadow-sm">
+<span class="inline-flex items-center rounded-l-lg border border-r-0 border-border-dark bg-background-dark px-3 text-slate-500">
+<span class="material-symbols-outlined text-[20px]">folder_open</span>
+</span>
+<input class="block w-full min-w-0 flex-1 rounded-none rounded-r-lg border-border-dark bg-background-dark text-slate-100 placeholder-slate-600 focus:border-primary focus:ring-primary sm:text-sm h-11" id="prompt-file" name="prompt-file" placeholder="./prompts/feature-specs.md" type="text"/>
+</div>
+</div>
+<!-- Settings Row -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+<!-- Config Preset Dropdown -->
+<div class="space-y-2">
+<label class="block text-sm font-medium text-slate-300" for="config-preset">Config Preset</label>
+<div class="relative">
+<select class="block w-full appearance-none rounded-lg border-border-dark bg-background-dark py-2.5 pl-3 pr-10 text-slate-100 focus:border-primary focus:ring-primary sm:text-sm h-11" id="config-preset" name="config-preset">
+<option selected="" value="default">Default Strategy</option>
+<option value="tdd">TDD (Test Driven)</option>
+<option value="spec">Spec-Driven Development</option>
+<option value="debug">Deep Debug</option>
+</select>
+<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
+<span class="material-symbols-outlined text-sm">expand_more</span>
+</div>
+</div>
+</div>
+<!-- Exclusive Mode Checkbox -->
+<div class="flex items-center space-x-3 md:pt-8 pt-2">
+<div class="flex h-6 items-center">
+<input class="h-5 w-5 rounded border-border-dark bg-background-dark text-primary focus:ring-primary focus:ring-offset-surface-dark focus:ring-offset-2" id="exclusive-mode" name="exclusive-mode" type="checkbox"/>
+</div>
+<div class="text-sm">
+<label class="font-medium text-slate-200" for="exclusive-mode">Exclusive Mode</label>
+<p class="text-slate-500 text-xs">Lock resources for this loop to prevent conflicts.</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer -->
+<div class="bg-background-dark/50 px-6 py-4 flex flex-row-reverse gap-3 border-t border-border-dark">
+<button class="inline-flex w-full justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:w-auto transition-all" type="button">
+                Start Loop
+            </button>
+<button class="inline-flex w-full justify-center rounded-lg bg-transparent px-5 py-2.5 text-sm font-medium text-slate-300 shadow-sm ring-1 ring-inset ring-slate-600 hover:bg-slate-800 sm:w-auto transition-all" type="button">
+                Cancel
+            </button>
+</div>
+</div>
+</body></html>

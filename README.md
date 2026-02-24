@@ -3,7 +3,7 @@
 A local web app for running Ralph workflows across multiple projects, watching loop activity live, and reviewing changes before you ship.
 
 This repo contains:
-- `packages/backend`: Fastify + tRPC backend
+- `packages/backend`: Fastify + tRPC backend (pretty much copied from ralph-orchestrator, with features built on top)
 - `packages/frontend`: React + Vite frontend
 
 Ralph project: <https://github.com/mikeyobrien/ralph-orchestrator>

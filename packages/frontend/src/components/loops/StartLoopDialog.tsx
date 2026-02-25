@@ -13,6 +13,7 @@ interface StartLoopDialogProps {
 }
 
 const FALLBACK_PRESET_FILENAME = 'hatless-baseline.yml'
+type BackendSelection = 'auto' | LoopBackend
 
 function selectAvailablePreset(presets: PresetSummary[], preferred: string) {
   const normalizedPreferred = preferred.trim()
@@ -47,17 +48,17 @@ export function StartLoopDialog({
   const [newWorktreeName, setNewWorktreeName] = useState('')
   const [defaultPreset, setDefaultPreset] = useState(FALLBACK_PRESET_FILENAME)
   const [selectedPreset, setSelectedPreset] = useState(FALLBACK_PRESET_FILENAME)
-  const [selectedBackend, setSelectedBackend] = useState<LoopBackend>('codex')
-  const [exclusive, setExclusive] = useState(false)
+  const [selectedBackend, setSelectedBackend] = useState<BackendSelection>('auto')
+  const [exclusive, setExclusive] = useState(true)
 
   const resetForm = useCallback(() => {
     setPrompt(initialPrompt)
     setPromptDirty(false)
     setSelectedPreset(selectAvailablePreset(presets, defaultPreset))
-    setSelectedBackend('codex')
+    setSelectedBackend('auto')
     setSelectedWorktree('')
     setNewWorktreeName('')
-    setExclusive(false)
+    setExclusive(true)
     setError(null)
     setStatusMessage(null)
   }, [defaultPreset, initialPrompt, presets])
@@ -171,8 +172,10 @@ export function StartLoopDialog({
     try {
       const payload: StartLoopInput = {
         presetFilename: selectedPreset,
-        backend: selectedBackend,
         exclusive
+      }
+      if (selectedBackend !== 'auto') {
+        payload.backend = selectedBackend
       }
 
       if (onPromptSave) {
@@ -402,17 +405,18 @@ export function StartLoopDialog({
         </div>
         <div className="space-y-1">
           <label className="block text-xs uppercase text-zinc-400" htmlFor="loop-backend">
-            Backend
+            AI-BACKEND
           </label>
           <select
             id="loop-backend"
             className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
             value={selectedBackend}
             onChange={(event) => {
-              setSelectedBackend(event.target.value as LoopBackend)
+              setSelectedBackend(event.target.value as BackendSelection)
               setError(null)
             }}
           >
+            <option value="auto">auto (default)</option>
             <option value="claude">claude</option>
             <option value="kiro">kiro</option>
             <option value="gemini">gemini</option>
@@ -422,7 +426,7 @@ export function StartLoopDialog({
             <option value="opencode">opencode</option>
           </select>
           <p className="text-xs text-zinc-500">
-            Overrides preset/auto backend for this loop run.
+            Auto leaves backend unset so Ralph config/auto-detection decides.
           </p>
         </div>
         {error ? <p className="text-sm text-red-400">{error}</p> : null}

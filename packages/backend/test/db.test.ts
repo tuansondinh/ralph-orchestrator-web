@@ -84,6 +84,7 @@ describe('database schema and connection', () => {
     await connection.db.insert(loopRuns).values({
       id: 'loop-1',
       projectId: 'project-1',
+      ralphLoopId: 'primary-20260225-090000',
       state: 'running',
       config: '{}',
       prompt: 'Ship it',
@@ -145,6 +146,7 @@ describe('database schema and connection', () => {
       .where(eq(loopRuns.id, 'loop-1'))
 
     expect(loop?.state).toBe('completed')
+    expect(loop?.ralphLoopId).toBe('primary-20260225-090000')
 
     await connection.db
       .delete(chatMessages)

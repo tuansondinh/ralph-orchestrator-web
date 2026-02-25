@@ -107,8 +107,13 @@ export function RalphProcessList() {
                   <td className="px-2 py-2">{proc.cpu}</td>
                   <td className="px-2 py-2">{proc.mem}</td>
                   <td className="px-2 py-2">{proc.startedAt}</td>
-                  <td className="max-w-md overflow-hidden text-ellipsis whitespace-nowrap px-2 py-2 text-xs font-mono" title={proc.command}>
-                    {proc.command}
+                  <td className="max-w-md px-2 py-2">
+                    <div
+                      className="overflow-x-auto whitespace-nowrap text-xs font-mono text-zinc-300"
+                      title={proc.command}
+                    >
+                      {proc.command}
+                    </div>
                   </td>
                   <td className="px-2 py-2">
                     <button

@@ -16,6 +16,7 @@ export const loopRuns = sqliteTable('loop_runs', {
   projectId: text('project_id')
     .notNull()
     .references(() => projects.id, { onDelete: 'cascade' }),
+  ralphLoopId: text('ralph_loop_id'),
   state: text('state').notNull(),
   config: text('config'),
   prompt: text('prompt'),

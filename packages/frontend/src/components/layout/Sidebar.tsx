@@ -7,12 +7,16 @@ interface SidebarProps {
   onProjectSelect: (projectId: string) => void
   onProjectDelete: (projectId: string) => void
   onProjectCreated: (project: ProjectRecord) => void
+  connectionStatus: 'connected' | 'reconnecting' | 'connecting'
+  reconnectAttempt: number
 }
 
 export function Sidebar({
   onProjectSelect,
   onProjectDelete,
-  onProjectCreated
+  onProjectCreated,
+  connectionStatus,
+  reconnectAttempt
 }: SidebarProps) {
   return (
     <div className="flex h-full flex-col gap-5">
@@ -20,6 +24,20 @@ export function Sidebar({
         <h1 className="text-lg font-semibold">Ralph Orchestrator</h1>
         <p className="text-sm text-zinc-400">Project workspaces</p>
       </header>
+
+      <p
+        className={`w-fit rounded-full border px-2 py-1 text-xs ${connectionStatus === 'connected'
+          ? 'border-emerald-500/40 text-emerald-300'
+          : 'border-amber-500/40 text-amber-200'
+          }`}
+        data-testid="connection-status-indicator"
+      >
+        {connectionStatus === 'connected'
+          ? 'Realtime connected'
+          : connectionStatus === 'reconnecting'
+            ? `Reconnecting (attempt ${reconnectAttempt})`
+            : 'Connecting...'}
+      </p>
 
       <NewProjectDialog enableGlobalShortcut onCreated={onProjectCreated} />
 

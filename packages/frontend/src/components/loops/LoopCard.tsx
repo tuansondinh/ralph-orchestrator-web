@@ -47,6 +47,8 @@ export function LoopCard({
   onRestart
 }: LoopCardProps) {
   const promptTooltip = loop.prompt ?? MISSING_PROMPT_SNAPSHOT_MESSAGE
+  const ralphLoopId = loop.ralphLoopId
+  const displayLoopId = ralphLoopId ?? loop.id
 
   return (
     <article
@@ -61,13 +63,13 @@ export function LoopCard({
         onClick={() => onSelect(loop.id)}
       >
         <div className="flex items-center justify-between gap-2">
-          <p className="truncate font-medium text-zinc-100">loop id: {loop.id}</p>
+          <p className="truncate font-medium text-zinc-100">loop id: {displayLoopId}</p>
           <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300">
             {formatStateLabel(loop.state)}
           </span>
         </div>
         <div className="grid grid-cols-2 gap-2 text-xs text-zinc-400">
-          <p>Hat: {loop.currentHat ?? 'n/a'}</p>
+          <p>PID: {typeof loop.processPid === 'number' ? loop.processPid : 'n/a'}</p>
           <p>Iterations: {loop.iterations}</p>
           <p>Runtime: {runtimeSeconds(loop)}s</p>
           <p>Tokens: {loop.tokensUsed}</p>
@@ -107,13 +109,6 @@ export function LoopCard({
             Restart
           </button>
         </div>
-        <p className="text-[11px] leading-4 text-zinc-500">
-          If Stop does not work, use Kill Ralph process under{' '}
-          <a className="text-zinc-300 underline underline-offset-2 hover:text-zinc-100" href="/settings">
-            Global settings
-          </a>
-          .
-        </p>
       </div>
     </article>
   )

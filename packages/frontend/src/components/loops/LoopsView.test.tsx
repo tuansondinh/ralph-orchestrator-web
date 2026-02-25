@@ -8,7 +8,7 @@ import { projectApi } from '@/lib/projectApi'
 import { settingsApi } from '@/lib/settingsApi'
 import { terminalApi } from '@/lib/terminalApi'
 import { worktreeApi } from '@/lib/worktreeApi'
-import { resetLoopStore } from '@/stores/loopStore'
+import { resetLoopStore, useLoopStore } from '@/stores/loopStore'
 import { resetTerminalStore } from '@/stores/terminalStore'
 
 vi.mock('@/lib/loopApi', () => ({
@@ -113,6 +113,7 @@ const fixedNow = 1_770_768_000_000
 const baseLoop: LoopSummary = {
   id: 'loop-1',
   projectId: 'project-1',
+  ralphLoopId: null,
   processId: 'proc-1',
   state: 'running',
   config: null,
@@ -151,6 +152,7 @@ describe('LoopsView', () => {
     resetTerminalStore()
     vi.clearAllMocks()
     MockWebSocket.instances = []
+    sessionStorage.clear()
 
     vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
     vi.spyOn(Date, 'now').mockReturnValue(fixedNow)
@@ -200,6 +202,7 @@ describe('LoopsView', () => {
 
   afterEach(() => {
     cleanup()
+    sessionStorage.clear()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
@@ -228,8 +231,7 @@ describe('LoopsView', () => {
     })
     await waitFor(() => {
       expect(loopApi.start).toHaveBeenCalledWith('project-1', {
-        backend: 'codex',
-        exclusive: false,
+        exclusive: true,
         promptSnapshot: 'Ship it',
         presetFilename: 'hatless-baseline.yml'
       })
@@ -251,7 +253,10 @@ describe('LoopsView', () => {
             return false
           }
 
-          return parsed.channels.includes('loop:loop-1:metrics')
+          return (
+            parsed.channels.includes('loop:loop-1:metrics') &&
+            parsed.channels.includes('loop:loop-1:output')
+          )
         })
       ).toBe(true)
     })
@@ -283,8 +288,27 @@ describe('LoopsView', () => {
     })
 
     expect(await screen.findByText('Runtime: 99s')).toBeInTheDocument()
-    expect(await screen.findByText('Iterations: 11')).toBeInTheDocument()
-    expect(await screen.findByText('Tokens: 2200')).toBeInTheDocument()
+    expect((await screen.findAllByText('Iterations: 11')).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('Tokens: 2200')).length).toBeGreaterThan(0)
+
+    socket?.emitMessage({
+      type: 'loop.metrics',
+      channel: 'loop:loop-1:metrics',
+      loopId: 'loop-1',
+      iterations: 4,
+      runtime: 20,
+      tokensUsed: 300,
+      errors: 0,
+      lastOutputSize: 150,
+      filesChanged: ['src/App.tsx'],
+      fileChanges: [],
+      timestamp: new Date().toISOString()
+    })
+
+    await waitFor(() => {
+      const metricsByLoop = useLoopStore.getState().metricsByLoop
+      expect(metricsByLoop['loop-1']?.iterations).toBe(11)
+    })
 
     socket?.emitMessage({
       type: 'loop.state',
@@ -297,10 +321,52 @@ describe('LoopsView', () => {
     })
 
     expect(await screen.findByText('Stopped')).toBeInTheDocument()
+    await waitFor(() => {
+      const loops = useLoopStore.getState().loopsByProject['project-1'] ?? []
+      expect(loops.find((loop) => loop.id === 'loop-1')?.iterations).toBe(11)
+    })
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
     await waitFor(() => {
       expect(loopApi.stop).toHaveBeenCalledWith('loop-1')
+    })
+  })
+
+  it('subscribes output replay only for the selected loop', async () => {
+    vi.mocked(loopApi.list).mockResolvedValue([
+      baseLoop,
+      {
+        ...baseLoop,
+        id: 'loop-2',
+        processId: null,
+        state: 'stopped',
+        startedAt: fixedNow - 20_000,
+        endedAt: fixedNow - 1_000
+      }
+    ])
+
+    renderLoopsView()
+
+    const socket = await waitFor(() => {
+      const current = MockWebSocket.instances[0]
+      expect(current).toBeDefined()
+      return current
+    })
+
+    await waitFor(() => {
+      const subscribePayloads = (socket?.sent ?? [])
+        .map((payload) => JSON.parse(payload) as Record<string, unknown>)
+        .filter((payload) => payload.type === 'subscribe' && Array.isArray(payload.channels))
+
+      expect(subscribePayloads.length).toBeGreaterThan(0)
+      const latest = subscribePayloads[subscribePayloads.length - 1] as {
+        channels: string[]
+      }
+
+      expect(latest.channels).toContain('loop:loop-1:output')
+      expect(latest.channels).not.toContain('loop:loop-2:output')
+      expect(latest.channels).toContain('loop:loop-2:state')
+      expect(latest.channels).toContain('loop:loop-2:metrics')
     })
   })
 

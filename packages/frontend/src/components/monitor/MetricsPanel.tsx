@@ -9,11 +9,12 @@ interface MetricsPanelProps {
 }
 
 function resolveLoopLabel(loop: LoopSummary) {
+  const displayId = loop.ralphLoopId ?? loop.id
   if (loop.prompt) {
-    return `${loop.id} (${loop.prompt})`
+    return `${displayId} (${loop.prompt})`
   }
 
-  return loop.id
+  return displayId
 }
 
 export function MetricsPanel({

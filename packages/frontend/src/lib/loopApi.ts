@@ -12,7 +12,9 @@ export type LoopBackend =
 export interface LoopSummary {
   id: string
   projectId: string
+  ralphLoopId: string | null
   processId: string | null
+  processPid?: number | null
   state: string
   config: string | null
   prompt: string | null

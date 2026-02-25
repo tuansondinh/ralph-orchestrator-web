@@ -33,6 +33,10 @@ function asFilesChanged(value: unknown, fallback: string[]) {
   return value.filter((file): file is string => typeof file === 'string' && file.length > 0)
 }
 
+function promptCacheKey(projectId: string) {
+  return `ralph-ui.prompt.${projectId}`
+}
+
 export function LoopsView({ projectId }: LoopsViewProps) {
   const navigate = useNavigate()
   const [isLoading, setIsLoading] = useState(true)
@@ -103,8 +107,22 @@ export function LoopsView({ projectId }: LoopsViewProps) {
 
   useEffect(() => {
     let cancelled = false
-    setPromptContent('')
-    setPromptPath('PROMPT.md')
+    const cacheKey = promptCacheKey(projectId)
+
+    try {
+      const cached = sessionStorage.getItem(cacheKey)
+      if (cached) {
+        const parsed = JSON.parse(cached) as { content?: unknown; path?: unknown }
+        if (typeof parsed.content === 'string') {
+          setPromptContent(parsed.content)
+        }
+        if (typeof parsed.path === 'string' && parsed.path.trim().length > 0) {
+          setPromptPath(parsed.path)
+        }
+      }
+    } catch {
+      // Ignore invalid cache payloads.
+    }
 
     projectApi
       .getPrompt(projectId)
@@ -112,6 +130,11 @@ export function LoopsView({ projectId }: LoopsViewProps) {
         if (!cancelled) {
           setPromptContent(prompt.content)
           setPromptPath(prompt.path)
+          try {
+            sessionStorage.setItem(cacheKey, JSON.stringify(prompt))
+          } catch {
+            // Ignore cache write failures.
+          }
         }
       })
       .catch(() => {
@@ -156,13 +179,18 @@ export function LoopsView({ projectId }: LoopsViewProps) {
   }, [loadMetrics, selectedLoop])
 
   const channels = useMemo(
-    () =>
-      loops.flatMap((loop) => [
-        `loop:${loop.id}:output`,
+    () => {
+      const subscriptions = loops.flatMap((loop) => [
         `loop:${loop.id}:state`,
         `loop:${loop.id}:metrics`
-      ]),
-    [loops]
+      ])
+      if (selectedLoopId) {
+        subscriptions.push(`loop:${selectedLoopId}:output`)
+      }
+
+      return subscriptions
+    },
+    [loops, selectedLoopId]
   )
 
   const handleMessage = useCallback(
@@ -187,13 +215,26 @@ export function LoopsView({ projectId }: LoopsViewProps) {
         const fallbackLastOutputSize = existingMetrics?.lastOutputSize ?? 0
         const fallbackFilesChanged = existingMetrics?.filesChanged ?? []
 
-        const nextIterations = asMetricNumber(message.iterations, fallbackIterations)
-        const nextTokensUsed = asMetricNumber(message.tokensUsed, fallbackTokens)
-        const nextErrors = asMetricNumber(message.errors, fallbackErrors)
+        const nextIterations = Math.max(
+          fallbackIterations,
+          asMetricNumber(message.iterations, fallbackIterations)
+        )
+        const nextRuntime = Math.max(
+          fallbackRuntime,
+          asMetricNumber(message.runtime, fallbackRuntime)
+        )
+        const nextTokensUsed = Math.max(
+          fallbackTokens,
+          asMetricNumber(message.tokensUsed, fallbackTokens)
+        )
+        const nextErrors = Math.max(
+          fallbackErrors,
+          asMetricNumber(message.errors, fallbackErrors)
+        )
 
         setMetrics(loopId, {
           iterations: nextIterations,
-          runtime: asMetricNumber(message.runtime, fallbackRuntime),
+          runtime: nextRuntime,
           tokensUsed: nextTokensUsed,
           errors: nextErrors,
           lastOutputSize: asMetricNumber(message.lastOutputSize, fallbackLastOutputSize),
@@ -212,13 +253,20 @@ export function LoopsView({ projectId }: LoopsViewProps) {
       }
 
       const nextState = typeof message.state === 'string' ? message.state : 'unknown'
+      const existingLoop = loops.find((loop) => loop.id === message.loopId)
+      const existingMetrics = metricsByLoop[message.loopId]
+      const fallbackIterations = Math.max(
+        existingLoop?.iterations ?? 0,
+        existingMetrics?.iterations ?? 0
+      )
+      const nextIterations =
+        typeof message.iterations === 'number'
+          ? Math.max(fallbackIterations, Math.max(0, Math.floor(message.iterations)))
+          : undefined
       updateLoopById(message.loopId, {
         state: nextState,
         currentHat: typeof message.currentHat === 'string' ? message.currentHat : null,
-        iterations:
-          typeof message.iterations === 'number'
-            ? message.iterations
-            : undefined,
+        iterations: nextIterations,
         endedAt: typeof message.endedAt === 'number' ? message.endedAt : null,
         processId: nextState === 'running' ? undefined : null
       })

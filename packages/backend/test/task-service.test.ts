@@ -129,8 +129,9 @@ describe('TaskService', () => {
       .values({
         id: 'ui-loop-1',
         projectId,
+        ralphLoopId: 'ralph-loop-1',
         state: 'completed',
-        config: JSON.stringify({ ralphLoopId: 'ralph-loop-1' }),
+        config: null,
         prompt: null,
         worktree: null,
         iterations: 0,
@@ -153,6 +154,67 @@ describe('TaskService', () => {
             priority: 2,
             blocked_by: ['task-0'],
             loop_id: 'ralph-loop-1',
+            created: '2026-02-24T00:00:00Z',
+            closed: null
+          }
+        ]),
+        stderr: ''
+      }))
+    })
+
+    await expect(service.list(projectId)).resolves.toEqual([
+      {
+        id: 'task-1',
+        title: 'Task 1',
+        description: 'Do thing',
+        status: 'open',
+        priority: 2,
+        blocked_by: ['task-0'],
+        loop_id: 'ui-loop-1',
+        created: '2026-02-24T00:00:00Z',
+        closed: null
+      }
+    ])
+  })
+
+  it('maps primary loop ids from task payloads even when persisted loop id is a slug', async () => {
+    const { connection, tempDir } = await setupServiceTest()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await insertProject(connection, projectPath)
+
+    const startedAt = Date.UTC(2026, 1, 25, 8, 19, 26)
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: 'ui-loop-1',
+        projectId,
+        ralphLoopId: 'able-owl',
+        state: 'completed',
+        config: JSON.stringify({ ralphLoopId: 'able-owl' }),
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt,
+        endedAt: startedAt + 1000
+      })
+      .run()
+
+    const service = new TaskService(connection.db, {
+      resolveBinary: vi.fn(async () => '/mock/ralph'),
+      execCommand: vi.fn(async () => ({
+        stdout: JSON.stringify([
+          {
+            id: 'task-1',
+            title: 'Task 1',
+            description: 'Do thing',
+            status: 'open',
+            priority: 2,
+            blocked_by: ['task-0'],
+            loop_id: 'primary-20260225-081926',
             created: '2026-02-24T00:00:00Z',
             closed: null
           }

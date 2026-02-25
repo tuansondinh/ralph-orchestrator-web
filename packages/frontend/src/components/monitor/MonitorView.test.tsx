@@ -80,6 +80,7 @@ class MockWebSocket {
 const loop: LoopSummary = {
   id: 'loop-1',
   projectId: 'project-1',
+  ralphLoopId: null,
   processId: 'proc-1',
   state: 'running',
   config: null,

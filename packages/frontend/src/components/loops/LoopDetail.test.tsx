@@ -10,6 +10,7 @@ vi.mock('@/components/loops/DiffViewer', () => ({
 const baseLoop: LoopSummary = {
   id: 'loop-1',
   projectId: 'project-1',
+  ralphLoopId: null,
   processId: null,
   state: 'running',
   config: null,

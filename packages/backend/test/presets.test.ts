@@ -33,6 +33,11 @@ const args = process.argv.slice(2)
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const pidFile = join(scriptDir, 'mock-presets-ralph.pid')
 
+if (args[0] === 'loops' && args[1] === 'list') {
+  process.stdout.write('[]\\n')
+  process.exit(0)
+}
+
 if (args[0] === 'loops' && args[1] === 'stop') {
   if (existsSync(pidFile)) {
     const pid = Number(readFileSync(pidFile, 'utf8').trim())

@@ -46,7 +46,7 @@ function normalizeChannels(channels: string[]) {
 }
 
 function sendSubscribe(socket: WebSocket, channels: string[]) {
-  if (channels.length === 0 || socket.readyState !== WebSocket.OPEN) {
+  if (socket.readyState !== WebSocket.OPEN) {
     return
   }
 

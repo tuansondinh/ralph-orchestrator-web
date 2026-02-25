@@ -5,6 +5,7 @@ interface NotificationCenterProps {
   notifications: NotificationRecord[]
   unreadCount: number
   onSelect: (notification: NotificationRecord) => void | Promise<void>
+  panelAlign?: 'left' | 'right'
 }
 
 function formatTimestamp(timestamp: number) {
@@ -37,7 +38,8 @@ function BellIcon() {
 export function NotificationCenter({
   notifications,
   unreadCount,
-  onSelect
+  onSelect,
+  panelAlign = 'right'
 }: NotificationCenterProps) {
   const [isOpen, setIsOpen] = useState(false)
 
@@ -67,7 +69,9 @@ export function NotificationCenter({
 
       {isOpen ? (
         <section
-          className="absolute right-0 z-40 mt-2 w-80 rounded-md border border-zinc-800 bg-zinc-950 p-2 shadow-xl"
+          className={`absolute z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-md border border-zinc-800 bg-zinc-950 p-2 shadow-xl ${
+            panelAlign === 'left' ? 'left-0' : 'right-0'
+          }`}
           role="menu"
         >
           <header className="mb-2 flex items-center justify-between px-1">

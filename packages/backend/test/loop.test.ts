@@ -53,22 +53,45 @@ async function createTempDir(prefix: string) {
 
 async function createMockRalphBinary(
   directory: string,
-  options: { stopNoop?: boolean } = {}
+  options: {
+    stopNoop?: boolean
+    decreasingIterations?: boolean
+    markerLoopId?: string
+    currentEventsLoopId?: string
+    eventLoopId?: string
+    eventLoopIdSnake?: string
+    emitIterationEvents?: boolean
+    outputIterationHeader?: boolean
+  } = {}
 ) {
   const filePath = join(directory, 'mock-ralph.mjs')
   const stopNoop = options.stopNoop === true
+  const decreasingIterations = options.decreasingIterations === true
+  const markerLoopId = options.markerLoopId ?? ''
+  const currentEventsLoopId = options.currentEventsLoopId ?? ''
+  const eventLoopId = options.eventLoopId ?? ''
+  const eventLoopIdSnake = options.eventLoopIdSnake ?? ''
+  const emitIterationEvents = options.emitIterationEvents !== false
+  const outputIterationHeader = options.outputIterationHeader === true
   const script = `#!/usr/bin/env node
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const args = process.argv.slice(2)
 const stopNoop = ${stopNoop ? 'true' : 'false'}
+const markerLoopId = ${JSON.stringify(markerLoopId)}
+const currentEventsLoopId = ${JSON.stringify(currentEventsLoopId)}
+const eventLoopId = ${JSON.stringify(eventLoopId)}
+const eventLoopIdSnake = ${JSON.stringify(eventLoopIdSnake)}
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const pidFile = join(scriptDir, 'mock-ralph.pid')
 const stopArgsFile = join(scriptDir, 'mock-ralph-stop-args.log')
 const promptArg = args.find((arg) => arg.startsWith('--prompt=')) || ''
 const shouldExitFast = promptArg.includes('exit-fast')
+const decreasingIterations = ${decreasingIterations ? 'true' : 'false'}
+const emitIterationEvents = ${emitIterationEvents ? 'true' : 'false'}
+const outputIterationHeader = ${outputIterationHeader ? 'true' : 'false'}
 let iteration = 0
 
 if (args[0] === 'loops' && args[1] === 'stop') {
@@ -84,7 +107,25 @@ if (args[0] === 'loops' && args[1] === 'stop') {
   process.exit(0)
 }
 
+if (args[0] === 'loops' && args[1] === 'list') {
+  process.stdout.write('[]\\n')
+  process.exit(0)
+}
+
 writeFileSync(pidFile, String(process.pid), 'utf8')
+if (markerLoopId) {
+  const ralphDir = join(process.cwd(), '.ralph')
+  mkdirSync(ralphDir, { recursive: true })
+  writeFileSync(join(ralphDir, 'current-loop-id'), markerLoopId, 'utf8')
+}
+if (currentEventsLoopId) {
+  const ralphDir = join(process.cwd(), '.ralph')
+  mkdirSync(ralphDir, { recursive: true })
+  const normalized = /^primary-(\\d{8})-(\\d{6})$/i.exec(currentEventsLoopId)
+  if (normalized) {
+    writeFileSync(join(ralphDir, 'current-events'), \`.ralph/events-\${normalized[1]}-\${normalized[2]}.jsonl\`, 'utf8')
+  }
+}
 
 const clearPid = () => {
   if (!existsSync(pidFile)) {
@@ -98,8 +139,23 @@ const clearPid = () => {
 process.stdout.write('boot\\n')
 const timer = setInterval(() => {
   iteration += 1
+  const eventIteration = decreasingIterations
+    ? (iteration === 1 ? 5 : iteration === 2 ? 1 : iteration)
+    : iteration
   process.stdout.write(\`tick-\${iteration}\\n\`)
-  process.stdout.write(\`Event: loop:iteration - {"iteration":\${iteration},"sourceHat":"builder"}\\n\`)
+  if (outputIterationHeader) {
+    process.stdout.write(\` ITERATION \${iteration} | ? ralph | \${iteration}s elapsed | \${iteration}/100\\n\`)
+  }
+  if (emitIterationEvents) {
+    const payload = {"iteration":eventIteration,"sourceHat":"builder"}
+    if (eventLoopId) {
+      payload.loopId = eventLoopId
+    }
+    if (eventLoopIdSnake) {
+      payload.loop_id = eventLoopIdSnake
+    }
+    process.stdout.write(\`Event: loop:iteration - \${JSON.stringify(payload)}\\n\`)
+  }
 
   if (shouldExitFast && iteration >= 2) {
     clearInterval(timer)
@@ -201,7 +257,18 @@ describe('loop tRPC routes', () => {
     }
   })
 
-  async function setupCaller(options: { stopNoop?: boolean } = {}) {
+  async function setupCaller(
+    options: {
+      stopNoop?: boolean
+      decreasingIterations?: boolean
+      markerLoopId?: string
+      currentEventsLoopId?: string
+      eventLoopId?: string
+      eventLoopIdSnake?: string
+      emitIterationEvents?: boolean
+      outputIterationHeader?: boolean
+    } = {}
+  ) {
     const tempDir = await createTempDir('loop')
     tempDirs.push(tempDir)
 
@@ -211,7 +278,14 @@ describe('loop tRPC routes', () => {
     connections.push(connection)
 
     const binaryPath = await createMockRalphBinary(tempDir, {
-      stopNoop: options.stopNoop
+      stopNoop: options.stopNoop,
+      decreasingIterations: options.decreasingIterations,
+      markerLoopId: options.markerLoopId,
+      currentEventsLoopId: options.currentEventsLoopId,
+      eventLoopId: options.eventLoopId,
+      eventLoopIdSnake: options.eventLoopIdSnake,
+      emitIterationEvents: options.emitIterationEvents,
+      outputIterationHeader: options.outputIterationHeader
     })
     const processManager = new ProcessManager({ killGraceMs: 100 })
     managers.push(processManager)
@@ -234,7 +308,7 @@ describe('loop tRPC routes', () => {
       previewService
     })
 
-    return { caller, connection, processManager, loopService, tempDir }
+    return { caller, connection, processManager, loopService, tempDir, binaryPath }
   }
 
   it('starts and stops a loop while persisting run state in the database', async () => {
@@ -288,6 +362,109 @@ describe('loop tRPC routes', () => {
     expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', started.id])
   })
 
+  it('captures the Ralph loop id from current-loop-id marker during start', async () => {
+    const { caller, connection, tempDir } = await setupCaller({
+      markerLoopId: 'primary-20260225-090000'
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running'
+    })
+
+    await waitFor(() => {
+      const row = connection.db
+        .select()
+        .from(loopRuns)
+        .where(eq(loopRuns.id, started.id))
+        .get()
+      return row?.ralphLoopId === 'primary-20260225-090000'
+    })
+
+    const refreshed = await caller.loop.list({ projectId })
+    expect(refreshed.find((loop) => loop.id === started.id)?.ralphLoopId).toBe(
+      'primary-20260225-090000'
+    )
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+    expect(persisted?.ralphLoopId).toBe('primary-20260225-090000')
+
+    await caller.loop.stop({ loopId: started.id })
+
+    const stopArgs = JSON.parse(
+      await readFile(join(tempDir, 'mock-ralph-stop-args.log'), 'utf8')
+    )
+    expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', 'primary-20260225-090000'])
+  })
+
+  it('captures the Ralph loop id from current-events during start', async () => {
+    const { caller, connection, tempDir } = await setupCaller({
+      currentEventsLoopId: 'primary-20260225-090111'
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running'
+    })
+
+    await waitFor(() => {
+      const row = connection.db
+        .select()
+        .from(loopRuns)
+        .where(eq(loopRuns.id, started.id))
+        .get()
+      return row?.ralphLoopId === 'primary-20260225-090111'
+    })
+
+    await caller.loop.stop({ loopId: started.id })
+
+    const stopArgs = JSON.parse(
+      await readFile(join(tempDir, 'mock-ralph-stop-args.log'), 'utf8')
+    )
+    expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', 'primary-20260225-090111'])
+  })
+
+  it('prefers payload.loop_id over payload.loopId when both are present', async () => {
+    const { caller, connection, tempDir } = await setupCaller({
+      eventLoopId: 'able-owl',
+      eventLoopIdSnake: 'primary-20260225-090222'
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running'
+    })
+
+    await waitFor(() => {
+      const row = connection.db
+        .select()
+        .from(loopRuns)
+        .where(eq(loopRuns.id, started.id))
+        .get()
+      return row?.ralphLoopId === 'primary-20260225-090222'
+    })
+
+    await caller.loop.stop({ loopId: started.id })
+
+    const stopArgs = JSON.parse(
+      await readFile(join(tempDir, 'mock-ralph-stop-args.log'), 'utf8')
+    )
+    expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', 'primary-20260225-090222'])
+  })
+
   it('prefers persisted Ralph loop ids when stopping loops', async () => {
     const { caller, connection, tempDir } = await setupCaller()
     const projectPath = join(tempDir, 'project')
@@ -309,6 +486,7 @@ describe('loop tRPC routes', () => {
     await connection.db
       .update(loopRuns)
       .set({
+        ralphLoopId: 'ralph-loop-123',
         config: JSON.stringify({
           ...parsedConfig,
           ralphLoopId: 'ralph-loop-123'
@@ -347,6 +525,71 @@ describe('loop tRPC routes', () => {
     await caller.loop.stop({ loopId: started.id })
   })
 
+  it('keeps persisted iterations monotonic when parsed event iterations decrease', async () => {
+    const { caller, connection, tempDir } = await setupCaller({
+      decreasingIterations: true
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'exit-fast'
+    })
+
+    await waitFor(() => {
+      const row = connection.db
+        .select()
+        .from(loopRuns)
+        .where(eq(loopRuns.id, started.id))
+        .get()
+      return row?.state === 'completed'
+    })
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+
+    expect(persisted?.iterations).toBe(5)
+  })
+
+  it('tracks iterations from output headers when Ralph events do not include iteration payloads', async () => {
+    const { caller, connection, tempDir } = await setupCaller({
+      emitIterationEvents: false,
+      outputIterationHeader: true
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'exit-fast'
+    })
+
+    await waitFor(() => {
+      const row = connection.db
+        .select()
+        .from(loopRuns)
+        .where(eq(loopRuns.id, started.id))
+        .get()
+      return row?.state === 'completed'
+    })
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+    expect(persisted?.iterations).toBeGreaterThanOrEqual(2)
+
+    const metrics = await caller.loop.getMetrics({ loopId: started.id })
+    expect(metrics.iterations).toBeGreaterThanOrEqual(2)
+  })
+
   it('restarts loops with the persisted backend override', async () => {
     const { caller, connection, processManager, tempDir } = await setupCaller()
     const projectPath = join(tempDir, 'project')
@@ -372,6 +615,80 @@ describe('loop tRPC routes', () => {
       .where(eq(loopRuns.id, started.id))
       .get()
     expect(previous?.state).toBe('stopped')
+  })
+
+  it('does not regress metrics iterations when live metric files report lower values', async () => {
+    const { caller, connection, tempDir } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const metricsDir = join(projectPath, '.agent', 'metrics')
+    await mkdir(metricsDir, { recursive: true })
+    await writeFile(join(metricsDir, 'iterations'), '2\n', 'utf8')
+
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'running',
+        config: null,
+        prompt: null,
+        worktree: null,
+        iterations: 10,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: Date.now() - 5_000,
+        endedAt: null
+      })
+      .run()
+
+    const metrics = await caller.loop.getMetrics({ loopId })
+    expect(metrics.iterations).toBe(10)
+  })
+
+  it('reads iterations from .ralph/current-events when live metric files are unavailable', async () => {
+    const { caller, connection, tempDir } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(join(projectPath, '.ralph'), { recursive: true })
+
+    const eventsPath = join(projectPath, '.ralph', 'events-20260225-120000.jsonl')
+    await writeFile(
+      eventsPath,
+      [
+        JSON.stringify({ topic: 'task.start', iteration: 0 }),
+        JSON.stringify({ topic: 'loop.terminate', iteration: 3 })
+      ].join('\n'),
+      'utf8'
+    )
+    await writeFile(
+      join(projectPath, '.ralph', 'current-events'),
+      '.ralph/events-20260225-120000.jsonl',
+      'utf8'
+    )
+
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'running',
+        config: null,
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: Date.now() - 5_000,
+        endedAt: null
+      })
+      .run()
+
+    const metrics = await caller.loop.getMetrics({ loopId })
+    expect(metrics.iterations).toBe(3)
   })
 
   it('falls back to process kill when ralph loops stop does not terminate runtime', async () => {
@@ -477,6 +794,38 @@ describe('loop tRPC routes', () => {
 
     expect(afterStop?.state).toBe('stopped')
     expect(afterStop?.endedAt).toBe(1_500)
+  })
+
+  it('attempts CLI stop when runtime tracking is unavailable', async () => {
+    const { caller, connection, processManager, tempDir, binaryPath } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running'
+    })
+
+    const stopSpy = vi.fn(
+      async (_input: { binaryPath: string; loopId: string; cwd: string }) => undefined
+    )
+    const detachedLoopService = new LoopService(connection.db, processManager, {
+      resolveBinary: async () => binaryPath,
+      stopLoop: stopSpy
+    })
+
+    await detachedLoopService.stop(started.id)
+
+    const stoppedLoop = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+
+    expect(stopSpy).toHaveBeenCalled()
+    expect(stopSpy.mock.calls[0]?.[0]).toMatchObject({ loopId: started.id })
+    expect(stoppedLoop?.state).toBe('stopped')
   })
 
   it('replays output from persisted loop log files when runtime state is unavailable', async () => {

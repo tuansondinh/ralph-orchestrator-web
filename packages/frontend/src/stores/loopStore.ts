@@ -55,11 +55,42 @@ export const useLoopStore = create<LoopStoreState>((set) => ({
     }),
   updateLoopById: (loopId, updates) =>
     set((state) => {
+      const normalizedUpdates = Object.fromEntries(
+        Object.entries(updates).filter(([, value]) => value !== undefined)
+      ) as Partial<LoopSummary>
       const nextLoopsByProject: Record<string, LoopSummary[]> = {}
       for (const [projectId, loops] of Object.entries(state.loopsByProject)) {
-        nextLoopsByProject[projectId] = loops.map((loop) =>
-          loop.id === loopId ? { ...loop, ...updates } : loop
-        )
+        nextLoopsByProject[projectId] = loops.map((loop) => {
+          if (loop.id !== loopId) {
+            return loop
+          }
+
+          const merged: LoopSummary = {
+            ...loop,
+            ...normalizedUpdates
+          }
+
+          if (typeof normalizedUpdates.iterations === 'number') {
+            merged.iterations = Math.max(
+              loop.iterations,
+              Math.max(0, Math.floor(normalizedUpdates.iterations))
+            )
+          }
+          if (typeof normalizedUpdates.tokensUsed === 'number') {
+            merged.tokensUsed = Math.max(
+              loop.tokensUsed,
+              Math.max(0, Math.floor(normalizedUpdates.tokensUsed))
+            )
+          }
+          if (typeof normalizedUpdates.errors === 'number') {
+            merged.errors = Math.max(
+              loop.errors,
+              Math.max(0, Math.floor(normalizedUpdates.errors))
+            )
+          }
+
+          return merged
+        })
       }
 
       return {
@@ -77,7 +108,15 @@ export const useLoopStore = create<LoopStoreState>((set) => ({
     set((state) => ({
       metricsByLoop: {
         ...state.metricsByLoop,
-        [loopId]: metrics
+        [loopId]: state.metricsByLoop[loopId]
+          ? {
+              ...metrics,
+              iterations: Math.max(state.metricsByLoop[loopId]?.iterations ?? 0, metrics.iterations),
+              runtime: Math.max(state.metricsByLoop[loopId]?.runtime ?? 0, metrics.runtime),
+              tokensUsed: Math.max(state.metricsByLoop[loopId]?.tokensUsed ?? 0, metrics.tokensUsed),
+              errors: Math.max(state.metricsByLoop[loopId]?.errors ?? 0, metrics.errors)
+            }
+          : metrics
       }
     })),
   setSelectedLoop: (projectId, loopId) =>

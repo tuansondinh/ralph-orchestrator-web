@@ -9,6 +9,7 @@ function buildLoop(overrides: Partial<LoopSummary> = {}): LoopSummary {
   return {
     id: 'loop-1',
     projectId: 'project-1',
+    ralphLoopId: null,
     processId: null,
     state: 'completed',
     config: null,
@@ -99,5 +100,37 @@ describe('LoopCard runtime', () => {
     expect(screen.getByRole('tooltip')).toHaveTextContent(
       'Prompt snapshot was not saved for this loop.'
     )
+  })
+
+  it('prefers persisted Ralph loop id for the displayed loop identifier', () => {
+    render(
+      <LoopCard
+        loop={buildLoop({
+          id: 'ui-loop-1',
+          ralphLoopId: 'ralph-loop-99'
+        })}
+        isSelected={false}
+        onSelect={() => {}}
+        onStop={noop}
+        onRestart={noop}
+      />
+    )
+
+    expect(screen.getByText('loop id: ralph-loop-99')).toBeInTheDocument()
+    expect(screen.queryByText('ui id: ui-loop-1')).not.toBeInTheDocument()
+  })
+
+  it('shows the process PID when available', () => {
+    render(
+      <LoopCard
+        loop={buildLoop({ processPid: 43210 })}
+        isSelected={false}
+        onSelect={() => {}}
+        onStop={noop}
+        onRestart={noop}
+      />
+    )
+
+    expect(screen.getByText('PID: 43210')).toBeInTheDocument()
   })
 })

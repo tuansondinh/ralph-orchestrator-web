@@ -269,6 +269,7 @@ export async function registerWebsocket(app: FastifyInstance) {
     app.log.info('[WS] Client connected')
     const unsubscribers = new Map<string, () => void>()
     let cleaned = false
+    let subscriptionUpdate = Promise.resolve()
 
     const cleanup = (reason: 'close' | 'error') => {
       if (cleaned) {
@@ -283,7 +284,21 @@ export async function registerWebsocket(app: FastifyInstance) {
       app.log.info({ reason }, '[WS] Client disconnected')
     }
 
+    const unsubscribeChannel = (channel: string) => {
+      const unsubscribe = unsubscribers.get(channel)
+      if (!unsubscribe) {
+        return
+      }
+
+      unsubscribe()
+      unsubscribers.delete(channel)
+    }
+
     const subscribeChannel = async (channel: string) => {
+      if (cleaned) {
+        return
+      }
+
       if (unsubscribers.has(channel)) {
         return
       }
@@ -476,6 +491,27 @@ export async function registerWebsocket(app: FastifyInstance) {
       }
     }
 
+    const applySubscriptions = async (channels: string[]) => {
+      if (cleaned) {
+        return
+      }
+
+      const desired = new Set(channels)
+      for (const existingChannel of [...unsubscribers.keys()]) {
+        if (!desired.has(existingChannel)) {
+          unsubscribeChannel(existingChannel)
+        }
+      }
+
+      for (const channel of desired) {
+        try {
+          await subscribeChannel(channel)
+        } catch (error) {
+          app.log.debug({ channel, error }, '[WS] Failed to subscribe channel')
+        }
+      }
+    }
+
     socket.on('message', (raw: RawData) => {
       const message = parseClientMessage(raw)
       if (!message) {
@@ -489,9 +525,11 @@ export async function registerWebsocket(app: FastifyInstance) {
       }
 
       if (message.type === 'subscribe') {
-        for (const channel of message.channels) {
-          void subscribeChannel(channel)
-        }
+        subscriptionUpdate = subscriptionUpdate
+          .then(() => applySubscriptions(message.channels))
+          .catch((error) => {
+            app.log.debug({ error }, '[WS] Failed to apply websocket subscriptions')
+          })
         return
       }
 

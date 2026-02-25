@@ -166,7 +166,17 @@ export function MonitorView({ projectId }: MonitorViewProps) {
         fileChanges
       }
 
-      setMetrics(nextMetrics)
+      setMetrics((current) =>
+        current
+          ? {
+              ...nextMetrics,
+              iterations: Math.max(current.iterations, nextMetrics.iterations),
+              runtime: Math.max(current.runtime, nextMetrics.runtime),
+              tokensUsed: Math.max(current.tokensUsed, nextMetrics.tokensUsed),
+              errors: Math.max(current.errors, nextMetrics.errors)
+            }
+          : nextMetrics
+      )
       void refreshStatusAndEvents().catch(() => {})
     },
     [refreshStatusAndEvents, selectedLoopId]

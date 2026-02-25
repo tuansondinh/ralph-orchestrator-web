@@ -63,6 +63,7 @@ describe('StartLoopDialog', () => {
       )
     ).toBeInTheDocument()
     expect(await screen.findByLabelText('Preset')).toHaveValue('hatless-baseline.yml')
+    expect(screen.getByLabelText('AI-BACKEND')).toHaveValue('auto')
     expect(screen.getByText('Current default: hatless-baseline.yml')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Preset'), {
@@ -86,8 +87,7 @@ describe('StartLoopDialog', () => {
     await waitFor(() => {
       expect(onStart).toHaveBeenCalledWith({
         prompt: 'Ship it',
-        backend: 'codex',
-        exclusive: false,
+        exclusive: true,
         presetFilename: 'spec-driven.yml'
       })
     })
@@ -112,8 +112,7 @@ describe('StartLoopDialog', () => {
     await waitFor(() => {
       expect(onStart).toHaveBeenCalledWith({
         prompt: 'Ship it',
-        backend: 'codex',
-        exclusive: false,
+        exclusive: true,
         presetFilename: 'code-assist.yml'
       })
     })
@@ -143,8 +142,7 @@ describe('StartLoopDialog', () => {
     await waitFor(() => {
       expect(onStart).toHaveBeenCalledWith({
         prompt: 'Ship with named branch',
-        backend: 'codex',
-        exclusive: false,
+        exclusive: true,
         presetFilename: 'hatless-baseline.yml',
         worktree: 'feature-a'
       })
@@ -156,7 +154,7 @@ describe('StartLoopDialog', () => {
     render(<StartLoopDialog projectId="test-project-id" onStart={onStart} />)
 
     await screen.findByLabelText('Preset')
-    fireEvent.change(screen.getByLabelText('Backend'), {
+    fireEvent.change(screen.getByLabelText('AI-BACKEND'), {
       target: { value: 'opencode' }
     })
     fireEvent.change(screen.getByLabelText('PROMPT.md'), {
@@ -168,7 +166,7 @@ describe('StartLoopDialog', () => {
       expect(onStart).toHaveBeenCalledWith({
         prompt: 'Use opencode for this loop',
         backend: 'opencode',
-        exclusive: false,
+        exclusive: true,
         presetFilename: 'hatless-baseline.yml'
       })
     })

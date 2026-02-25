@@ -8,6 +8,13 @@
       "when": 1771455724071,
       "tag": "0000_fuzzy_kylun",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1772110000000,
+      "tag": "0001_solid_loop_identity",
+      "breakpoints": true
     }
   ]
 }

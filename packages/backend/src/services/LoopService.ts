@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { execFile as execFileCallback } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { mkdir, readFile, readdir } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { desc, eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
@@ -57,7 +57,9 @@ export interface LoopStartOptions {
 export interface LoopSummary {
   id: string
   projectId: string
+  ralphLoopId: string | null
   processId: string | null
+  processPid: number | null
   state: LoopLifecycleState
   config: string | null
   prompt: string | null
@@ -108,9 +110,11 @@ export interface LoopNotification {
 
 interface LoopRuntime {
   processId: string | null
+  processPid: number | null
   active: boolean
   stopRequested: boolean
   ralphLoopId: string | null
+  outputRemainder: string
   buffer: OutputBuffer
   parser: RalphEventParser
   currentHat: string | null
@@ -146,11 +150,17 @@ type LoopBackend =
 const STOP_ATTEMPTS = 3
 const STOP_WAIT_MS_PER_ATTEMPT = 700
 const DEFAULT_OUTPUT_BUFFER_LINES = 500
+const OUTPUT_ITERATION_PATTERNS = [
+  /\biteration\s+(\d+)\b/gi,
+  /\(iteration\s+(\d+)\)/gi
+]
 
 const OUTPUT_EVENT_PREFIX = 'loop-output:'
 const STATE_EVENT_PREFIX = 'loop-state:'
 const NOTIFICATION_EVENT = 'notifications'
 const execFile = promisify(execFileCallback)
+const PRIMARY_LOOP_ID_PATTERN = /^primary-\d{8}-\d{6}$/i
+const EVENTS_FILE_PATTERN = /^events-(\d{8})-(\d{6})\.jsonl$/i
 
 async function stopLoopWithCli(input: StopLoopInput) {
   try {
@@ -203,6 +213,50 @@ function asNumber(value: unknown) {
 
 function asString(value: unknown) {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined
+  }
+
+  return value as Record<string, unknown>
+}
+
+function isPrimaryLoopId(value: string) {
+  return PRIMARY_LOOP_ID_PATTERN.test(value)
+}
+
+function asPrimaryLoopId(value: unknown) {
+  const normalized = asString(value)
+  if (!normalized) {
+    return undefined
+  }
+
+  return isPrimaryLoopId(normalized) ? normalized : undefined
+}
+
+function primaryLoopIdFromEventsPath(value: string) {
+  const fileName = basename(value.trim())
+  const match = EVENTS_FILE_PATTERN.exec(fileName)
+  if (!match) {
+    return undefined
+  }
+
+  return `primary-${match[1]}-${match[2]}`
+}
+
+function primaryLoopIdFromTimestamp(timestamp: number | null | undefined) {
+  const ms = toMilliseconds(timestamp)
+  if (ms === null) {
+    return undefined
+  }
+
+  const date = new Date(ms)
+  const pad = (value: number) => value.toString().padStart(2, '0')
+  const datePart = `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}`
+  const timePart = `${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`
+  return `primary-${datePart}-${timePart}`
 }
 
 function asLoopBackend(value: unknown): LoopBackend | undefined {
@@ -334,6 +388,49 @@ function usesLiveRuntime(state: string) {
   return state === 'running' || state === 'queued' || state === 'merging'
 }
 
+function uniqueLoopIds(loopIds: Array<string | undefined>) {
+  return [...new Set(loopIds.filter((loopId): loopId is string => Boolean(loopId)))]
+}
+
+function extractIterationCandidates(text: string): number[] {
+  const values = new Set<number>()
+  for (const pattern of OUTPUT_ITERATION_PATTERNS) {
+    pattern.lastIndex = 0
+    let match: RegExpExecArray | null
+    match = pattern.exec(text)
+    while (match) {
+      const parsed = Number.parseInt(match[1] ?? '', 10)
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        values.add(parsed)
+      }
+      match = pattern.exec(text)
+    }
+  }
+
+  return [...values.values()]
+}
+
+function readIterationValue(payload: Record<string, unknown>) {
+  return (
+    asNumber(payload.iteration) ??
+    asNumber(payload.iterations) ??
+    asNumber(payload.iteration_count) ??
+    asNumber(payload.current_iteration) ??
+    asNumber(payload.currentIteration) ??
+    asNumber(payload.loop_iteration) ??
+    asNumber(payload.loopIteration) ??
+    asNumber(payload.completed_iterations) ??
+    asNumber(payload.completedIterations) ??
+    asNumber(payload.total_iterations) ??
+    asNumber(payload.totalIterations) ??
+    asNumber(payload.iterationNumber)
+  )
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 export class LoopService {
   private readonly resolveBinary: () => Promise<string>
   private readonly stopLoopWithCli: (input: StopLoopInput) => Promise<void>
@@ -374,6 +471,10 @@ export class LoopService {
       )
     }
 
+    const existingLoopIds = await this.listRalphLoopIds(binaryPath, project.path)
+    const markerBefore = await this.readCurrentLoopId(project.path)
+    const currentEventsBefore = await this.readCurrentEventsLoopId(project.path)
+
     const loopId = randomUUID()
     const startCommit = await this.resolveHeadCommit(project.path)
     const promptSnapshot = await this.resolvePromptSnapshot(project.path, options)
@@ -384,6 +485,14 @@ export class LoopService {
       cwd: project.path
     })
 
+    const markerAfter = await this.readCurrentLoopId(project.path)
+    const currentEventsAfter = await this.readCurrentEventsLoopId(project.path)
+    const initialRalphLoopId =
+      (currentEventsAfter && currentEventsAfter !== currentEventsBefore
+        ? currentEventsAfter
+        : null) ??
+      (markerAfter && markerAfter !== markerBefore ? markerAfter : null)
+
     const nowMs = this.now().getTime()
     const configPayload = JSON.stringify({
       config: options.config ?? null,
@@ -392,6 +501,7 @@ export class LoopService {
       backend: options.backend ?? null,
       exclusive: Boolean(options.exclusive),
       worktree: options.worktree ?? null,
+      ralphLoopId: initialRalphLoopId,
       startCommit,
       endCommit: null,
       outputLogFile
@@ -403,6 +513,7 @@ export class LoopService {
         .values({
           id: loopId,
           projectId,
+          ralphLoopId: initialRalphLoopId,
           state: 'running',
           config: configPayload,
           prompt: promptSnapshot,
@@ -421,9 +532,11 @@ export class LoopService {
 
     const runtime: LoopRuntime = {
       processId: handle.id,
+      processPid: handle.pid > 0 ? handle.pid : null,
       active: true,
       stopRequested: false,
-      ralphLoopId: null,
+      ralphLoopId: initialRalphLoopId,
+      outputRemainder: '',
       buffer: new OutputBuffer(this.bufferLines),
       parser: new RalphEventParser(),
       currentHat: null,
@@ -435,68 +548,96 @@ export class LoopService {
 
     this.runtimes.set(loopId, runtime)
     runtime.unsubOutput = this.processManager.onOutput(handle.id, (chunk) => {
-      void this.handleOutput(loopId, chunk)
+      void this.handleOutput(loopId, chunk).catch((error) => {
+        this.handleBackgroundError(loopId, error)
+      })
     })
     runtime.unsubState = this.processManager.onStateChange(handle.id, (state) => {
-      void this.handleState(loopId, state)
+      void this.handleState(loopId, state).catch((error) => {
+        this.handleBackgroundError(loopId, error)
+      })
     })
 
+    if (!initialRalphLoopId) {
+      void this.bootstrapRalphLoopId(loopId, {
+        binaryPath,
+        cwd: project.path,
+        existingLoopIds,
+        markerBefore,
+        currentEventsBefore
+      })
+    }
+
     return this.get(loopId)
+  }
+
+  private handleBackgroundError(loopId: string, error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes('database connection is not open')) {
+      return
+    }
+
+    console.error(`[LoopService] background handler failed for loop ${loopId}`, error)
   }
 
   async stop(loopId: string): Promise<void> {
     const run = await this.requireLoop(loopId)
     const runtime = this.runtimes.get(loopId)
+    const persistedConfig = parsePersistedConfig(run.config)
+    const stopLoopIds = uniqueLoopIds([
+      runtime?.ralphLoopId ?? undefined,
+      run.ralphLoopId ?? undefined,
+      persistedConfig.ralphLoopId,
+      loopId
+    ])
 
     if (run.state === 'stopped' && (!runtime?.active || !runtime.processId)) {
       return
     }
 
+    const project = this.db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, run.projectId))
+      .get()
+
+    if (!project) {
+      throw new LoopServiceError(
+        'NOT_FOUND',
+        `Project not found for loop: ${loopId}`
+      )
+    }
+
+    let binaryPath: string
+    try {
+      binaryPath = await this.resolveBinary()
+    } catch (error) {
+      throw new LoopServiceError(
+        'BAD_REQUEST',
+        error instanceof Error ? error.message : 'Unable to resolve Ralph binary'
+      )
+    }
+
     if (runtime?.active && runtime.processId) {
       runtime.stopRequested = true
-      const project = this.db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, run.projectId))
-        .get()
-
-      if (!project) {
-        throw new LoopServiceError(
-          'NOT_FOUND',
-          `Project not found for loop: ${loopId}`
-        )
-      }
-
-      let binaryPath: string
-      try {
-        binaryPath = await this.resolveBinary()
-      } catch (error) {
-        throw new LoopServiceError(
-          'BAD_REQUEST',
-          error instanceof Error ? error.message : 'Unable to resolve Ralph binary'
-        )
-      }
 
       let lastStopCliError: unknown
-      const persistedConfig = parsePersistedConfig(run.config)
-      const stopLoopId = persistedConfig.ralphLoopId ?? loopId
       for (let attempt = 0; attempt < STOP_ATTEMPTS; attempt += 1) {
-        try {
-          await this.stopLoopWithCli({
-            binaryPath,
-            loopId: stopLoopId,
-            cwd: project.path
-          })
-        } catch (error) {
-          lastStopCliError = error
-        }
-
-        const didStop = await this.waitForRuntimeStop(
-          loopId,
-          STOP_WAIT_MS_PER_ATTEMPT
-        )
-        if (didStop) {
-          return
+        const stopResult = await this.tryStopLoopViaCli({
+          binaryPath,
+          cwd: project.path,
+          loopIds: stopLoopIds
+        })
+        if (stopResult.ok) {
+          const didStop = await this.waitForRuntimeStop(
+            loopId,
+            STOP_WAIT_MS_PER_ATTEMPT
+          )
+          if (didStop) {
+            return
+          }
+        } else {
+          lastStopCliError = stopResult.lastError
         }
       }
 
@@ -531,6 +672,36 @@ export class LoopService {
       )
     }
 
+    if (run.state !== 'stopped') {
+      let lastStopCliError: unknown
+      let didRequestStop = false
+      for (let attempt = 0; attempt < STOP_ATTEMPTS; attempt += 1) {
+        const stopResult = await this.tryStopLoopViaCli({
+          binaryPath,
+          cwd: project.path,
+          loopIds: stopLoopIds
+        })
+        if (stopResult.ok) {
+          didRequestStop = true
+          break
+        }
+        lastStopCliError = stopResult.lastError
+      }
+
+      if (!didRequestStop) {
+        if (lastStopCliError instanceof Error) {
+          throw new LoopServiceError(
+            'BAD_REQUEST',
+            `${lastStopCliError.message} (unable to stop runtime because process tracking was unavailable)`
+          )
+        }
+        throw new LoopServiceError(
+          'BAD_REQUEST',
+          `Unable to stop loop: ${loopId} (process tracking was unavailable)`
+        )
+      }
+    }
+
     const updates: Partial<typeof loopRuns.$inferInsert> = {
       state: 'stopped',
       endedAt: this.now().getTime()
@@ -543,6 +714,28 @@ export class LoopService {
     await this.db.update(loopRuns).set(updates).where(eq(loopRuns.id, loopId)).run()
 
     this.events.emit(`${STATE_EVENT_PREFIX}${loopId}`, 'stopped')
+  }
+
+  private async tryStopLoopViaCli(input: {
+    binaryPath: string
+    cwd: string
+    loopIds: string[]
+  }): Promise<{ ok: boolean; lastError: unknown }> {
+    let lastError: unknown
+    for (const candidateLoopId of input.loopIds) {
+      try {
+        await this.stopLoopWithCli({
+          binaryPath: input.binaryPath,
+          loopId: candidateLoopId,
+          cwd: input.cwd
+        })
+        return { ok: true, lastError: null }
+      } catch (error) {
+        lastError = error
+      }
+    }
+
+    return { ok: false, lastError }
   }
 
   private async waitForRuntimeStop(
@@ -768,18 +961,117 @@ export class LoopService {
     const runtime = this.runtimes.get(loopId)
     const shouldUseLiveMetricFiles = Boolean(runtime?.active) || usesLiveRuntime(run.state)
     if (!shouldUseLiveMetricFiles) {
+      if (metrics.iterations === 0) {
+        const fromOutputLog = await this.readIterationsFromLoopOutputLog(
+          project.path,
+          run.config
+        )
+        if (fromOutputLog !== undefined) {
+          metrics.iterations = Math.max(metrics.iterations, fromOutputLog)
+        }
+      }
       return metrics
     }
 
-    const fromDisk = await this.readMetricsDirectory(join(project.path, '.agent', 'metrics'))
+    const fromDisk = await this.readLiveMetrics(run, project.path)
     return {
-      iterations: fromDisk.iterations ?? metrics.iterations,
-      runtime: fromDisk.runtime ?? metrics.runtime,
-      tokensUsed: fromDisk.tokensUsed ?? metrics.tokensUsed,
-      errors: fromDisk.errors ?? metrics.errors,
+      iterations: Math.max(metrics.iterations, fromDisk.iterations ?? 0),
+      runtime: Math.max(metrics.runtime, fromDisk.runtime ?? 0),
+      tokensUsed: Math.max(metrics.tokensUsed, fromDisk.tokensUsed ?? 0),
+      errors: Math.max(metrics.errors, fromDisk.errors ?? 0),
       lastOutputSize: fromDisk.lastOutputSize ?? metrics.lastOutputSize,
       filesChanged: fromDisk.filesChanged ?? metrics.filesChanged
     }
+  }
+
+  private async readLiveMetrics(
+    run: LoopRun,
+    projectPath: string
+  ): Promise<Partial<LoopMetrics>> {
+    const roots = await this.resolveLiveMetricRoots(projectPath, run)
+    const metrics: Partial<LoopMetrics> = {}
+
+    for (const root of roots) {
+      const fromAgentDir = await this.readMetricsDirectory(join(root, '.agent', 'metrics'))
+      this.mergeMetrics(metrics, fromAgentDir)
+
+      const fromRalphDir = await this.readMetricsDirectory(join(root, '.ralph', 'metrics'))
+      this.mergeMetrics(metrics, fromRalphDir)
+
+      const fromEvents = await this.readIterationsFromCurrentEvents(root)
+      if (fromEvents !== undefined) {
+        metrics.iterations = Math.max(metrics.iterations ?? 0, fromEvents)
+      }
+    }
+
+    return metrics
+  }
+
+  private mergeMetrics(target: Partial<LoopMetrics>, source: Partial<LoopMetrics>) {
+    if (source.iterations !== undefined) {
+      target.iterations = Math.max(target.iterations ?? 0, source.iterations)
+    }
+    if (source.runtime !== undefined) {
+      target.runtime = Math.max(target.runtime ?? 0, source.runtime)
+    }
+    if (source.tokensUsed !== undefined) {
+      target.tokensUsed = Math.max(target.tokensUsed ?? 0, source.tokensUsed)
+    }
+    if (source.errors !== undefined) {
+      target.errors = Math.max(target.errors ?? 0, source.errors)
+    }
+    if (source.lastOutputSize !== undefined) {
+      target.lastOutputSize = Math.max(target.lastOutputSize ?? 0, source.lastOutputSize)
+    }
+    if (source.filesChanged !== undefined) {
+      target.filesChanged = source.filesChanged
+    }
+  }
+
+  private async resolveLiveMetricRoots(projectPath: string, run: LoopRun) {
+    const roots = new Set<string>([projectPath])
+    const persistedConfig = parsePersistedConfig(run.config)
+    const worktreeBranch = run.worktree ?? persistedConfig.worktree
+    if (worktreeBranch) {
+      const resolvedWorktreePath = await this.resolveWorktreePath(projectPath, worktreeBranch)
+      if (resolvedWorktreePath) {
+        roots.add(resolvedWorktreePath)
+      }
+      roots.add(join(projectPath, '.worktrees', worktreeBranch))
+    }
+
+    return [...roots.values()]
+  }
+
+  private async readIterationsFromLoopOutputLog(
+    projectPath: string,
+    config: string | null
+  ): Promise<number | undefined> {
+    const persistedConfig = parsePersistedConfig(config)
+    if (!persistedConfig.outputLogFile) {
+      return undefined
+    }
+
+    const outputPath = join(projectPath, persistedConfig.outputLogFile)
+    let raw: string
+    try {
+      raw = await readFile(outputPath, 'utf8')
+    } catch {
+      return undefined
+    }
+
+    let maxIteration: number | undefined
+    for (const line of raw.split(/\r?\n/)) {
+      if (!line) {
+        continue
+      }
+      const candidates = extractIterationCandidates(line)
+      for (const candidate of candidates) {
+        maxIteration = Math.max(maxIteration ?? 0, candidate)
+      }
+    }
+
+    return maxIteration
   }
 
   subscribeOutput(loopId: string, cb: (chunk: OutputChunk) => void) {
@@ -872,10 +1164,19 @@ export class LoopService {
 
   private toSummary(row: LoopRun): LoopSummary {
     const runtime = this.runtimes.get(row.id)
+    const persistedConfig = parsePersistedConfig(row.config)
+    const canonicalRalphLoopId =
+      asPrimaryLoopId(runtime?.ralphLoopId) ??
+      asPrimaryLoopId(row.ralphLoopId) ??
+      asPrimaryLoopId(persistedConfig.ralphLoopId) ??
+      primaryLoopIdFromTimestamp(row.startedAt) ??
+      null
     return {
       id: row.id,
       projectId: row.projectId,
+      ralphLoopId: canonicalRalphLoopId,
       processId: runtime?.active ? runtime.processId : null,
+      processPid: runtime?.active ? runtime.processPid : null,
       state: row.state as LoopLifecycleState,
       config: row.config,
       prompt: row.prompt,
@@ -919,10 +1220,45 @@ export class LoopService {
 
     runtime.buffer.append(chunk.data)
     this.events.emit(`${OUTPUT_EVENT_PREFIX}${loopId}`, chunk)
+    await this.applyOutputDerivedIteration(loopId, runtime, chunk.data)
 
     const events = runtime.parser.parseChunk(chunk.data)
     for (const event of events) {
       await this.applyParsedEvent(loopId, runtime, event)
+    }
+  }
+
+  private async applyOutputDerivedIteration(
+    loopId: string,
+    runtime: LoopRuntime,
+    chunkData: string,
+    emitState = true
+  ) {
+    const combined = `${runtime.outputRemainder}${chunkData.replace(/\r\n/g, '\n')}`
+    const lines = combined.split('\n')
+    runtime.outputRemainder = lines.pop() ?? ''
+
+    let nextIteration = runtime.iterations
+    for (const line of lines) {
+      const candidates = extractIterationCandidates(line)
+      for (const candidate of candidates) {
+        nextIteration = Math.max(nextIteration, candidate)
+      }
+    }
+
+    if (nextIteration <= runtime.iterations) {
+      return
+    }
+
+    runtime.iterations = nextIteration
+    await this.db
+      .update(loopRuns)
+      .set({ iterations: runtime.iterations })
+      .where(eq(loopRuns.id, loopId))
+      .run()
+
+    if (emitState) {
+      this.events.emit(`${STATE_EVENT_PREFIX}${loopId}`, 'running')
     }
   }
 
@@ -954,11 +1290,16 @@ export class LoopService {
       return
     }
 
+    if (nextState !== 'running' && runtime.outputRemainder.trim().length > 0) {
+      await this.applyOutputDerivedIteration(loopId, runtime, '\n', false)
+    }
+
     runtime.unsubOutput()
     runtime.unsubState()
     runtime.active = false
     runtime.stopRequested = false
     runtime.processId = null
+    runtime.processPid = null
   }
 
   private async applyParsedEvent(
@@ -971,10 +1312,10 @@ export class LoopService {
     }
 
     const payload = event.payload as Record<string, unknown>
+    const payloadMetrics = asRecord(payload.metrics)
     const nextIteration =
-      asNumber(payload.iteration) ??
-      asNumber(payload.iterations) ??
-      asNumber(payload.iteration_count)
+      readIterationValue(payload) ??
+      (payloadMetrics ? readIterationValue(payloadMetrics) : undefined)
     const nextHat =
       asString(payload.sourceHat) ??
       asString(payload.currentHat) ??
@@ -983,9 +1324,23 @@ export class LoopService {
       asNumber(payload.tokensUsed) ??
       asNumber(payload.tokens_used) ??
       asNumber(payload.totalTokens) ??
-      asNumber(payload.total_tokens)
-    const nextErrors = asNumber(payload.errors) ?? asNumber(payload.error_count)
-    const nextRalphLoopId = asString(payload.loopId) ?? asString(payload.loop_id)
+      asNumber(payload.total_tokens) ??
+      (payloadMetrics
+        ? asNumber(payloadMetrics.tokensUsed) ??
+          asNumber(payloadMetrics.tokens_used) ??
+          asNumber(payloadMetrics.totalTokens) ??
+          asNumber(payloadMetrics.total_tokens)
+        : undefined)
+    const nextErrors =
+      asNumber(payload.errors) ??
+      asNumber(payload.error_count) ??
+      (payloadMetrics
+        ? asNumber(payloadMetrics.errors) ?? asNumber(payloadMetrics.error_count)
+        : undefined)
+    const nextRalphLoopId =
+      asPrimaryLoopId(payload.loop_id) ??
+      asPrimaryLoopId(payload.loopId) ??
+      undefined
 
     if (nextIteration !== undefined) {
       runtime.iterations = Math.max(runtime.iterations, Math.floor(nextIteration))
@@ -1000,7 +1355,7 @@ export class LoopService {
 
     const updates: Partial<typeof loopRuns.$inferInsert> = {}
     if (nextIteration !== undefined) {
-      updates.iterations = Math.max(0, Math.floor(nextIteration))
+      updates.iterations = Math.max(0, runtime.iterations)
     }
     if (nextTokens !== undefined) {
       updates.tokensUsed = Math.max(0, Math.floor(nextTokens))
@@ -1024,7 +1379,8 @@ export class LoopService {
   private async persistRalphLoopId(loopId: string, ralphLoopId: string) {
     const run = this.db
       .select({
-        config: loopRuns.config
+        config: loopRuns.config,
+        ralphLoopId: loopRuns.ralphLoopId
       })
       .from(loopRuns)
       .where(eq(loopRuns.id, loopId))
@@ -1034,13 +1390,15 @@ export class LoopService {
     }
 
     const config = parseConfigRecord(run.config)
-    if (asString(config.ralphLoopId) === ralphLoopId) {
+    const persistedConfigLoopId = asString(config.ralphLoopId)
+    if (run.ralphLoopId === ralphLoopId && persistedConfigLoopId === ralphLoopId) {
       return
     }
 
     await this.db
       .update(loopRuns)
       .set({
+        ralphLoopId,
         config: JSON.stringify({
           ...config,
           ralphLoopId
@@ -1048,6 +1406,178 @@ export class LoopService {
       })
       .where(eq(loopRuns.id, loopId))
       .run()
+  }
+
+  private async readCurrentLoopId(projectPath: string): Promise<string | null> {
+    try {
+      const marker = await readFile(join(projectPath, '.ralph', 'current-loop-id'), 'utf8')
+      const normalized = asPrimaryLoopId(marker.trim())
+      return normalized ?? null
+    } catch {
+      return null
+    }
+  }
+
+  private async readCurrentEventsLoopId(projectPath: string): Promise<string | null> {
+    try {
+      const marker = await readFile(join(projectPath, '.ralph', 'current-events'), 'utf8')
+      const normalized = primaryLoopIdFromEventsPath(marker)
+      return normalized ?? null
+    } catch {
+      return null
+    }
+  }
+
+  private async listRalphLoopIds(binaryPath: string, cwd: string): Promise<Set<string>> {
+    try {
+      const result = await execFile(binaryPath, ['loops', 'list', '--json'], {
+        cwd,
+        encoding: 'utf8'
+      })
+      const parsed: unknown = JSON.parse(result.stdout)
+      if (!Array.isArray(parsed)) {
+        return new Set()
+      }
+
+      const ids = parsed
+        .flatMap((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return []
+          }
+
+          const row = entry as Record<string, unknown>
+          return [
+            asPrimaryLoopId(row.loop_id),
+            asPrimaryLoopId(row.loopId),
+            asPrimaryLoopId(row.id)
+          ]
+        })
+        .filter((id): id is string => typeof id === 'string')
+
+      return new Set(ids)
+    } catch {
+      return new Set()
+    }
+  }
+
+  private async bootstrapRalphLoopId(
+    loopId: string,
+    input: {
+      binaryPath: string
+      cwd: string
+      existingLoopIds: Set<string>
+      markerBefore: string | null
+      currentEventsBefore: string | null
+    }
+  ) {
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      const runtime = this.runtimes.get(loopId)
+      if (!runtime?.active || runtime.ralphLoopId) {
+        return
+      }
+
+      const currentEventsLoopId = await this.readCurrentEventsLoopId(input.cwd)
+      if (currentEventsLoopId && currentEventsLoopId !== input.currentEventsBefore) {
+        runtime.ralphLoopId = currentEventsLoopId
+        await this.persistRalphLoopId(loopId, currentEventsLoopId)
+        return
+      }
+
+      const markerLoopId = await this.readCurrentLoopId(input.cwd)
+      if (markerLoopId && markerLoopId !== input.markerBefore) {
+        runtime.ralphLoopId = markerLoopId
+        await this.persistRalphLoopId(loopId, markerLoopId)
+        return
+      }
+
+      const listedLoopIds = await this.listRalphLoopIds(input.binaryPath, input.cwd)
+      const newLoopIds = [...listedLoopIds].filter(
+        (candidate) => !input.existingLoopIds.has(candidate) && candidate !== '(primary)'
+      )
+      if (newLoopIds.length === 1) {
+        const detectedLoopId = newLoopIds[0]
+        runtime.ralphLoopId = detectedLoopId
+        await this.persistRalphLoopId(loopId, detectedLoopId)
+        return
+      }
+
+      await delay(200)
+    }
+  }
+
+  private async readIterationsFromCurrentEvents(projectPath: string): Promise<number | undefined> {
+    const currentEventsPath = join(projectPath, '.ralph', 'current-events')
+    let markerRaw: string
+    try {
+      markerRaw = await readFile(currentEventsPath, 'utf8')
+    } catch {
+      markerRaw = ''
+    }
+
+    const marker = markerRaw.trim()
+    if (marker) {
+      const eventPath = isAbsolute(marker) ? marker : join(projectPath, marker)
+      const fromMarker = await this.readIterationsFromEventFile(eventPath)
+      if (fromMarker !== undefined) {
+        return fromMarker
+      }
+    }
+
+    const ralphDir = join(projectPath, '.ralph')
+    let entries
+    try {
+      entries = await readdir(ralphDir, { withFileTypes: true })
+    } catch {
+      return undefined
+    }
+
+    const latestEventFile = entries
+      .filter((entry) => entry.isFile() && /^events-.*\.jsonl$/i.test(entry.name))
+      .map((entry) => entry.name)
+      .sort()
+      .at(-1)
+
+    if (!latestEventFile) {
+      return undefined
+    }
+
+    return this.readIterationsFromEventFile(join(ralphDir, latestEventFile))
+  }
+
+  private async readIterationsFromEventFile(filePath: string): Promise<number | undefined> {
+    let raw: string
+    try {
+      raw = await readFile(filePath, 'utf8')
+    } catch {
+      return undefined
+    }
+
+    let maxIteration: number | undefined
+    for (const line of raw.split(/\r?\n/)) {
+      const normalized = line.trim()
+      if (!normalized) {
+        continue
+      }
+
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(normalized)
+      } catch {
+        continue
+      }
+      const entry = asRecord(parsed)
+      if (!entry) {
+        continue
+      }
+
+      const entryIteration = readIterationValue(entry)
+      if (entryIteration !== undefined) {
+        const rounded = Math.max(0, Math.floor(entryIteration))
+        maxIteration = Math.max(maxIteration ?? 0, rounded)
+      }
+    }
+
+    return maxIteration
   }
 
   private async readMetricsDirectory(metricsDir: string): Promise<Partial<LoopMetrics>> {
@@ -1111,16 +1641,37 @@ export class LoopService {
     const normalizedKey = key.toLowerCase()
     const numericValue = asNumber(value)
 
-    if (['iterations', 'iteration', 'iteration_count'].includes(normalizedKey)) {
+    if (
+      [
+        'iterations',
+        'iteration',
+        'iteration_count',
+        'current_iteration',
+        'currentiteration',
+        'loop_iteration',
+        'loopiteration',
+        'total_iterations',
+        'totaliterations',
+        'completed_iterations',
+        'completediterations',
+        'iterationnumber'
+      ].includes(normalizedKey)
+    ) {
       if (numericValue !== undefined) {
-        metrics.iterations = Math.max(0, Math.floor(numericValue))
+        metrics.iterations = Math.max(
+          metrics.iterations ?? 0,
+          Math.max(0, Math.floor(numericValue))
+        )
       }
       return
     }
 
     if (['runtime', 'runtime_seconds'].includes(normalizedKey)) {
       if (numericValue !== undefined) {
-        metrics.runtime = Math.max(0, Math.floor(numericValue))
+        metrics.runtime = Math.max(
+          metrics.runtime ?? 0,
+          Math.max(0, Math.floor(numericValue))
+        )
       }
       return
     }
@@ -1131,21 +1682,30 @@ export class LoopService {
       )
     ) {
       if (numericValue !== undefined) {
-        metrics.tokensUsed = Math.max(0, Math.floor(numericValue))
+        metrics.tokensUsed = Math.max(
+          metrics.tokensUsed ?? 0,
+          Math.max(0, Math.floor(numericValue))
+        )
       }
       return
     }
 
     if (['errors', 'error_count', 'errorcount'].includes(normalizedKey)) {
       if (numericValue !== undefined) {
-        metrics.errors = Math.max(0, Math.floor(numericValue))
+        metrics.errors = Math.max(
+          metrics.errors ?? 0,
+          Math.max(0, Math.floor(numericValue))
+        )
       }
       return
     }
 
     if (['last_output_size', 'lastoutputsize'].includes(normalizedKey)) {
       if (numericValue !== undefined) {
-        metrics.lastOutputSize = Math.max(0, Math.floor(numericValue))
+        metrics.lastOutputSize = Math.max(
+          metrics.lastOutputSize ?? 0,
+          Math.max(0, Math.floor(numericValue))
+        )
       }
       return
     }

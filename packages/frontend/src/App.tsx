@@ -158,47 +158,37 @@ function AppRoutes() {
 
   return (
     <AppShell
+      headerActions={
+        <NotificationCenter
+          notifications={notifications}
+          onSelect={handleNotificationSelect}
+          panelAlign="right"
+          unreadCount={unreadCount}
+        />
+      }
       sidebar={
         <Sidebar
+          connectionStatus={connectionStatus}
           onProjectCreated={handleProjectCreated}
           onProjectDelete={handleProjectDelete}
           onProjectSelect={handleProjectSelect}
+          reconnectAttempt={reconnectAttempt}
         />
       }
     >
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <p
-              className={`rounded-full border px-2 py-1 text-xs ${connectionStatus === 'connected'
-                ? 'border-emerald-500/40 text-emerald-300'
-                : 'border-amber-500/40 text-amber-200'
-                }`}
-              data-testid="connection-status-indicator"
+        <div className="flex flex-wrap items-center gap-3">
+          {notificationPermission === 'default' ? (
+            <button
+              className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
+              onClick={() => {
+                void requestPermission()
+              }}
+              type="button"
             >
-              {connectionStatus === 'connected'
-                ? 'Realtime connected'
-                : connectionStatus === 'reconnecting'
-                  ? `Reconnecting (attempt ${reconnectAttempt})`
-                  : 'Connecting...'}
-            </p>
-            {notificationPermission === 'default' ? (
-              <button
-                className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
-                onClick={() => {
-                  void requestPermission()
-                }}
-                type="button"
-              >
-                Enable notifications
-              </button>
-            ) : null}
-          </div>
-          <NotificationCenter
-            notifications={notifications}
-            onSelect={handleNotificationSelect}
-            unreadCount={unreadCount}
-          />
+              Enable notifications
+            </button>
+          ) : null}
         </div>
 
         <AppErrorBoundary resetKey={location.pathname}>

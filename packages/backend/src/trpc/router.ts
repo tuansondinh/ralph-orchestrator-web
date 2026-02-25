@@ -215,6 +215,9 @@ const loopRouter = t.router({
         prompt: z.string().trim().min(1).optional(),
         promptSnapshot: z.string().optional(),
         promptFile: z.string().trim().min(1).optional(),
+        backend: z
+          .enum(['claude', 'kiro', 'gemini', 'codex', 'amp', 'copilot', 'opencode'])
+          .optional(),
         exclusive: z.boolean().optional(),
         worktree: z.string().trim().min(1).optional()
       })
@@ -237,6 +240,7 @@ const loopRouter = t.router({
           prompt: input.prompt,
           promptSnapshot: input.promptSnapshot,
           promptFile: input.promptFile,
+          backend: input.backend,
           exclusive: input.exclusive,
           worktree: input.worktree
         })
@@ -286,7 +290,9 @@ const chatRouter = t.router({
       z.object({
         projectId: z.string().min(1),
         type: z.enum(['plan', 'task']),
-        backend: z.enum(['codex', 'ralph', 'gemini']).optional(),
+        backend: z
+          .enum(['claude', 'kiro', 'gemini', 'codex', 'amp', 'copilot', 'opencode'])
+          .optional(),
         initialInput: z.string().trim().min(1).optional()
       })
     )
@@ -300,7 +306,9 @@ const chatRouter = t.router({
       z.object({
         projectId: z.string().min(1),
         type: z.enum(['plan', 'task']),
-        backend: z.enum(['codex', 'ralph', 'gemini']).optional(),
+        backend: z
+          .enum(['claude', 'kiro', 'gemini', 'codex', 'amp', 'copilot', 'opencode'])
+          .optional(),
         initialInput: z.string().trim().min(1).optional()
       })
     )

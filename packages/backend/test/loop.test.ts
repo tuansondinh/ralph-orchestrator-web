@@ -246,14 +246,15 @@ describe('loop tRPC routes', () => {
 
     const started = await caller.loop.start({
       projectId,
-      prompt: 'keep-running'
+      prompt: 'keep-running',
+      backend: 'claude'
     })
 
     expect(started.projectId).toBe(projectId)
     expect(started.state).toBe('running')
-    expect(processManager.list().some((proc) => proc.id === started.processId)).toBe(
-      true
-    )
+    const handle = processManager.list().find((proc) => proc.id === started.processId)
+    expect(handle).toBeDefined()
+    expect(handle?.args[1]).toContain("'--backend' 'claude'")
 
     const persisted = connection.db
       .select()
@@ -287,6 +288,43 @@ describe('loop tRPC routes', () => {
     expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', started.id])
   })
 
+  it('prefers persisted Ralph loop ids when stopping loops', async () => {
+    const { caller, connection, tempDir } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running'
+    })
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+    const parsedConfig = JSON.parse(persisted?.config ?? '{}') as Record<string, unknown>
+
+    await connection.db
+      .update(loopRuns)
+      .set({
+        config: JSON.stringify({
+          ...parsedConfig,
+          ralphLoopId: 'ralph-loop-123'
+        })
+      })
+      .where(eq(loopRuns.id, started.id))
+      .run()
+
+    await caller.loop.stop({ loopId: started.id })
+
+    const stopArgs = JSON.parse(
+      await readFile(join(tempDir, 'mock-ralph-stop-args.log'), 'utf8')
+    )
+    expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', 'ralph-loop-123'])
+  })
+
   it('persists prompt snapshots for loops started from PROMPT.md content', async () => {
     const { caller, connection, tempDir } = await setupCaller()
     const projectPath = join(tempDir, 'project')
@@ -307,6 +345,33 @@ describe('loop tRPC routes', () => {
     expect(persisted?.prompt).toBe('# Loop Prompt\nUse the file snapshot.\n')
 
     await caller.loop.stop({ loopId: started.id })
+  })
+
+  it('restarts loops with the persisted backend override', async () => {
+    const { caller, connection, processManager, tempDir } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running',
+      backend: 'claude'
+    })
+
+    const restarted = await caller.loop.restart({ loopId: started.id })
+    const handle = processManager.list().find((proc) => proc.id === restarted.processId)
+    expect(handle).toBeDefined()
+    expect(handle?.args[1]).toContain("'--backend' 'claude'")
+
+    await caller.loop.stop({ loopId: restarted.id })
+
+    const previous = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+    expect(previous?.state).toBe('stopped')
   })
 
   it('falls back to process kill when ralph loops stop does not terminate runtime', async () => {
@@ -764,6 +829,75 @@ describe('loop tRPC routes', () => {
           status: 'A',
           additions: 1,
           deletions: 0
+        })
+      ])
+    )
+  })
+
+  it('includes uncommitted changes from an active worktree branch', async () => {
+    const { caller, connection, tempDir } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    const worktreePath = join(tempDir, 'project-feature')
+    const srcPath = join(projectPath, 'src')
+    await mkdir(srcPath, { recursive: true })
+
+    await runGit(projectPath, ['init', '-b', 'main'])
+    await runGit(projectPath, ['config', 'user.name', 'Test User'])
+    await runGit(projectPath, ['config', 'user.email', 'test@example.com'])
+
+    await writeFile(join(srcPath, 'app.ts'), 'const value = 1;\n', 'utf8')
+    await runGit(projectPath, ['add', '.'])
+    await runGit(projectPath, ['commit', '-m', 'initial'])
+    const startCommit = (await execFile('git', ['rev-parse', 'HEAD'], { cwd: projectPath }))
+      .stdout
+      .trim()
+
+    await runGit(projectPath, ['worktree', 'add', '-b', 'feature-loop', worktreePath, 'HEAD'])
+    await writeFile(
+      join(worktreePath, 'src', 'app.ts'),
+      'const value = 2;\nconst pending = true;\n',
+      'utf8'
+    )
+
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'completed',
+        config: JSON.stringify({
+          startCommit
+        }),
+        prompt: null,
+        worktree: 'feature-loop',
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: 1_000,
+        endedAt: 2_000
+      })
+      .run()
+
+    const diff = await caller.loop.getDiff({ loopId })
+
+    expect(diff.available).toBe(true)
+    expect(diff.baseBranch).toBe('main')
+    expect(diff.worktreeBranch).toBe('feature-loop')
+    expect(diff.stats).toEqual({
+      filesChanged: 1,
+      additions: 2,
+      deletions: 1
+    })
+    expect(diff.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'src/app.ts',
+          status: 'M',
+          additions: 2,
+          deletions: 1
         })
       ])
     )

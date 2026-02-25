@@ -49,6 +49,7 @@ export interface LoopStartOptions {
   prompt?: string
   promptSnapshot?: string
   promptFile?: string
+  backend?: LoopBackend
   exclusive?: boolean
   worktree?: string
 }
@@ -109,6 +110,7 @@ interface LoopRuntime {
   processId: string | null
   active: boolean
   stopRequested: boolean
+  ralphLoopId: string | null
   buffer: OutputBuffer
   parser: RalphEventParser
   currentHat: string | null
@@ -131,6 +133,15 @@ interface StopLoopInput {
   loopId: string
   cwd: string
 }
+
+type LoopBackend =
+  | 'claude'
+  | 'kiro'
+  | 'gemini'
+  | 'codex'
+  | 'amp'
+  | 'copilot'
+  | 'opencode'
 
 const STOP_ATTEMPTS = 3
 const STOP_WAIT_MS_PER_ATTEMPT = 700
@@ -194,6 +205,22 @@ function asString(value: unknown) {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined
 }
 
+function asLoopBackend(value: unknown): LoopBackend | undefined {
+  if (
+    value === 'claude' ||
+    value === 'kiro' ||
+    value === 'gemini' ||
+    value === 'codex' ||
+    value === 'amp' ||
+    value === 'copilot' ||
+    value === 'opencode'
+  ) {
+    return value
+  }
+
+  return undefined
+}
+
 function asStringArray(value: unknown) {
   if (!Array.isArray(value)) {
     return undefined
@@ -229,8 +256,10 @@ function parsePersistedConfig(config: string | null) {
     config: asString(parsed.config),
     prompt: asString(parsed.prompt),
     promptFile: asString(parsed.promptFile),
+    backend: asLoopBackend(parsed.backend),
     exclusive: Boolean(parsed.exclusive),
     worktree: asString(parsed.worktree),
+    ralphLoopId: asString(parsed.ralphLoopId),
     startCommit: asString(parsed.startCommit),
     endCommit: asString(parsed.endCommit),
     outputLogFile: asString(parsed.outputLogFile)
@@ -265,6 +294,10 @@ function buildRunArgs(options: LoopStartOptions) {
 
   if (options.promptFile) {
     args.push('--prompt-file', options.promptFile)
+  }
+
+  if (options.backend) {
+    args.push('--backend', options.backend)
   }
 
   if (options.exclusive) {
@@ -356,6 +389,7 @@ export class LoopService {
       config: options.config ?? null,
       prompt: options.prompt ?? null,
       promptFile: options.promptFile ?? null,
+      backend: options.backend ?? null,
       exclusive: Boolean(options.exclusive),
       worktree: options.worktree ?? null,
       startCommit,
@@ -389,6 +423,7 @@ export class LoopService {
       processId: handle.id,
       active: true,
       stopRequested: false,
+      ralphLoopId: null,
       buffer: new OutputBuffer(this.bufferLines),
       parser: new RalphEventParser(),
       currentHat: null,
@@ -443,11 +478,13 @@ export class LoopService {
       }
 
       let lastStopCliError: unknown
+      const persistedConfig = parsePersistedConfig(run.config)
+      const stopLoopId = persistedConfig.ralphLoopId ?? loopId
       for (let attempt = 0; attempt < STOP_ATTEMPTS; attempt += 1) {
         try {
           await this.stopLoopWithCli({
             binaryPath,
-            loopId,
+            loopId: stopLoopId,
             cwd: project.path
           })
         } catch (error) {
@@ -534,6 +571,7 @@ export class LoopService {
       prompt: persistedConfig.prompt,
       promptSnapshot: run.prompt ?? undefined,
       promptFile: persistedConfig.promptFile,
+      backend: persistedConfig.backend,
       exclusive: persistedConfig.exclusive,
       worktree: run.worktree ?? persistedConfig.worktree
     }
@@ -571,34 +609,47 @@ export class LoopService {
       throw new LoopServiceError('NOT_FOUND', `Project not found for loop: ${loopId}`)
     }
 
+    const persistedConfig = parsePersistedConfig(run.config)
+
     if (run.worktree) {
-      let baseBranch = 'main'
-      try {
-        const result = await execFile(
-          'git',
-          ['symbolic-ref', 'refs/remotes/origin/HEAD'],
-          {
-            cwd: project.path,
-            encoding: 'utf8'
-          }
-        )
-        const resolvedBranch = result.stdout
-          .trim()
-          .replace(/^refs\/remotes\/origin\//, '')
-        if (resolvedBranch) {
-          baseBranch = resolvedBranch
-        }
-      } catch {
-        // Fall back to "main" when origin/HEAD is unavailable.
-      }
+      const baseBranch = await this.resolveDefaultBaseBranch(project.path)
 
       let rawDiff = ''
       try {
-        const result = await execFile('git', ['diff', `${baseBranch}...${run.worktree}`, '--'], {
-          cwd: project.path,
-          encoding: 'utf8'
-        })
-        rawDiff = result.stdout
+        const worktreePath = await this.resolveWorktreePath(project.path, run.worktree)
+        if (worktreePath) {
+          const hasStartCommit = persistedConfig.startCommit
+            ? await this.commitExists(worktreePath, persistedConfig.startCommit)
+            : false
+          const diffBase =
+            hasStartCommit
+              ? persistedConfig.startCommit
+              : await this.resolveMergeBase(worktreePath, baseBranch, 'HEAD')
+
+          if (diffBase) {
+            const result = await execFile('git', ['diff', diffBase, '--'], {
+              cwd: worktreePath,
+              encoding: 'utf8'
+            })
+            rawDiff = result.stdout
+          } else {
+            const result = await execFile(
+              'git',
+              ['diff', `${baseBranch}...${run.worktree}`, '--'],
+              {
+                cwd: project.path,
+                encoding: 'utf8'
+              }
+            )
+            rawDiff = result.stdout
+          }
+        } else {
+          const result = await execFile('git', ['diff', `${baseBranch}...${run.worktree}`, '--'], {
+            cwd: project.path,
+            encoding: 'utf8'
+          })
+          rawDiff = result.stdout
+        }
       } catch (error) {
         throw new LoopServiceError(
           'BAD_REQUEST',
@@ -616,7 +667,6 @@ export class LoopService {
       }
     }
 
-    const persistedConfig = parsePersistedConfig(run.config)
     if (!persistedConfig.startCommit || !persistedConfig.endCommit) {
       return {
         available: false,
@@ -935,12 +985,17 @@ export class LoopService {
       asNumber(payload.totalTokens) ??
       asNumber(payload.total_tokens)
     const nextErrors = asNumber(payload.errors) ?? asNumber(payload.error_count)
+    const nextRalphLoopId = asString(payload.loopId) ?? asString(payload.loop_id)
 
     if (nextIteration !== undefined) {
       runtime.iterations = Math.max(runtime.iterations, Math.floor(nextIteration))
     }
     if (nextHat) {
       runtime.currentHat = nextHat
+    }
+    if (nextRalphLoopId && runtime.ralphLoopId !== nextRalphLoopId) {
+      runtime.ralphLoopId = nextRalphLoopId
+      await this.persistRalphLoopId(loopId, nextRalphLoopId)
     }
 
     const updates: Partial<typeof loopRuns.$inferInsert> = {}
@@ -964,6 +1019,35 @@ export class LoopService {
     if (Object.keys(updates).length > 0) {
       await this.db.update(loopRuns).set(updates).where(eq(loopRuns.id, loopId)).run()
     }
+  }
+
+  private async persistRalphLoopId(loopId: string, ralphLoopId: string) {
+    const run = this.db
+      .select({
+        config: loopRuns.config
+      })
+      .from(loopRuns)
+      .where(eq(loopRuns.id, loopId))
+      .get()
+    if (!run) {
+      return
+    }
+
+    const config = parseConfigRecord(run.config)
+    if (asString(config.ralphLoopId) === ralphLoopId) {
+      return
+    }
+
+    await this.db
+      .update(loopRuns)
+      .set({
+        config: JSON.stringify({
+          ...config,
+          ralphLoopId
+        })
+      })
+      .where(eq(loopRuns.id, loopId))
+      .run()
   }
 
   private async readMetricsDirectory(metricsDir: string): Promise<Partial<LoopMetrics>> {
@@ -1238,6 +1322,85 @@ export class LoopService {
       })
       const resolved = result.stdout.trim()
       return resolved.length > 0 ? resolved : null
+    } catch {
+      return null
+    }
+  }
+
+  private async resolveDefaultBaseBranch(projectPath: string): Promise<string> {
+    let baseBranch = 'main'
+    try {
+      const result = await execFile(
+        'git',
+        ['symbolic-ref', 'refs/remotes/origin/HEAD'],
+        {
+          cwd: projectPath,
+          encoding: 'utf8'
+        }
+      )
+      const resolvedBranch = result.stdout
+        .trim()
+        .replace(/^refs\/remotes\/origin\//, '')
+      if (resolvedBranch) {
+        baseBranch = resolvedBranch
+      }
+    } catch {
+      // Fall back to "main" when origin/HEAD is unavailable.
+    }
+
+    return baseBranch
+  }
+
+  private async resolveWorktreePath(projectPath: string, branch: string): Promise<string | null> {
+    try {
+      const result = await execFile('git', ['worktree', 'list', '--porcelain'], {
+        cwd: projectPath,
+        encoding: 'utf8'
+      })
+      const expectedRefs = new Set([
+        branch,
+        `refs/heads/${branch}`,
+        `refs/remotes/origin/${branch}`
+      ])
+      const blocks = result.stdout.trim().split(/\n{2,}/)
+      for (const block of blocks) {
+        if (!block.trim()) {
+          continue
+        }
+        let candidatePath: string | null = null
+        let candidateBranch: string | null = null
+        for (const rawLine of block.split('\n')) {
+          const line = rawLine.trim()
+          if (line.startsWith('worktree ')) {
+            candidatePath = line.slice('worktree '.length).trim()
+          } else if (line.startsWith('branch ')) {
+            candidateBranch = line.slice('branch '.length).trim()
+          }
+        }
+
+        if (candidatePath && candidateBranch && expectedRefs.has(candidateBranch)) {
+          return candidatePath
+        }
+      }
+    } catch {
+      return null
+    }
+
+    return null
+  }
+
+  private async resolveMergeBase(
+    projectPath: string,
+    baseRef: string,
+    headRef: string
+  ): Promise<string | null> {
+    try {
+      const result = await execFile('git', ['merge-base', baseRef, headRef], {
+        cwd: projectPath,
+        encoding: 'utf8'
+      })
+      const commit = result.stdout.trim()
+      return commit.length > 0 ? commit : null
     } catch {
       return null
     }

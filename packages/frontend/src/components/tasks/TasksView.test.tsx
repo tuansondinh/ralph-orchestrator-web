@@ -76,6 +76,9 @@ describe('TasksView', () => {
     })
     expect(taskApi.list).toHaveBeenCalledWith('project-1')
 
+    expect(
+      screen.getByText('This view shows all tasks managed by ralph orchestrator.')
+    ).toBeInTheDocument()
     expect(await screen.findByText('Fix selector timeout')).toBeInTheDocument()
     expect(screen.getByText('task-1')).toBeInTheDocument()
     expect(screen.getByText('Update notifications flow selectors')).toBeInTheDocument()

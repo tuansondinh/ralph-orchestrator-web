@@ -228,13 +228,14 @@ describe('LoopsView', () => {
     })
     await waitFor(() => {
       expect(loopApi.start).toHaveBeenCalledWith('project-1', {
+        backend: 'codex',
         exclusive: false,
         promptSnapshot: 'Ship it',
         presetFilename: 'hatless-baseline.yml'
       })
     })
 
-    expect(await screen.findByText('loop-1')).toBeInTheDocument()
+    expect(await screen.findByText('loop id: loop-1')).toBeInTheDocument()
     expect(screen.getByText('Running')).toBeInTheDocument()
     expect(await screen.findByText('Iterations: 9')).toBeInTheDocument()
     expect(screen.getByText('Runtime: 45s')).toBeInTheDocument()

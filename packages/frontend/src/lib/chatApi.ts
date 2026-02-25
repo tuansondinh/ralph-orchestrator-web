@@ -1,7 +1,14 @@
 import { trpcClient } from '@/lib/trpc'
 
 export type ChatSessionType = 'plan' | 'task'
-export type ChatSessionBackend = 'codex' | 'ralph' | 'gemini'
+export type ChatSessionBackend =
+  | 'claude'
+  | 'kiro'
+  | 'gemini'
+  | 'codex'
+  | 'amp'
+  | 'copilot'
+  | 'opencode'
 export type ChatSessionState = 'active' | 'waiting' | 'completed' | 'unknown'
 export type ChatRole = 'user' | 'assistant'
 

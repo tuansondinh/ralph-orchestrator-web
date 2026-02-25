@@ -362,9 +362,13 @@ export function ChatView({ projectId }: ChatViewProps) {
             }
             value={sessionBackend}
           >
-            <option value="codex">codex</option>
-            <option value="ralph">ralph</option>
+            <option value="claude">claude</option>
+            <option value="kiro">kiro</option>
             <option value="gemini">gemini</option>
+            <option value="codex">codex</option>
+            <option value="amp">amp</option>
+            <option value="copilot">copilot</option>
+            <option value="opencode">opencode</option>
           </select>
           <button
             className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-100 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"

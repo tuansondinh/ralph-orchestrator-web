@@ -9,7 +9,7 @@ import {
   migrateDatabase,
   type DatabaseConnection
 } from '../src/db/connection.js'
-import { projects } from '../src/db/schema.js'
+import { loopRuns, projects } from '../src/db/schema.js'
 import { TaskService } from '../src/services/TaskService.js'
 
 async function createTempDir(prefix: string) {
@@ -112,6 +112,64 @@ describe('TaskService', () => {
         priority: 2,
         blocked_by: ['task-0'],
         loop_id: null,
+        created: '2026-02-24T00:00:00Z',
+        closed: null
+      }
+    ])
+  })
+
+  it('maps Ralph loop ids in task payloads to persisted loop run ids', async () => {
+    const { connection, tempDir } = await setupServiceTest()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await insertProject(connection, projectPath)
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: 'ui-loop-1',
+        projectId,
+        state: 'completed',
+        config: JSON.stringify({ ralphLoopId: 'ralph-loop-1' }),
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: Date.now(),
+        endedAt: Date.now()
+      })
+      .run()
+
+    const service = new TaskService(connection.db, {
+      resolveBinary: vi.fn(async () => '/mock/ralph'),
+      execCommand: vi.fn(async () => ({
+        stdout: JSON.stringify([
+          {
+            id: 'task-1',
+            title: 'Task 1',
+            description: 'Do thing',
+            status: 'open',
+            priority: 2,
+            blocked_by: ['task-0'],
+            loop_id: 'ralph-loop-1',
+            created: '2026-02-24T00:00:00Z',
+            closed: null
+          }
+        ]),
+        stderr: ''
+      }))
+    })
+
+    await expect(service.list(projectId)).resolves.toEqual([
+      {
+        id: 'task-1',
+        title: 'Task 1',
+        description: 'Do thing',
+        status: 'open',
+        priority: 2,
+        blocked_by: ['task-0'],
+        loop_id: 'ui-loop-1',
         created: '2026-02-24T00:00:00Z',
         closed: null
       }

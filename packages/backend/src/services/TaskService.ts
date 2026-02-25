@@ -2,10 +2,10 @@ import { execFile as execFileCallback } from 'node:child_process'
 import { constants } from 'node:fs'
 import { access, stat } from 'node:fs/promises'
 import { promisify } from 'node:util'
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { resolveRalphBinary, type ResolveRalphBinaryOptions } from '../lib/ralph.js'
-import { projects, schema, settings } from '../db/schema.js'
+import { loopRuns, projects, schema, settings } from '../db/schema.js'
 
 type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND'
 type Database = BetterSQLite3Database<typeof schema>
@@ -114,6 +114,23 @@ function asStringArray(value: unknown) {
   return value
     .map((entry) => asNullableString(entry))
     .filter((entry): entry is string => entry !== null)
+}
+
+function parseConfigRecord(config: string | null): Record<string, unknown> {
+  if (!config) {
+    return {}
+  }
+
+  try {
+    const parsed = JSON.parse(config)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+  } catch {
+    // Ignore malformed persisted config payloads.
+  }
+
+  return {}
 }
 
 function toTaskRecord(entry: unknown, index: number): TaskRecord {
@@ -247,7 +264,40 @@ export class TaskService {
       )
     }
 
-    return parsed.map((entry, index) => toTaskRecord(entry, index))
+    const tasks = parsed.map((entry, index) => toTaskRecord(entry, index))
+    const loopIdMap = this.buildProjectLoopIdMap(projectId)
+
+    return tasks.map((task) => ({
+      ...task,
+      loop_id: task.loop_id ? (loopIdMap.get(task.loop_id) ?? task.loop_id) : null
+    }))
+  }
+
+  private buildProjectLoopIdMap(projectId: string) {
+    const rows = this.db
+      .select({
+        id: loopRuns.id,
+        config: loopRuns.config
+      })
+      .from(loopRuns)
+      .where(eq(loopRuns.projectId, projectId))
+      .orderBy(desc(loopRuns.startedAt))
+      .all()
+
+    const map = new Map<string, string>()
+    for (const row of rows) {
+      if (!map.has(row.id)) {
+        map.set(row.id, row.id)
+      }
+
+      const config = parseConfigRecord(row.config)
+      const ralphLoopId = asNullableString(config.ralphLoopId)
+      if (ralphLoopId && !map.has(ralphLoopId)) {
+        map.set(ralphLoopId, row.id)
+      }
+    }
+
+    return map
   }
 
   private getConfiguredBinaryPath() {

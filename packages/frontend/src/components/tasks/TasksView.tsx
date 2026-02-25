@@ -67,7 +67,12 @@ export function TasksView({ projectId }: TasksViewProps) {
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">Tasks</h2>
+        <div className="space-y-1">
+          <h2 className="text-xl font-semibold">Tasks</h2>
+          <p className="text-sm text-zinc-400">
+            This view shows all tasks managed by ralph orchestrator.
+          </p>
+        </div>
         <button
           className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={isLoading}

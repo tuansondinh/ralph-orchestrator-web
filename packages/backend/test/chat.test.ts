@@ -371,11 +371,11 @@ describe('chat tRPC routes', () => {
     const started = await caller.chat.startSession({
       projectId,
       type: 'plan',
-      backend: 'gemini'
+      backend: 'opencode'
     })
 
-    expect(started.backend).toBe('gemini')
-    expect(processManager.list()[0]?.args).toEqual(['plan', '--backend', 'gemini'])
+    expect(started.backend).toBe('opencode')
+    expect(processManager.list()[0]?.args).toEqual(['plan', '--backend', 'opencode'])
 
     await caller.chat.endSession({ sessionId: started.id })
   })

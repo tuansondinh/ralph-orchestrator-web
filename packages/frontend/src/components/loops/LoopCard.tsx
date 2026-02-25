@@ -61,7 +61,7 @@ export function LoopCard({
         onClick={() => onSelect(loop.id)}
       >
         <div className="flex items-center justify-between gap-2">
-          <p className="truncate font-medium text-zinc-100">{loop.id}</p>
+          <p className="truncate font-medium text-zinc-100">loop id: {loop.id}</p>
           <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300">
             {formatStateLabel(loop.state)}
           </span>

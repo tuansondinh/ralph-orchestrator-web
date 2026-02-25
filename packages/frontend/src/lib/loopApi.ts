@@ -1,5 +1,14 @@
 import { trpcClient } from '@/lib/trpc'
 
+export type LoopBackend =
+  | 'claude'
+  | 'kiro'
+  | 'gemini'
+  | 'codex'
+  | 'amp'
+  | 'copilot'
+  | 'opencode'
+
 export interface LoopSummary {
   id: string
   projectId: string
@@ -56,6 +65,7 @@ export interface StartLoopInput {
   prompt?: string
   promptSnapshot?: string
   promptFile?: string
+  backend?: LoopBackend
   exclusive?: boolean
   worktree?: string
 }

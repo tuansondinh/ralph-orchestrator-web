@@ -85,13 +85,13 @@ export function ProjectConfigView({ projectId }: ProjectConfigViewProps) {
   }
 
   return (
-    <section className="space-y-4 rounded-md border border-zinc-800 p-4">
+    <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto rounded-md border border-zinc-800 p-4 pb-8">
       <h2 className="text-xl font-semibold">Project settings</h2>
 
-      <label className="flex flex-col gap-1 text-sm" htmlFor="project-config-yaml">
+      <label className="flex min-h-0 flex-1 flex-col gap-1 text-sm" htmlFor="project-config-yaml">
         YAML configuration
         <textarea
-          className="h-[65vh] min-h-[28rem] rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100"
+          className="min-h-[24rem] w-full flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100"
           id="project-config-yaml"
           onChange={(event) => setYamlDraft(event.target.value)}
           value={yamlDraft}

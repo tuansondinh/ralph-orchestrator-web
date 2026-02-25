@@ -315,7 +315,7 @@ describe('ChatView', () => {
     render(<ChatView projectId="project-1" />)
 
     fireEvent.change(screen.getByLabelText('Session backend'), {
-      target: { value: 'gemini' }
+      target: { value: 'opencode' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'Start Session' }))
 
@@ -323,7 +323,7 @@ describe('ChatView', () => {
       expect(chatApi.startSession).toHaveBeenCalledWith({
         projectId: 'project-1',
         type: 'plan',
-        backend: 'gemini'
+        backend: 'opencode'
       })
     })
   })

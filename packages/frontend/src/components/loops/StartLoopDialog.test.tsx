@@ -86,6 +86,7 @@ describe('StartLoopDialog', () => {
     await waitFor(() => {
       expect(onStart).toHaveBeenCalledWith({
         prompt: 'Ship it',
+        backend: 'codex',
         exclusive: false,
         presetFilename: 'spec-driven.yml'
       })
@@ -111,6 +112,7 @@ describe('StartLoopDialog', () => {
     await waitFor(() => {
       expect(onStart).toHaveBeenCalledWith({
         prompt: 'Ship it',
+        backend: 'codex',
         exclusive: false,
         presetFilename: 'code-assist.yml'
       })
@@ -141,9 +143,33 @@ describe('StartLoopDialog', () => {
     await waitFor(() => {
       expect(onStart).toHaveBeenCalledWith({
         prompt: 'Ship with named branch',
+        backend: 'codex',
         exclusive: false,
         presetFilename: 'hatless-baseline.yml',
         worktree: 'feature-a'
+      })
+    })
+  })
+
+  it('starts with the selected backend override', async () => {
+    const onStart = vi.fn().mockResolvedValue(undefined)
+    render(<StartLoopDialog projectId="test-project-id" onStart={onStart} />)
+
+    await screen.findByLabelText('Preset')
+    fireEvent.change(screen.getByLabelText('Backend'), {
+      target: { value: 'opencode' }
+    })
+    fireEvent.change(screen.getByLabelText('PROMPT.md'), {
+      target: { value: 'Use opencode for this loop' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+
+    await waitFor(() => {
+      expect(onStart).toHaveBeenCalledWith({
+        prompt: 'Use opencode for this loop',
+        backend: 'opencode',
+        exclusive: false,
+        presetFilename: 'hatless-baseline.yml'
       })
     })
   })

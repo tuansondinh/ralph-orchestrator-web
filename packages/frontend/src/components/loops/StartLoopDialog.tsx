@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
-import type { StartLoopInput } from '@/lib/loopApi'
+import type { LoopBackend, StartLoopInput } from '@/lib/loopApi'
 import { presetApi, type PresetSummary } from '@/lib/presetApi'
 import { settingsApi } from '@/lib/settingsApi'
 import { worktreeApi, type WorktreeSummary } from '@/lib/worktreeApi'
@@ -47,12 +47,14 @@ export function StartLoopDialog({
   const [newWorktreeName, setNewWorktreeName] = useState('')
   const [defaultPreset, setDefaultPreset] = useState(FALLBACK_PRESET_FILENAME)
   const [selectedPreset, setSelectedPreset] = useState(FALLBACK_PRESET_FILENAME)
+  const [selectedBackend, setSelectedBackend] = useState<LoopBackend>('codex')
   const [exclusive, setExclusive] = useState(false)
 
   const resetForm = useCallback(() => {
     setPrompt(initialPrompt)
     setPromptDirty(false)
     setSelectedPreset(selectAvailablePreset(presets, defaultPreset))
+    setSelectedBackend('codex')
     setSelectedWorktree('')
     setNewWorktreeName('')
     setExclusive(false)
@@ -169,6 +171,7 @@ export function StartLoopDialog({
     try {
       const payload: StartLoopInput = {
         presetFilename: selectedPreset,
+        backend: selectedBackend,
         exclusive
       }
 
@@ -395,6 +398,31 @@ export function StartLoopDialog({
           <p className="text-xs text-zinc-400">
             On: wait for a single primary loop slot. Off: loop may run in a parallel
             worktree. Parallel worktrees auto-merge after completion by default.
+          </p>
+        </div>
+        <div className="space-y-1">
+          <label className="block text-xs uppercase text-zinc-400" htmlFor="loop-backend">
+            Backend
+          </label>
+          <select
+            id="loop-backend"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+            value={selectedBackend}
+            onChange={(event) => {
+              setSelectedBackend(event.target.value as LoopBackend)
+              setError(null)
+            }}
+          >
+            <option value="claude">claude</option>
+            <option value="kiro">kiro</option>
+            <option value="gemini">gemini</option>
+            <option value="codex">codex</option>
+            <option value="amp">amp</option>
+            <option value="copilot">copilot</option>
+            <option value="opencode">opencode</option>
+          </select>
+          <p className="text-xs text-zinc-500">
+            Overrides preset/auto backend for this loop run.
           </p>
         </div>
         {error ? <p className="text-sm text-red-400">{error}</p> : null}

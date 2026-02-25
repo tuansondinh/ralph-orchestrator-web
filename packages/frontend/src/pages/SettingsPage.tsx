@@ -134,7 +134,7 @@ export function SettingsPage() {
   }
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-6 pb-8">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="text-sm text-zinc-400">

@@ -18,7 +18,14 @@ type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND' | 'CONFLICT'
 type ChatState = 'active' | 'waiting' | 'completed'
 
 export type ChatSessionType = 'plan' | 'task' | 'loop'
-export type ChatSessionBackend = 'codex' | 'ralph' | 'gemini'
+export type ChatSessionBackend =
+  | 'claude'
+  | 'kiro'
+  | 'gemini'
+  | 'codex'
+  | 'amp'
+  | 'copilot'
+  | 'opencode'
 export type ChatRole = 'user' | 'assistant'
 const DEFAULT_CHAT_BACKEND: ChatSessionBackend = 'codex'
 

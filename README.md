@@ -13,9 +13,9 @@ This project uses the amazing Ralph-Orchestrator CLI: <https://github.com/mikeyo
 - Manage many code projects from one dashboard
 - Start Ralph loops with a preset + editable `PROMPT.md`
 - Stream loop output, state, and metrics in realtime
-- Run `ralph plan` / `ralph task` from the Terminal tab
-- Inspect app behavior in Preview
-- Review loop diffs in `Review Changes`
+- Run `ralph plan` / `ralph task` from the Terminal tab, to make a solid plan for ralph loop
+- Inspect app behavior in Preview (experimental)
+- Review loop diffs in `Review Changes` (experimental)
 - Get loop notifications (complete/fail)
 
 ## Screenshots
@@ -52,11 +52,6 @@ npm install
 npm run db:migrate -w @ralph-ui/backend
 npm run dev
 ```
-
-Package manager:
-- Use `npm` for this repository.
-- Lockfile/source of truth: `package-lock.json`.
-- `pnpm` artifacts are ignored and not part of the workflow.
 
 Open:
 - `http://localhost:5174`

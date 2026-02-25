@@ -6,6 +6,7 @@ const tabs = [
   { id: 'terminal', label: 'Terminal' },
   { id: 'monitor', label: 'Monitor' },
   { id: 'preview', label: 'Preview' },
+  { id: 'hats-presets', label: 'Hats presets' },
   { id: 'settings', label: 'Settings' }
 ]
 

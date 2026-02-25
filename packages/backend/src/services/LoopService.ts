@@ -154,6 +154,15 @@ const OUTPUT_ITERATION_PATTERNS = [
   /\biteration\s+(\d+)\b/gi,
   /\(iteration\s+(\d+)\)/gi
 ]
+const OUTPUT_TOKEN_PATTERNS = [
+  /\btotal[_\s-]*tokens?\s*[:=]\s*([0-9][0-9,._]*)\b/gi,
+  /\btokens?[_\s-]*used\s*[:=]\s*([0-9][0-9,._]*)\b/gi,
+  /\bprompt[_\s-]*tokens?\s*[:=]\s*([0-9][0-9,._]*)\b/gi,
+  /\bcompletion[_\s-]*tokens?\s*[:=]\s*([0-9][0-9,._]*)\b/gi,
+  /\binput[_\s-]*tokens?\s*[:=]\s*([0-9][0-9,._]*)\b/gi,
+  /\boutput[_\s-]*tokens?\s*[:=]\s*([0-9][0-9,._]*)\b/gi,
+  /\btokens?\s*[:=]\s*([0-9][0-9,._]*)\b/gi
+]
 
 const OUTPUT_EVENT_PREFIX = 'loop-output:'
 const STATE_EVENT_PREFIX = 'loop-state:'
@@ -244,6 +253,15 @@ function primaryLoopIdFromEventsPath(value: string) {
   }
 
   return `primary-${match[1]}-${match[2]}`
+}
+
+function eventsFileNameFromPrimaryLoopId(loopId: string) {
+  const match = PRIMARY_LOOP_ID_PATTERN.exec(loopId)
+  if (!match) {
+    return undefined
+  }
+
+  return `events-${match[1]}-${match[2]}.jsonl`
 }
 
 function primaryLoopIdFromTimestamp(timestamp: number | null | undefined) {
@@ -401,6 +419,33 @@ function extractIterationCandidates(text: string): number[] {
     while (match) {
       const parsed = Number.parseInt(match[1] ?? '', 10)
       if (Number.isFinite(parsed) && parsed >= 0) {
+        values.add(parsed)
+      }
+      match = pattern.exec(text)
+    }
+  }
+
+  return [...values.values()]
+}
+
+function parseMetricInteger(raw: string) {
+  const normalized = raw.replace(/[,_\s]/g, '')
+  const parsed = Number.parseInt(normalized, 10)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return undefined
+  }
+  return parsed
+}
+
+function extractTokenCandidates(text: string): number[] {
+  const values = new Set<number>()
+  for (const pattern of OUTPUT_TOKEN_PATTERNS) {
+    pattern.lastIndex = 0
+    let match: RegExpExecArray | null
+    match = pattern.exec(text)
+    while (match) {
+      const parsed = parseMetricInteger(match[1] ?? '')
+      if (parsed !== undefined) {
         values.add(parsed)
       }
       match = pattern.exec(text)
@@ -970,6 +1015,20 @@ export class LoopService {
           metrics.iterations = Math.max(metrics.iterations, fromOutputLog)
         }
       }
+
+      const tokensFromOutputLog = await this.readTokensFromLoopOutputLog(
+        project.path,
+        run.config
+      )
+      if (tokensFromOutputLog !== undefined) {
+        metrics.tokensUsed = Math.max(metrics.tokensUsed, tokensFromOutputLog)
+      }
+
+      const tokensFromEvents = await this.readTokensFromLoopEvents(project.path, run)
+      if (tokensFromEvents !== undefined) {
+        metrics.tokensUsed = Math.max(metrics.tokensUsed, tokensFromEvents)
+      }
+
       return metrics
     }
 
@@ -1072,6 +1131,109 @@ export class LoopService {
     }
 
     return maxIteration
+  }
+
+  private async readTokensFromLoopOutputLog(
+    projectPath: string,
+    config: string | null
+  ): Promise<number | undefined> {
+    const persistedConfig = parsePersistedConfig(config)
+    if (!persistedConfig.outputLogFile) {
+      return undefined
+    }
+
+    const outputPath = join(projectPath, persistedConfig.outputLogFile)
+    let raw: string
+    try {
+      raw = await readFile(outputPath, 'utf8')
+    } catch {
+      return undefined
+    }
+
+    let maxTokens: number | undefined
+    for (const line of raw.split(/\r?\n/)) {
+      if (!line) {
+        continue
+      }
+
+      const candidates = extractTokenCandidates(line)
+      for (const candidate of candidates) {
+        maxTokens = Math.max(maxTokens ?? 0, candidate)
+      }
+    }
+
+    return maxTokens
+  }
+
+  private canonicalRalphLoopIdForRun(run: LoopRun) {
+    const persistedConfig = parsePersistedConfig(run.config)
+    return (
+      asPrimaryLoopId(run.ralphLoopId) ??
+      asPrimaryLoopId(persistedConfig.ralphLoopId) ??
+      primaryLoopIdFromTimestamp(run.startedAt) ??
+      null
+    )
+  }
+
+  private async readTokensFromLoopEvents(
+    projectPath: string,
+    run: LoopRun
+  ): Promise<number | undefined> {
+    const loopId = this.canonicalRalphLoopIdForRun(run)
+    if (!loopId) {
+      return undefined
+    }
+
+    const eventsFileName = eventsFileNameFromPrimaryLoopId(loopId)
+    if (!eventsFileName) {
+      return undefined
+    }
+
+    const roots = await this.resolveLiveMetricRoots(projectPath, run)
+    let maxTokens: number | undefined
+    for (const root of roots) {
+      const fromRoot = await this.readTokensFromEventsFile(
+        join(root, '.ralph', eventsFileName)
+      )
+      if (fromRoot !== undefined) {
+        maxTokens = Math.max(maxTokens ?? 0, fromRoot)
+      }
+    }
+
+    return maxTokens
+  }
+
+  private async readTokensFromEventsFile(filePath: string): Promise<number | undefined> {
+    let raw: string
+    try {
+      raw = await readFile(filePath, 'utf8')
+    } catch {
+      return undefined
+    }
+
+    const metrics: Partial<LoopMetrics> = {}
+    for (const line of raw.split(/\r?\n/)) {
+      const normalized = line.trim()
+      if (!normalized) {
+        continue
+      }
+
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(normalized)
+      } catch {
+        continue
+      }
+
+      const entry = asRecord(parsed)
+      if (!entry) {
+        continue
+      }
+
+      this.applyMetricValue(metrics, 'event', entry)
+    }
+
+    return metrics.tokensUsed
   }
 
   subscribeOutput(loopId: string, cb: (chunk: OutputChunk) => void) {
@@ -1277,6 +1439,48 @@ export class LoopService {
         const endCommitConfig = await this.buildEndCommitConfig(run)
         if (endCommitConfig !== undefined) {
           updates.config = endCommitConfig
+        }
+
+        // Snapshot the latest persisted/live metrics before terminalizing the run,
+        // so loop cards keep the final token count after completion.
+        try {
+          const project = this.db
+            .select()
+            .from(projects)
+            .where(eq(projects.id, run.projectId))
+            .get()
+
+          const finalMetrics = await this.getMetrics(loopId)
+          const tokensFromOutputLog = project
+            ? await this.readTokensFromLoopOutputLog(project.path, run.config)
+            : undefined
+          const tokensFromEvents = project
+            ? await this.readTokensFromLoopEvents(project.path, run)
+            : undefined
+          const nextIterations = Math.max(
+            run.iterations,
+            runtime?.iterations ?? run.iterations,
+            finalMetrics.iterations
+          )
+          const nextTokensUsed = Math.max(
+            run.tokensUsed,
+            finalMetrics.tokensUsed,
+            tokensFromOutputLog ?? 0,
+            tokensFromEvents ?? 0
+          )
+          const nextErrors = Math.max(run.errors, finalMetrics.errors)
+
+          if (nextIterations > run.iterations) {
+            updates.iterations = nextIterations
+          }
+          if (nextTokensUsed > run.tokensUsed) {
+            updates.tokensUsed = nextTokensUsed
+          }
+          if (nextErrors > run.errors) {
+            updates.errors = nextErrors
+          }
+        } catch {
+          // Best effort: state transition should not fail if final metric snapshot fails.
         }
       }
     }

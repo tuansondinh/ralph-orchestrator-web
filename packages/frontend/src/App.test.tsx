@@ -263,6 +263,7 @@ describe('App', () => {
     expect(within(projectSections).getByRole('link', { name: 'Loops' })).toBeInTheDocument()
     expect(within(projectSections).getByRole('link', { name: 'Monitor' })).toBeInTheDocument()
     expect(within(projectSections).getByRole('link', { name: 'Preview' })).toBeInTheDocument()
+    expect(within(projectSections).getByRole('link', { name: 'Hats presets' })).toBeInTheDocument()
     expect(within(projectSections).getByRole('link', { name: 'Settings' })).toBeInTheDocument()
     expect(screen.getAllByRole('link', { name: 'Global settings' }).length).toBeGreaterThan(0)
   })

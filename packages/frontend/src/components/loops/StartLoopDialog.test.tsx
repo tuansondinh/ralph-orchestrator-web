@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StartLoopDialog } from '@/components/loops/StartLoopDialog'
 import { presetApi } from '@/lib/presetApi'
@@ -27,6 +28,13 @@ vi.mock('@/lib/worktreeApi', () => ({
 }))
 
 describe('StartLoopDialog', () => {
+  const renderDialog = (props: Parameters<typeof StartLoopDialog>[0]) =>
+    render(
+      <MemoryRouter>
+        <StartLoopDialog {...props} />
+      </MemoryRouter>
+    )
+
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(presetApi.list).mockResolvedValue([
@@ -52,7 +60,7 @@ describe('StartLoopDialog', () => {
   it('loads presets, lets the user save a new default, and starts with selected preset', async () => {
     const onStart = vi.fn().mockResolvedValue(undefined)
     const projectId = 'test-project-id'
-    render(<StartLoopDialog projectId={projectId} onStart={onStart} />)
+    renderDialog({ projectId, onStart })
 
     await waitFor(() => {
       expect(presetApi.list).toHaveBeenCalledWith(projectId)
@@ -62,11 +70,19 @@ describe('StartLoopDialog', () => {
         'On: wait for a single primary loop slot. Off: loop may run in a parallel worktree. Parallel worktrees auto-merge after completion by default.'
       )
     ).toBeInTheDocument()
-    expect(await screen.findByLabelText('Preset')).toHaveValue('hatless-baseline.yml')
+    expect(await screen.findByLabelText('Hats preset')).toHaveValue('hatless-baseline.yml')
+    expect(screen.getByRole('link', { name: 'see hats presets config' })).toHaveAttribute(
+      'href',
+      '/project/test-project-id/hats-presets'
+    )
     expect(screen.getByLabelText('AI-BACKEND')).toHaveValue('auto')
+    expect(screen.getByLabelText('PROMPT.md')).toHaveAttribute(
+      'placeholder',
+      'PUT YOUR PROMPT IN HERE'
+    )
     expect(screen.getByText('Current default: hatless-baseline.yml')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Preset'), {
+    fireEvent.change(screen.getByLabelText('Hats preset'), {
       target: { value: 'spec-driven.yml' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'Save default preset' }))
@@ -96,14 +112,14 @@ describe('StartLoopDialog', () => {
   it('falls back to first available preset when default preset is unavailable', async () => {
     vi.mocked(settingsApi.getDefaultPreset).mockResolvedValue('missing-default.yml')
     const onStart = vi.fn().mockResolvedValue(undefined)
-    render(<StartLoopDialog projectId="test-project-id" onStart={onStart} />)
+    renderDialog({ projectId: 'test-project-id', onStart })
 
     expect(
       await screen.findByText(
         'Default preset "missing-default.yml" is unavailable. Using "code-assist.yml" for this run.'
       )
     ).toBeInTheDocument()
-    expect(screen.getByLabelText('Preset')).toHaveValue('code-assist.yml')
+    expect(screen.getByLabelText('Hats preset')).toHaveValue('code-assist.yml')
     fireEvent.change(screen.getByLabelText('PROMPT.md'), {
       target: { value: 'Ship it' }
     })
@@ -120,9 +136,9 @@ describe('StartLoopDialog', () => {
 
   it('creates and selects a named worktree for the next run', async () => {
     const onStart = vi.fn().mockResolvedValue(undefined)
-    render(<StartLoopDialog projectId="test-project-id" onStart={onStart} />)
+    renderDialog({ projectId: 'test-project-id', onStart })
 
-    await screen.findByLabelText('Preset')
+    await screen.findByLabelText('Hats preset')
     fireEvent.change(screen.getByPlaceholderText('New worktree name'), {
       target: { value: 'feature-a' }
     })
@@ -151,9 +167,9 @@ describe('StartLoopDialog', () => {
 
   it('starts with the selected backend override', async () => {
     const onStart = vi.fn().mockResolvedValue(undefined)
-    render(<StartLoopDialog projectId="test-project-id" onStart={onStart} />)
+    renderDialog({ projectId: 'test-project-id', onStart })
 
-    await screen.findByLabelText('Preset')
+    await screen.findByLabelText('Hats preset')
     fireEvent.change(screen.getByLabelText('AI-BACKEND'), {
       target: { value: 'opencode' }
     })

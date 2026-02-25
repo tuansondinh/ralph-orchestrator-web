@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { LoopBackend, StartLoopInput } from '@/lib/loopApi'
 import { presetApi, type PresetSummary } from '@/lib/presetApi'
 import { settingsApi } from '@/lib/settingsApi'
@@ -24,6 +25,8 @@ function selectAvailablePreset(presets: PresetSummary[], preferred: string) {
 
   return presets[0]?.filename ?? ''
 }
+
+const PROMPT_HINT_PLACEHOLDER = 'PUT YOUR PROMPT IN HERE'
 
 export function StartLoopDialog({
   projectId,
@@ -267,6 +270,7 @@ export function StartLoopDialog({
             id="loop-prompt"
             className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
             rows={8}
+            placeholder={PROMPT_HINT_PLACEHOLDER}
             value={prompt}
             onBlur={() => {
               if (!promptDirty || !onPromptSave) {
@@ -303,9 +307,17 @@ export function StartLoopDialog({
           ) : null}
         </div>
         <div className="space-y-1">
-          <label className="block text-xs uppercase text-zinc-400" htmlFor="loop-preset">
-            Preset
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="block text-xs uppercase text-zinc-400" htmlFor="loop-preset">
+              Hats preset
+            </label>
+            <Link
+              className="text-xs text-zinc-300 underline underline-offset-2 hover:text-zinc-100"
+              to={`/project/${projectId}/hats-presets`}
+            >
+              see hats presets config
+            </Link>
+          </div>
           <select
             id="loop-preset"
             className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
@@ -326,7 +338,7 @@ export function StartLoopDialog({
                 </option>
                 {presets.map((preset) => (
                   <option key={preset.filename} value={preset.filename}>
-                    {preset.name}
+                    {preset.filename}
                   </option>
                 ))}
               </>

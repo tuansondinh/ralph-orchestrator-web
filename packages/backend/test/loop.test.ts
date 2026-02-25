@@ -60,6 +60,7 @@ async function createMockRalphBinary(
     currentEventsLoopId?: string
     eventLoopId?: string
     eventLoopIdSnake?: string
+    outputTokenCount?: number
     emitIterationEvents?: boolean
     outputIterationHeader?: boolean
   } = {}
@@ -71,6 +72,9 @@ async function createMockRalphBinary(
   const currentEventsLoopId = options.currentEventsLoopId ?? ''
   const eventLoopId = options.eventLoopId ?? ''
   const eventLoopIdSnake = options.eventLoopIdSnake ?? ''
+  const outputTokenCount = Number.isFinite(options.outputTokenCount)
+    ? Number(options.outputTokenCount)
+    : 0
   const emitIterationEvents = options.emitIterationEvents !== false
   const outputIterationHeader = options.outputIterationHeader === true
   const script = `#!/usr/bin/env node
@@ -84,6 +88,7 @@ const markerLoopId = ${JSON.stringify(markerLoopId)}
 const currentEventsLoopId = ${JSON.stringify(currentEventsLoopId)}
 const eventLoopId = ${JSON.stringify(eventLoopId)}
 const eventLoopIdSnake = ${JSON.stringify(eventLoopIdSnake)}
+const outputTokenCount = ${outputTokenCount}
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const pidFile = join(scriptDir, 'mock-ralph.pid')
 const stopArgsFile = join(scriptDir, 'mock-ralph-stop-args.log')
@@ -145,6 +150,9 @@ const timer = setInterval(() => {
   process.stdout.write(\`tick-\${iteration}\\n\`)
   if (outputIterationHeader) {
     process.stdout.write(\` ITERATION \${iteration} | ? ralph | \${iteration}s elapsed | \${iteration}/100\\n\`)
+  }
+  if (outputTokenCount > 0) {
+    process.stdout.write(\`Total tokens: \${outputTokenCount}\\n\`)
   }
   if (emitIterationEvents) {
     const payload = {"iteration":eventIteration,"sourceHat":"builder"}
@@ -265,6 +273,7 @@ describe('loop tRPC routes', () => {
       currentEventsLoopId?: string
       eventLoopId?: string
       eventLoopIdSnake?: string
+      outputTokenCount?: number
       emitIterationEvents?: boolean
       outputIterationHeader?: boolean
     } = {}
@@ -284,6 +293,7 @@ describe('loop tRPC routes', () => {
       currentEventsLoopId: options.currentEventsLoopId,
       eventLoopId: options.eventLoopId,
       eventLoopIdSnake: options.eventLoopIdSnake,
+      outputTokenCount: options.outputTokenCount,
       emitIterationEvents: options.emitIterationEvents,
       outputIterationHeader: options.outputIterationHeader
     })
@@ -808,7 +818,10 @@ describe('loop tRPC routes', () => {
     })
 
     const stopSpy = vi.fn(
-      async (_input: { binaryPath: string; loopId: string; cwd: string }) => undefined
+      async (input: { binaryPath: string; loopId: string; cwd: string }) => {
+        void input
+        return undefined
+      }
     )
     const detachedLoopService = new LoopService(connection.db, processManager, {
       resolveBinary: async () => binaryPath,
@@ -883,6 +896,76 @@ describe('loop tRPC routes', () => {
     expect(listed[0]?.state).toBe('completed')
     expect(listed[0]?.iterations).toBeGreaterThanOrEqual(2)
     expect(listed[0]?.currentHat).toBe('builder')
+  })
+
+  it('persists final token usage when a loop transitions to completed', async () => {
+    const { caller, connection, tempDir } = await setupCaller({
+      emitIterationEvents: false
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const metricsDir = join(projectPath, '.agent', 'metrics')
+    await mkdir(metricsDir, { recursive: true })
+    await writeFile(join(metricsDir, 'tokens_used'), '4321\n', 'utf8')
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'exit-fast'
+    })
+
+    await waitFor(() => {
+      const row = connection.db
+        .select()
+        .from(loopRuns)
+        .where(eq(loopRuns.id, started.id))
+        .get()
+      return row?.state === 'completed'
+    })
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+    expect(persisted?.tokensUsed).toBe(4321)
+
+    const listed = await caller.loop.list({ projectId })
+    expect(listed[0]?.tokensUsed).toBe(4321)
+  })
+
+  it('captures final token usage from loop output logs when metrics files are absent', async () => {
+    const { caller, connection, tempDir } = await setupCaller({
+      emitIterationEvents: false,
+      outputTokenCount: 9876
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'exit-fast'
+    })
+
+    await waitFor(() => {
+      const row = connection.db
+        .select()
+        .from(loopRuns)
+        .where(eq(loopRuns.id, started.id))
+        .get()
+      return row?.state === 'completed'
+    })
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+    expect(persisted?.tokensUsed).toBe(9876)
+
+    const metrics = await caller.loop.getMetrics({ loopId: started.id })
+    expect(metrics.tokensUsed).toBe(9876)
   })
 
   it('reads loop metrics from .agent/metrics files', async () => {

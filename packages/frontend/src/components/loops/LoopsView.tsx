@@ -170,6 +170,19 @@ export function LoopsView({ projectId }: LoopsViewProps) {
     [setMetrics]
   )
 
+  const refreshLoopMetrics = useCallback(
+    async (loopId: string) => {
+      const metrics = await loopApi.getMetrics(loopId)
+      setMetrics(loopId, metrics)
+      updateLoopById(loopId, {
+        iterations: metrics.iterations,
+        tokensUsed: metrics.tokensUsed,
+        errors: metrics.errors
+      })
+    },
+    [setMetrics, updateLoopById]
+  )
+
   useEffect(() => {
     if (!selectedLoop) {
       return
@@ -259,19 +272,41 @@ export function LoopsView({ projectId }: LoopsViewProps) {
         existingLoop?.iterations ?? 0,
         existingMetrics?.iterations ?? 0
       )
+      const fallbackTokens = Math.max(
+        existingLoop?.tokensUsed ?? 0,
+        existingMetrics?.tokensUsed ?? 0
+      )
+      const fallbackErrors = Math.max(
+        existingLoop?.errors ?? 0,
+        existingMetrics?.errors ?? 0
+      )
       const nextIterations =
         typeof message.iterations === 'number'
           ? Math.max(fallbackIterations, Math.max(0, Math.floor(message.iterations)))
+          : undefined
+      const nextTokensUsed =
+        typeof message.tokensUsed === 'number'
+          ? Math.max(fallbackTokens, Math.max(0, Math.floor(message.tokensUsed)))
+          : undefined
+      const nextErrors =
+        typeof message.errors === 'number'
+          ? Math.max(fallbackErrors, Math.max(0, Math.floor(message.errors)))
           : undefined
       updateLoopById(message.loopId, {
         state: nextState,
         currentHat: typeof message.currentHat === 'string' ? message.currentHat : null,
         iterations: nextIterations,
+        tokensUsed: nextTokensUsed,
+        errors: nextErrors,
         endedAt: typeof message.endedAt === 'number' ? message.endedAt : null,
         processId: nextState === 'running' ? undefined : null
       })
+
+      if (nextState !== 'running') {
+        void refreshLoopMetrics(message.loopId).catch(() => {})
+      }
     },
-    [appendOutput, loops, metricsByLoop, setMetrics, updateLoopById]
+    [appendOutput, loops, metricsByLoop, refreshLoopMetrics, setMetrics, updateLoopById]
   )
 
   const { isConnected } = useWebSocket({

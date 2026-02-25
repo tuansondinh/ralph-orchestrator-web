@@ -1,10 +1,9 @@
+import { homedir } from 'node:os'
 import { access, readdir, readFile } from 'node:fs/promises'
 import {
   basename,
   dirname,
   extname,
-  isAbsolute,
-  join,
   relative,
   resolve,
   sep
@@ -18,6 +17,24 @@ const DEFAULT_PRESET_DIRECTORY = resolve(
   dirname(fileURLToPath(import.meta.url)),
   '../../presets'
 )
+
+function defaultPresetDirectories() {
+  const envOverride = process.env.RALPH_UI_HATS_PRESETS_DIR?.trim()
+  const hatsCandidates = [
+    envOverride && envOverride.length > 0 ? envOverride : null,
+    resolve(homedir(), 'Workspace', 'ralph-orchestrator', 'presets'),
+    resolve(homedir(), 'Documents', 'ralph-orchestrator', 'presets')
+  ]
+
+  const deduped = new Set<string>([resolve(DEFAULT_PRESET_DIRECTORY)])
+  for (const candidate of hatsCandidates) {
+    if (candidate) {
+      deduped.add(resolve(candidate))
+    }
+  }
+
+  return Array.from(deduped)
+}
 
 export interface PresetSummary {
   name: string
@@ -43,21 +60,66 @@ function toPresetName(filename: string) {
   return filename.slice(0, filename.length - extension.length)
 }
 
+function toPosixPath(path: string) {
+  return path.split(sep).join('/')
+}
+
+function isSafeRelativePath(path: string) {
+  return Boolean(
+    path &&
+      path !== '..' &&
+      !path.startsWith(`..${sep}`) &&
+      !path.startsWith('../')
+  )
+}
+
+function normalizePresetFilename(filename: string) {
+  const normalized = filename.trim().replace(/\\/g, '/')
+  if (!normalized || !isYamlFilename(normalized)) {
+    return null
+  }
+
+  const parts = normalized.split('/')
+  if (
+    normalized.startsWith('/') ||
+    parts.some((part) => part.length === 0 || part === '.' || part === '..')
+  ) {
+    return null
+  }
+
+  return normalized
+}
+
 export class PresetService {
-  constructor(private readonly presetDirectory = DEFAULT_PRESET_DIRECTORY) {}
+  private readonly presetDirectories: string[]
+
+  constructor(presetDirectories: string | string[] = defaultPresetDirectories()) {
+    const directories = Array.isArray(presetDirectories)
+      ? presetDirectories
+      : [presetDirectories]
+    this.presetDirectories = directories.map((directory) => resolve(directory))
+  }
 
   async list(): Promise<PresetSummary[]> {
-    const entries = await readdir(this.presetDirectory, { withFileTypes: true })
+    const presetsByFilename = new Map<string, PresetSummary>()
 
-    return entries
-      .filter((entry) => entry.isFile())
-      .map((entry) => entry.name)
-      .filter((name) => isYamlFilename(name))
-      .sort((left, right) => left.localeCompare(right))
-      .map((filename) => ({
-        name: toPresetName(filename),
-        filename
-      }))
+    for (const presetDirectory of this.presetDirectories) {
+      const filenames = await this.collectPresetFilenames(presetDirectory)
+      for (const filename of filenames) {
+        if (presetsByFilename.has(filename)) {
+          continue
+        }
+
+        presetsByFilename.set(filename, {
+          name: toPresetName(basename(filename)),
+          filename
+        })
+      }
+    }
+
+    return Array.from(presetsByFilename.values()).sort((left, right) =>
+      left.filename.localeCompare(right.filename)
+    )
   }
 
   async listForProject(projectConfig?: {
@@ -81,19 +143,26 @@ export class PresetService {
   }
 
   async get(filename: string, projectPath?: string) {
-    const presetPath = await this.resolvePath(filename, projectPath)
+    const normalized = normalizePresetFilename(filename)
+    if (!normalized) {
+      throw new PresetServiceError(
+        'BAD_REQUEST',
+        `Invalid preset filename: ${filename}`
+      )
+    }
+
+    const presetPath = await this.resolvePath(normalized, projectPath)
     const content = await readFile(presetPath, 'utf8')
 
     return {
-      filename: basename(presetPath),
+      filename: normalized,
       content
     }
   }
 
   async resolvePath(filename: string, projectPath?: string) {
-    const normalized = filename.trim()
-
-    if (!normalized || !isYamlFilename(normalized)) {
+    const normalized = normalizePresetFilename(filename)
+    if (!normalized) {
       throw new PresetServiceError(
         'BAD_REQUEST',
         `Invalid preset filename: ${filename}`
@@ -102,22 +171,10 @@ export class PresetService {
 
     // Try resolving as a project-specific config first if projectPath is provided
     if (projectPath) {
-      if (isAbsolute(normalized)) {
-        throw new PresetServiceError(
-          'BAD_REQUEST',
-          `Invalid preset filename: ${filename}`
-        )
-      }
-
       const projectRoot = resolve(projectPath)
       const projectSpecificPath = resolve(projectRoot, normalized)
       const relativeProjectPath = relative(projectRoot, projectSpecificPath)
-      if (
-        !relativeProjectPath ||
-        relativeProjectPath.startsWith(`..${sep}`) ||
-        relativeProjectPath === '..' ||
-        isAbsolute(relativeProjectPath)
-      ) {
+      if (!isSafeRelativePath(relativeProjectPath)) {
         throw new PresetServiceError(
           'BAD_REQUEST',
           `Invalid preset filename: ${filename}`
@@ -132,33 +189,57 @@ export class PresetService {
       }
     }
 
-    if (normalized !== basename(normalized)) {
-      throw new PresetServiceError(
-        'BAD_REQUEST',
-        `Invalid preset filename: ${filename}`
-      )
+    for (const presetDirectory of this.presetDirectories) {
+      const resolvedPresetPath = resolve(presetDirectory, normalized)
+      const relativePath = relative(presetDirectory, resolvedPresetPath)
+      if (!isSafeRelativePath(relativePath)) {
+        continue
+      }
+
+      try {
+        await access(resolvedPresetPath)
+        return resolvedPresetPath
+      } catch {
+        // Try the next configured presets directory.
+      }
     }
 
-    const fullPath = join(this.presetDirectory, normalized)
-    const resolvedPresetPath = resolve(fullPath)
-    const resolvedPresetDirectory = resolve(this.presetDirectory)
-    const relativePath = relative(resolvedPresetDirectory, resolvedPresetPath)
-    if (relativePath.startsWith('..')) {
-      throw new PresetServiceError(
-        'BAD_REQUEST',
-        `Invalid preset filename: ${filename}`
-      )
+    throw new PresetServiceError(
+      'NOT_FOUND',
+      `Preset not found: ${normalized}`
+    )
+  }
+
+  private async collectPresetFilenames(presetDirectory: string) {
+    const filenames: string[] = []
+
+    const visit = async (currentDirectory: string) => {
+      const entries = await readdir(currentDirectory, { withFileTypes: true })
+      for (const entry of entries) {
+        const entryPath = resolve(currentDirectory, entry.name)
+        if (entry.isDirectory()) {
+          await visit(entryPath)
+          continue
+        }
+
+        if (!entry.isFile() || !isYamlFilename(entry.name)) {
+          continue
+        }
+
+        const relativePath = relative(presetDirectory, entryPath)
+        if (!isSafeRelativePath(relativePath)) {
+          continue
+        }
+
+        filenames.push(toPosixPath(relativePath))
+      }
     }
 
     try {
-      await access(resolvedPresetPath)
+      await visit(presetDirectory)
+      return filenames.sort((left, right) => left.localeCompare(right))
     } catch {
-      throw new PresetServiceError(
-        'NOT_FOUND',
-        `Preset not found: ${normalized}`
-      )
+      return []
     }
-
-    return resolvedPresetPath
   }
 }

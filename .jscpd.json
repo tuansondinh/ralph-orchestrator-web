@@ -24,6 +24,10 @@
     "**/.ralph/**",
     "**/.ralph-ui/**",
     "**/.worktrees/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/**",
+    "packages/backend/presets/**",
     "**/*.d.ts",
     "packages/*/vite.config.js",
     "packages/*/vitest.config.js"

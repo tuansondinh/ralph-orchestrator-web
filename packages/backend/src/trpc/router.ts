@@ -9,6 +9,10 @@ import { MonitoringServiceError } from '../services/MonitoringService.js'
 import { DevPreviewManagerError } from '../services/DevPreviewManager.js'
 import { SettingsService, SettingsServiceError } from '../services/SettingsService.js'
 import { PresetService, PresetServiceError } from '../services/PresetService.js'
+import {
+  HatsPresetService,
+  HatsPresetServiceError
+} from '../services/HatsPresetService.js'
 import { TerminalServiceError } from '../services/TerminalService.js'
 import { TaskService, TaskServiceError } from '../services/TaskService.js'
 import {
@@ -27,6 +31,7 @@ function asTRPCError(error: unknown): never {
     error instanceof DevPreviewManagerError ||
     error instanceof SettingsServiceError ||
     error instanceof PresetServiceError ||
+    error instanceof HatsPresetServiceError ||
     error instanceof TerminalServiceError ||
     error instanceof TaskServiceError
   ) {
@@ -529,6 +534,21 @@ const presetsRouter = t.router({
     })
 })
 
+const hatsPresetsRouter = t.router({
+  list: t.procedure.query(() =>
+    new HatsPresetService().list().catch((error) => asTRPCError(error))
+  ),
+  get: t.procedure
+    .input(
+      z.object({
+        id: z.string().trim().min(1)
+      })
+    )
+    .query(({ input }) =>
+      new HatsPresetService().get(input.id).catch((error) => asTRPCError(error))
+    )
+})
+
 const previewSettingsRouter = t.router({
   get: t.procedure.query(({ ctx }) =>
     new SettingsService(ctx.db)
@@ -819,6 +839,7 @@ export const appRouter = t.router({
   previewSettings: previewSettingsRouter,
   notification: notificationRouter,
   presets: presetsRouter,
+  hatsPresets: hatsPresetsRouter,
   settings: settingsRouter,
   terminal: terminalRouter,
   ralph: ralphRouter

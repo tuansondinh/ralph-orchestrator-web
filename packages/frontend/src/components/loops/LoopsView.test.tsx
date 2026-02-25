@@ -221,7 +221,7 @@ describe('LoopsView', () => {
     fireEvent.change(screen.getByLabelText('PROMPT.md'), {
       target: { value: 'Ship it' }
     })
-    expect(await screen.findByDisplayValue('hatless-baseline')).toBeInTheDocument()
+    expect(await screen.findByDisplayValue('hatless-baseline.yml')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Start' }))
 
     await waitFor(() => {
@@ -368,6 +368,56 @@ describe('LoopsView', () => {
       expect(latest.channels).toContain('loop:loop-2:state')
       expect(latest.channels).toContain('loop:loop-2:metrics')
     })
+  })
+
+  it('refreshes final metrics on loop completion so token totals remain visible', async () => {
+    vi.mocked(loopApi.list).mockResolvedValue([baseLoop])
+
+    let metricRequestCount = 0
+    vi.mocked(loopApi.getMetrics).mockImplementation(async () => {
+      metricRequestCount += 1
+      if (metricRequestCount >= 2) {
+        return {
+          ...metrics,
+          iterations: 10,
+          runtime: 50,
+          tokensUsed: 777,
+          errors: 0
+        }
+      }
+
+      return {
+        ...metrics,
+        iterations: 9,
+        runtime: 45,
+        tokensUsed: 0,
+        errors: 0
+      }
+    })
+
+    renderLoopsView()
+
+    const socket = await waitFor(() => {
+      const current = MockWebSocket.instances[0]
+      expect(current).toBeDefined()
+      return current
+    })
+
+    socket?.emitMessage({
+      type: 'loop.state',
+      channel: 'loop:loop-1:state',
+      loopId: 'loop-1',
+      state: 'completed',
+      currentHat: 'builder',
+      iterations: 10,
+      endedAt: fixedNow
+    })
+
+    await waitFor(() => {
+      expect(loopApi.getMetrics).toHaveBeenCalled()
+      expect(metricRequestCount).toBeGreaterThanOrEqual(2)
+    })
+    expect((await screen.findAllByText('Tokens: 777')).length).toBeGreaterThan(0)
   })
 
   it('shows loading skeleton while loop list is fetching', async () => {

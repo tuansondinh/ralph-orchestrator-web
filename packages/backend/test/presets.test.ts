@@ -157,6 +157,28 @@ describe('preset features', () => {
     ])
   })
 
+  it('lists and resolves nested YAML presets from subdirectories', async () => {
+    const tempDir = await createTempDir('preset-nested')
+    tempDirs.push(tempDir)
+
+    await mkdir(join(tempDir, 'minimal'), { recursive: true })
+    await writeFile(join(tempDir, 'minimal', 'default.yml'), 'model: gpt-5\n', 'utf8')
+
+    const service = new PresetService(tempDir)
+    await expect(service.list()).resolves.toEqual([
+      {
+        filename: 'minimal/default.yml',
+        name: 'default'
+      }
+    ])
+    await expect(service.resolvePath('minimal/default.yml')).resolves.toBe(
+      join(tempDir, 'minimal', 'default.yml')
+    )
+    await expect(service.get('minimal/default.yml')).resolves.toMatchObject({
+      filename: 'minimal/default.yml'
+    })
+  })
+
   it('exposes presets and default preset settings via tRPC', async () => {
     const { caller } = await setupCaller()
 

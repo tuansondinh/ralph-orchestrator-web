@@ -159,6 +159,8 @@ function asStateMessage(loopId: string, loop: LoopSummary | null) {
     state: loop?.state ?? 'unknown',
     currentHat: loop?.currentHat ?? null,
     iterations: loop?.iterations ?? 0,
+    tokensUsed: loop?.tokensUsed ?? 0,
+    errors: loop?.errors ?? 0,
     endedAt: loop?.endedAt ?? null
   }
 }

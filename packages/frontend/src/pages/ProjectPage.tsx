@@ -4,13 +4,23 @@ import { TabBar } from '@/components/layout/TabBar'
 import { LoopsView } from '@/components/loops/LoopsView'
 import { MonitorView } from '@/components/monitor/MonitorView'
 import { PreviewView } from '@/components/preview/PreviewView'
+import { HatsPresetsView } from '@/components/project/HatsPresetsView'
 import { ProjectHeader } from '@/components/project/ProjectHeader'
 import { ProjectConfigView } from '@/components/project/ProjectConfigView'
 import { TasksView } from '@/components/tasks/TasksView'
 import { TerminalView } from '@/components/terminal/TerminalView'
 import { useProjectStore } from '@/stores/projectStore'
 
-const validTabs = ['loops', 'chat', 'tasks', 'terminal', 'monitor', 'preview', 'settings'] as const
+const validTabs = [
+  'loops',
+  'chat',
+  'tasks',
+  'terminal',
+  'monitor',
+  'preview',
+  'hats-presets',
+  'settings'
+] as const
 type TabKey = (typeof validTabs)[number]
 
 function isTabKey(value: string | undefined): value is TabKey {
@@ -54,6 +64,8 @@ export function ProjectPage() {
         <MonitorView projectId={project.id} />
       ) : tab === 'preview' ? (
         <PreviewView projectId={project.id} />
+      ) : tab === 'hats-presets' ? (
+        <HatsPresetsView projectId={project.id} />
       ) : (
         <ProjectConfigView projectId={project.id} />
       )}

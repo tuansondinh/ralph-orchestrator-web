@@ -187,4 +187,32 @@ describe('StartLoopDialog', () => {
       })
     })
   })
+
+  it('displays ralph.yml as custom user setting in hats preset selection', async () => {
+    vi.mocked(presetApi.list).mockResolvedValue([
+      { name: 'custom preset from settings', filename: 'ralph.yml' },
+      { name: 'spec-driven', filename: 'spec-driven.yml' }
+    ])
+    vi.mocked(settingsApi.getDefaultPreset).mockResolvedValue('ralph.yml')
+
+    const onStart = vi.fn().mockResolvedValue(undefined)
+    renderDialog({ projectId: 'test-project-id', onStart })
+
+    expect(await screen.findByLabelText('Hats preset')).toHaveValue('ralph.yml')
+    expect(screen.getByRole('option', { name: 'Custom user setting' })).toBeInTheDocument()
+    expect(screen.getByText('Current default: Custom user setting')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('PROMPT.md'), {
+      target: { value: 'Ship with custom settings' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+
+    await waitFor(() => {
+      expect(onStart).toHaveBeenCalledWith({
+        prompt: 'Ship with custom settings',
+        exclusive: true,
+        presetFilename: 'ralph.yml'
+      })
+    })
+  })
 })

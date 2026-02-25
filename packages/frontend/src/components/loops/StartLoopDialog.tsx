@@ -15,6 +15,7 @@ interface StartLoopDialogProps {
 
 const FALLBACK_PRESET_FILENAME = 'hatless-baseline.yml'
 type BackendSelection = 'auto' | LoopBackend
+const CUSTOM_USER_SETTING_LABEL = 'Custom user setting'
 
 function selectAvailablePreset(presets: PresetSummary[], preferred: string) {
   const normalizedPreferred = preferred.trim()
@@ -27,6 +28,15 @@ function selectAvailablePreset(presets: PresetSummary[], preferred: string) {
 }
 
 const PROMPT_HINT_PLACEHOLDER = 'PUT YOUR PROMPT IN HERE'
+
+function formatPresetDisplayName(filename: string) {
+  const normalized = filename.trim().toLowerCase()
+  if (normalized === 'ralph.yml' || normalized === 'ralph.yaml') {
+    return CUSTOM_USER_SETTING_LABEL
+  }
+
+  return filename
+}
 
 export function StartLoopDialog({
   projectId,
@@ -338,13 +348,15 @@ export function StartLoopDialog({
                 </option>
                 {presets.map((preset) => (
                   <option key={preset.filename} value={preset.filename}>
-                    {preset.filename}
+                    {formatPresetDisplayName(preset.filename)}
                   </option>
                 ))}
               </>
             )}
           </select>
-          <p className="text-xs text-zinc-400">Current default: {defaultPreset}</p>
+          <p className="text-xs text-zinc-400">
+            Current default: {formatPresetDisplayName(defaultPreset)}
+          </p>
           <button
             className="rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
             type="button"

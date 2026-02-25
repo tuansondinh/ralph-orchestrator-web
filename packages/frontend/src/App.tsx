@@ -3,6 +3,7 @@ import {
   BrowserRouter,
   Link,
   Navigate,
+  useParams,
   Route,
   Routes,
   useLocation,
@@ -22,6 +23,70 @@ import { ProjectPage } from '@/pages/ProjectPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import type { ProjectRecord } from '@/lib/projectApi'
 import { useProjectStore } from '@/stores/projectStore'
+
+const LAST_PROJECT_TAB_STORAGE_KEY = 'ralph-ui.last-project-tabs'
+const rememberedProjectTabs = [
+  'loops',
+  'tasks',
+  'terminal',
+  'monitor',
+  'preview',
+  'hats-presets',
+  'settings'
+] as const
+type RememberedProjectTab = (typeof rememberedProjectTabs)[number]
+
+function isRememberedProjectTab(value: string | undefined): value is RememberedProjectTab {
+  return Boolean(value && rememberedProjectTabs.includes(value as RememberedProjectTab))
+}
+
+function readLastProjectTabs() {
+  try {
+    const raw = window.localStorage.getItem(LAST_PROJECT_TAB_STORAGE_KEY)
+    if (!raw) {
+      return {} as Record<string, RememberedProjectTab>
+    }
+
+    const parsed = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) {
+      return {} as Record<string, RememberedProjectTab>
+    }
+
+    const next: Record<string, RememberedProjectTab> = {}
+    for (const [projectId, tab] of Object.entries(parsed)) {
+      const parsedTab = typeof tab === 'string' ? tab : undefined
+      if (typeof projectId === 'string' && isRememberedProjectTab(parsedTab)) {
+        next[projectId] = parsedTab
+      }
+    }
+
+    return next
+  } catch {
+    return {} as Record<string, RememberedProjectTab>
+  }
+}
+
+function getPreferredProjectTab(
+  projectId: string,
+  lastProjectTabById: Record<string, RememberedProjectTab>
+) {
+  return lastProjectTabById[projectId] ?? readLastProjectTabs()[projectId] ?? 'loops'
+}
+
+function ProjectIndexRedirect({
+  lastProjectTabById
+}: {
+  lastProjectTabById: Record<string, RememberedProjectTab>
+}) {
+  const params = useParams()
+  const projectId = params.id
+  if (!projectId) {
+    return <Navigate replace to="/" />
+  }
+
+  const tab = getPreferredProjectTab(projectId, lastProjectTabById)
+  return <Navigate replace to={`/project/${projectId}/${tab}`} />
+}
 
 function HomePage({
   onProjectCreated,
@@ -54,6 +119,8 @@ function AppRoutes() {
   const navigate = useNavigate()
   const location = useLocation()
   const [isQuickSwitcherOpen, setIsQuickSwitcherOpen] = useState(false)
+  const [lastProjectTabById, setLastProjectTabById] =
+    useState<Record<string, RememberedProjectTab>>(() => readLastProjectTabs())
   const projects = useProjectStore((state) => state.projects)
   const activeProjectId = useProjectStore((state) => state.activeProjectId)
   const setActiveProject = useProjectStore((state) => state.setActiveProject)
@@ -69,14 +136,50 @@ function AppRoutes() {
     reconnectAttempt
   } = useNotifications()
 
-  const activeRouteProjectId = useMemo(() => {
-    const [, root, projectId] = location.pathname.split('/')
+  const activeRoute = useMemo(() => {
+    const [, root, projectId, tab] = location.pathname.split('/')
     if (root === 'project' && projectId) {
-      return projectId
+      return {
+        projectId,
+        tab: isRememberedProjectTab(tab) ? tab : null
+      }
     }
 
-    return null
+    return {
+      projectId: null,
+      tab: null
+    }
   }, [location.pathname])
+  const activeRouteProjectId = activeRoute.projectId
+
+  useEffect(() => {
+    const { projectId, tab } = activeRoute
+    if (!projectId || !tab) {
+      return
+    }
+
+    setLastProjectTabById((current) => {
+      if (current[projectId] === tab) {
+        return current
+      }
+
+      return {
+        ...current,
+        [projectId]: tab
+      }
+    })
+  }, [activeRoute.projectId, activeRoute.tab])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        LAST_PROJECT_TAB_STORAGE_KEY,
+        JSON.stringify(lastProjectTabById)
+      )
+    } catch {
+      // Ignore persistence failures.
+    }
+  }, [lastProjectTabById])
 
   const handleTabShortcut = (tabNumber: 1 | 2 | 3 | 4) => {
     if (!activeRouteProjectId) {
@@ -121,7 +224,8 @@ function AppRoutes() {
   const handleProjectSelect = (projectId: string) => {
     setActiveProject(projectId)
     setIsQuickSwitcherOpen(false)
-    navigate(`/project/${projectId}/loops`)
+    const tab = getPreferredProjectTab(projectId, lastProjectTabById)
+    navigate(`/project/${projectId}/${tab}`)
   }
 
   const handleProjectCreated = (project: ProjectRecord) => {
@@ -204,7 +308,10 @@ function AppRoutes() {
                 }
               />
               <Route path="/project/:id">
-                <Route index element={<Navigate replace to="loops" />} />
+                <Route
+                  index
+                  element={<ProjectIndexRedirect lastProjectTabById={lastProjectTabById} />}
+                />
                 <Route path="chat" element={<Navigate replace to="../loops" />} />
                 <Route path=":tab" element={<ProjectPage />} />
               </Route>

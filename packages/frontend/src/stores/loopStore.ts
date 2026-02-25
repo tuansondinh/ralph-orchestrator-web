@@ -10,6 +10,7 @@ interface LoopStoreState {
   upsertLoop: (projectId: string, loop: LoopSummary) => void
   updateLoopById: (loopId: string, updates: Partial<LoopSummary>) => void
   appendOutput: (loopId: string, line: string) => void
+  appendOutputs: (outputsByLoop: Record<string, string[]>) => void
   setMetrics: (loopId: string, metrics: LoopMetrics) => void
   setSelectedLoop: (projectId: string, loopId: string | null) => void
 }
@@ -19,6 +20,20 @@ const initialState = {
   outputsByLoop: {} as Record<string, string[]>,
   metricsByLoop: {} as Record<string, LoopMetrics | undefined>,
   selectedLoopIdByProject: {} as Record<string, string | null | undefined>
+}
+const MAX_OUTPUT_LINES_PER_LOOP = 2_000
+
+function mergeLoopOutputLines(current: string[], incoming: string[]) {
+  if (incoming.length === 0) {
+    return current
+  }
+
+  const merged = [...current, ...incoming]
+  if (merged.length <= MAX_OUTPUT_LINES_PER_LOOP) {
+    return merged
+  }
+
+  return merged.slice(merged.length - MAX_OUTPUT_LINES_PER_LOOP)
 }
 
 export const useLoopStore = create<LoopStoreState>((set) => ({
@@ -101,9 +116,32 @@ export const useLoopStore = create<LoopStoreState>((set) => ({
     set((state) => ({
       outputsByLoop: {
         ...state.outputsByLoop,
-        [loopId]: [...(state.outputsByLoop[loopId] ?? []), line]
+        [loopId]: mergeLoopOutputLines(state.outputsByLoop[loopId] ?? [], [line])
       }
     })),
+  appendOutputs: (outputsByLoop) =>
+    set((state) => {
+      const nextOutputsByLoop = { ...state.outputsByLoop }
+      let changed = false
+
+      for (const [loopId, lines] of Object.entries(outputsByLoop)) {
+        if (lines.length === 0) {
+          continue
+        }
+
+        const current = nextOutputsByLoop[loopId] ?? []
+        nextOutputsByLoop[loopId] = mergeLoopOutputLines(current, lines)
+        changed = true
+      }
+
+      if (!changed) {
+        return state
+      }
+
+      return {
+        outputsByLoop: nextOutputsByLoop
+      }
+    }),
   setMetrics: (loopId, metrics) =>
     set((state) => ({
       metricsByLoop: {

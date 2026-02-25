@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LoopDetail } from '@/components/loops/LoopDetail'
 import { LoopList } from '@/components/loops/LoopList'
@@ -16,6 +16,7 @@ interface LoopsViewProps {
 
 const EMPTY_LOOPS: ReturnType<typeof useLoopStore.getState>['loopsByProject'][string] = []
 const EMPTY_OUTPUT: string[] = []
+const OUTPUT_FLUSH_INTERVAL_MS = 50
 
 function asMetricNumber(value: unknown, fallback: number) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -55,11 +56,13 @@ export function LoopsView({ projectId }: LoopsViewProps) {
   const setLoops = useLoopStore((state) => state.setLoops)
   const upsertLoop = useLoopStore((state) => state.upsertLoop)
   const updateLoopById = useLoopStore((state) => state.updateLoopById)
-  const appendOutput = useLoopStore((state) => state.appendOutput)
+  const appendOutputs = useLoopStore((state) => state.appendOutputs)
   const setMetrics = useLoopStore((state) => state.setMetrics)
   const setSelectedLoop = useLoopStore((state) => state.setSelectedLoop)
   const addTerminalSession = useTerminalStore((state) => state.addSession)
   const setActiveTerminalSession = useTerminalStore((state) => state.setActiveSession)
+  const pendingOutputByLoopRef = useRef<Record<string, string[]>>({})
+  const outputFlushTimerRef = useRef<number | null>(null)
 
   const selectedLoop = useMemo(
     () => loops.find((loop) => loop.id === selectedLoopId) ?? null,
@@ -206,6 +209,38 @@ export function LoopsView({ projectId }: LoopsViewProps) {
     [loops, selectedLoopId]
   )
 
+  const flushQueuedOutputs = useCallback(() => {
+    const pending = pendingOutputByLoopRef.current
+    pendingOutputByLoopRef.current = {}
+
+    if (Object.keys(pending).length === 0) {
+      return
+    }
+
+    appendOutputs(pending)
+  }, [appendOutputs])
+
+  const scheduleOutputFlush = useCallback(() => {
+    if (outputFlushTimerRef.current !== null) {
+      return
+    }
+
+    outputFlushTimerRef.current = window.setTimeout(() => {
+      outputFlushTimerRef.current = null
+      flushQueuedOutputs()
+    }, OUTPUT_FLUSH_INTERVAL_MS)
+  }, [flushQueuedOutputs])
+
+  useEffect(() => {
+    return () => {
+      if (outputFlushTimerRef.current !== null) {
+        window.clearTimeout(outputFlushTimerRef.current)
+        outputFlushTimerRef.current = null
+      }
+      flushQueuedOutputs()
+    }
+  }, [flushQueuedOutputs, projectId])
+
   const handleMessage = useCallback(
     (message: Record<string, unknown>) => {
       if (
@@ -213,7 +248,10 @@ export function LoopsView({ projectId }: LoopsViewProps) {
         typeof message.loopId === 'string' &&
         typeof message.data === 'string'
       ) {
-        appendOutput(message.loopId, message.data)
+        const queue = pendingOutputByLoopRef.current[message.loopId] ?? []
+        queue.push(message.data)
+        pendingOutputByLoopRef.current[message.loopId] = queue
+        scheduleOutputFlush()
         return
       }
 
@@ -306,7 +344,7 @@ export function LoopsView({ projectId }: LoopsViewProps) {
         void refreshLoopMetrics(message.loopId).catch(() => {})
       }
     },
-    [appendOutput, loops, metricsByLoop, refreshLoopMetrics, setMetrics, updateLoopById]
+    [loops, metricsByLoop, refreshLoopMetrics, scheduleOutputFlush, setMetrics, updateLoopById]
   )
 
   const { isConnected } = useWebSocket({

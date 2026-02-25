@@ -8,6 +8,10 @@ import { resetProjectStore } from '@/stores/projectStore'
 import { resetTerminalStore } from '@/stores/terminalStore'
 import App from './App'
 
+const { websocketSendMock } = vi.hoisted(() => ({
+  websocketSendMock: vi.fn(() => true)
+}))
+
 vi.mock('@/lib/projectApi', () => ({
   projectApi: {
     list: vi.fn(),
@@ -61,7 +65,8 @@ vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({
     isConnected: true,
     status: 'connected',
-    reconnectAttempt: 0
+    reconnectAttempt: 0,
+    send: websocketSendMock
   })
 }))
 
@@ -76,7 +81,9 @@ beforeEach(() => {
   resetProjectStore()
   resetTerminalStore()
   vi.clearAllMocks()
+  terminalSessionCounter = 0
   seedProjects([])
+  window.localStorage.clear()
   document.documentElement.classList.remove('dark')
   window.history.pushState({}, '', '/')
 
@@ -150,6 +157,21 @@ describe('App', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Workflow Snapshot')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Create Project' })).toBeInTheDocument()
+  })
+
+  it('toggles the left sidebar visibility', async () => {
+    render(<App />)
+
+    const collapseButton = await screen.findByRole('button', { name: 'Collapse sidebar' })
+    expect(collapseButton).toBeInTheDocument()
+
+    fireEvent.click(collapseButton)
+
+    const expandButton = screen.getByRole('button', { name: 'Expand sidebar' })
+    expect(expandButton).toBeInTheDocument()
+
+    fireEvent.click(expandButton)
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
   })
 
   it('renders project-aware homepage and opens latest project from hero action', async () => {
@@ -268,6 +290,129 @@ describe('App', () => {
     expect(screen.getAllByRole('link', { name: 'Global settings' }).length).toBeGreaterThan(0)
   })
 
+  it('reorders projects in sidebar via drag and drop', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      },
+      {
+        id: 'beta',
+        name: 'Beta App',
+        path: '/tmp/beta-app',
+        type: 'python',
+        ralphConfig: 'ralph.yml',
+        createdAt: 2,
+        updatedAt: 2
+      }
+    ])
+
+    render(<App />)
+
+    const alphaItem = await screen.findByTestId('project-item-alpha')
+    const betaItem = screen.getByTestId('project-item-beta')
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: vi.fn(),
+      getData: vi.fn(() => 'alpha')
+    }
+
+    fireEvent.dragStart(alphaItem, { dataTransfer })
+    fireEvent.dragOver(betaItem, { dataTransfer })
+    fireEvent.drop(betaItem, { dataTransfer })
+    fireEvent.dragEnd(alphaItem, { dataTransfer })
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId(/project-item-/).map((item) => item.dataset.testid)).toEqual([
+        'project-item-beta',
+        'project-item-alpha'
+      ])
+    })
+  })
+
+  it('remembers the last opened tab for each project when switching projects', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      },
+      {
+        id: 'beta',
+        name: 'Beta App',
+        path: '/tmp/beta-app',
+        type: 'python',
+        ralphConfig: 'ralph.yml',
+        createdAt: 2,
+        updatedAt: 2
+      }
+    ])
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Alpha App' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Terminal' }))
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/project/alpha/terminal')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Beta App' }))
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/project/beta/loops')
+    })
+    fireEvent.click(await screen.findByRole('link', { name: 'Preview' }))
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/project/beta/preview')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alpha App' }))
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/project/alpha/terminal')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Beta App' }))
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/project/beta/preview')
+    })
+  })
+
+  it('redirects /project/:id to the remembered tab for that specific project', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ])
+    window.localStorage.setItem(
+      'ralph-ui.last-project-tabs',
+      JSON.stringify({
+        alpha: 'terminal'
+      })
+    )
+    window.history.pushState({}, '', '/project/alpha')
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/project/alpha/terminal')
+    })
+  })
+
   it('navigates between project tabs', async () => {
     seedProjects([
       {
@@ -305,6 +450,112 @@ describe('App', () => {
       })
     )
     expect(await screen.findByRole('heading', { name: 'Project settings' })).toBeInTheDocument()
+  })
+
+  it('closes a terminal session from the terminal tab strip', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ])
+
+    vi.mocked(terminalApi.startSession)
+      .mockResolvedValueOnce({
+        id: 'session-one',
+        projectId: 'alpha',
+        state: 'active',
+        shell: '/bin/zsh',
+        cwd: '/tmp',
+        pid: 9101,
+        cols: 120,
+        rows: 36,
+        createdAt: Date.now(),
+        endedAt: null
+      })
+      .mockResolvedValueOnce({
+        id: 'session-two',
+        projectId: 'alpha',
+        state: 'active',
+        shell: '/bin/zsh',
+        cwd: '/tmp',
+        pid: 9102,
+        cols: 120,
+        rows: 36,
+        createdAt: Date.now(),
+        endedAt: null
+      })
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Alpha App' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Terminal' }))
+
+    expect(await screen.findByRole('button', { name: 'Terminal 1' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'New terminal tab' }))
+    expect(await screen.findByRole('button', { name: 'Terminal 2' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close Terminal 2' }))
+
+    await waitFor(() => {
+      expect(terminalApi.endSession).toHaveBeenCalledWith({ sessionId: 'session-two' })
+    })
+
+    expect(screen.getByRole('button', { name: 'Terminal 1' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Close Terminal 2' })).not.toBeInTheDocument()
+  })
+
+  it('runs plan with selected terminal backend', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ])
+
+    vi.mocked(terminalApi.startSession).mockResolvedValueOnce({
+      id: 'terminal-backend-1',
+      projectId: 'alpha',
+      state: 'active',
+      shell: '/bin/zsh',
+      cwd: '/tmp',
+      pid: 9201,
+      cols: 120,
+      rows: 36,
+      createdAt: Date.now(),
+      endedAt: null
+    })
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Alpha App' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Terminal' }))
+
+    expect(await screen.findByRole('button', { name: 'Terminal 1' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Terminal backend'), {
+      target: { value: 'claude' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'PLAN' }))
+
+    await waitFor(() => {
+      expect(websocketSendMock).toHaveBeenCalledWith({
+        type: 'terminal.input',
+        sessionId: 'terminal-backend-1',
+        data: 'ralph plan --backend claude\r'
+      })
+    })
   })
 
   it('includes tasks tab and renders tasks view when selected', async () => {

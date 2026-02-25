@@ -11,6 +11,35 @@ function hasCommandModifier(event: KeyboardEvent) {
   return event.metaKey || event.ctrlKey
 }
 
+function isElementTarget(target: EventTarget | null): target is Element {
+  return target instanceof Element
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!isElementTarget(target)) {
+    return false
+  }
+
+  if (target instanceof HTMLElement && target.isContentEditable) {
+    return true
+  }
+
+  const editable = target.closest('input, textarea, select, [contenteditable="true"]')
+  return Boolean(editable)
+}
+
+function isTerminalTarget(target: EventTarget | null) {
+  if (!isElementTarget(target)) {
+    return false
+  }
+
+  if (target.classList.contains('xterm-helper-textarea')) {
+    return true
+  }
+
+  return Boolean(target.closest('.xterm'))
+}
+
 export function useKeyboardShortcuts({
   onQuickSwitcher,
   onNewProject,
@@ -19,6 +48,14 @@ export function useKeyboardShortcuts({
 }: UseKeyboardShortcutsOptions) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTerminalTarget(event.target)) {
+        return
+      }
+
+      if (isEditableTarget(event.target)) {
+        return
+      }
+
       if (event.key === 'Escape') {
         onEscape?.()
         return

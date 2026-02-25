@@ -89,7 +89,7 @@ Default dev ports:
 
 - Node.js 18+
 - npm
-- Ralph Orchestrator CLI (`ralph`) installed and available on `PATH`
+- at least one supported AI CLI
 
 Optional global install:
 
@@ -109,12 +109,6 @@ If you choose a specific AI backend in Loops/Chat, the matching CLI must be inst
 - `codex` backend: Codex CLI (`codex`)
 - `gemini` backend: Gemini CLI (`gemini`)
 - Other backends (`kiro`, `amp`, `copilot`, `opencode`): install their corresponding CLIs
-
-Quick check:
-
-```bash
-which ralph claude codex gemini
-```
 
 ## Config Notes
 
@@ -170,6 +164,9 @@ See [SECURITY.md](SECURITY.md) for details.
 npm run quality
 ```
 
+## More Documentation
+check out the ralph orchestrator docs: https://mikeyobrien.github.io/ralph-orchestrator/
+
 ## License
 
 This project is licensed under the MIT License.
@@ -179,4 +176,3 @@ See [LICENSE](LICENSE).
 
 - `packages/backend`: API, services, runtime/process integration
 - `packages/frontend`: UI components, routes, realtime clients, state stores
-- `specs/`: planning/design artifacts

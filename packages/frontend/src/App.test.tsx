@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { projectApi, type ProjectRecord } from '@/lib/projectApi'
+import { taskApi } from '@/lib/taskApi'
 import { terminalApi } from '@/lib/terminalApi'
 import { worktreeApi } from '@/lib/worktreeApi'
 import { resetProjectStore } from '@/stores/projectStore'
@@ -25,6 +26,12 @@ vi.mock('@/lib/terminalApi', () => ({
     startSession: vi.fn(),
     endSession: vi.fn(),
     getOutputHistory: vi.fn(async () => [])
+  }
+}))
+
+vi.mock('@/lib/taskApi', () => ({
+  taskApi: {
+    list: vi.fn()
   }
 }))
 
@@ -104,6 +111,7 @@ beforeEach(() => {
   vi.mocked(projectApi.selectDirectory).mockResolvedValue({
     path: '/tmp/existing-app'
   })
+  vi.mocked(taskApi.list).mockResolvedValue([])
   vi.mocked(terminalApi.startSession).mockImplementation(async ({ projectId }) => {
     terminalSessionCounter += 1
     return {
@@ -296,6 +304,35 @@ describe('App', () => {
       })
     )
     expect(await screen.findByRole('heading', { name: 'Project settings' })).toBeInTheDocument()
+  })
+
+  it('includes tasks tab and renders tasks view when selected', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ])
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Alpha App' }))
+
+    const projectSections = screen.getByRole('navigation', { name: 'Project sections' })
+    const tasksLink = within(projectSections).getByRole('link', { name: 'Tasks' })
+    expect(tasksLink).toHaveAttribute('href', '/project/alpha/tasks')
+
+    fireEvent.click(tasksLink)
+
+    expect(await screen.findByRole('heading', { name: 'Tasks' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(taskApi.list).toHaveBeenCalledWith('alpha')
+    })
   })
 
   it('applies dark theme by default', async () => {

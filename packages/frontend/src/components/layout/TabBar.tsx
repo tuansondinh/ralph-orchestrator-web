@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom'
 
 const tabs = [
   { id: 'loops', label: 'Loops' },
+  { id: 'tasks', label: 'Tasks' },
   { id: 'terminal', label: 'Terminal' },
   { id: 'monitor', label: 'Monitor' },
   { id: 'preview', label: 'Preview' },

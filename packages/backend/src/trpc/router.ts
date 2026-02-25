@@ -10,6 +10,7 @@ import { DevPreviewManagerError } from '../services/DevPreviewManager.js'
 import { SettingsService, SettingsServiceError } from '../services/SettingsService.js'
 import { PresetService, PresetServiceError } from '../services/PresetService.js'
 import { TerminalServiceError } from '../services/TerminalService.js'
+import { TaskService, TaskServiceError } from '../services/TaskService.js'
 import {
   allowsDangerousOperations,
   getDangerousOperationBlockMessage
@@ -26,7 +27,8 @@ function asTRPCError(error: unknown): never {
     error instanceof DevPreviewManagerError ||
     error instanceof SettingsServiceError ||
     error instanceof PresetServiceError ||
-    error instanceof TerminalServiceError
+    error instanceof TerminalServiceError ||
+    error instanceof TaskServiceError
   ) {
     throw new TRPCError({
       code: error.code,
@@ -784,10 +786,25 @@ const ralphRouter = t.router({
   })
 })
 
+const taskRouter = t.router({
+  list: t.procedure
+    .input(
+      z.object({
+        projectId: z.string().min(1)
+      })
+    )
+    .query(({ ctx, input }) =>
+      new TaskService(ctx.db)
+        .list(input.projectId)
+        .catch((error) => asTRPCError(error))
+    )
+})
+
 export const appRouter = t.router({
   healthcheck: t.procedure.query(() => ({ status: 'ok' })),
   project: projectRouter,
   loop: loopRouter,
+  task: taskRouter,
   chat: chatRouter,
   monitoring: monitoringRouter,
   preview: previewRouter,

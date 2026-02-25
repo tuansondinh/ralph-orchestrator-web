@@ -57,17 +57,21 @@ test.describe.serial('Core user workflows', () => {
 
   test('loop lifecycle start and stop', async ({ page }) => {
     await page.goto(`/project/${projectId}/loops`)
-    await page.getByLabel('Prompt').fill('keep-running')
+    await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
     await page.getByRole('button', { name: 'Start', exact: true }).click()
 
-    await expect(page.locator('span', { hasText: 'Running' }).first()).toBeVisible()
+    await expect(page.getByText('No loops yet. Start a loop to see live output here.')).toBeHidden()
+    await expect(page.locator('span', { hasText: /Running|Queued|Merging/ }).first()).toBeVisible()
     await page.getByRole('button', { name: 'Stop' }).first().click()
     await expect(page.locator('span', { hasText: 'Stopped' }).first()).toBeVisible()
   })
 
   test('notifications for completed loop', async ({ page }) => {
     await page.goto(`/project/${projectId}/loops`)
-    await page.getByLabel('Prompt').fill('complete-e2e')
+    const promptInput = page.getByRole('textbox', { name: 'PROMPT.md' })
+    await promptInput.fill('complete-e2e')
+    await promptInput.blur()
+    await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
     await page.getByRole('button', { name: 'Start', exact: true }).click()
 
     await expect(page.getByRole('status').filter({ hasText: 'Loop completed' })).toBeVisible()

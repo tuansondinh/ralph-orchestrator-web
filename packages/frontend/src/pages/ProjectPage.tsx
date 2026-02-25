@@ -6,10 +6,11 @@ import { MonitorView } from '@/components/monitor/MonitorView'
 import { PreviewView } from '@/components/preview/PreviewView'
 import { ProjectHeader } from '@/components/project/ProjectHeader'
 import { ProjectConfigView } from '@/components/project/ProjectConfigView'
+import { TasksView } from '@/components/tasks/TasksView'
 import { TerminalView } from '@/components/terminal/TerminalView'
 import { useProjectStore } from '@/stores/projectStore'
 
-const validTabs = ['loops', 'chat', 'terminal', 'monitor', 'preview', 'settings'] as const
+const validTabs = ['loops', 'chat', 'tasks', 'terminal', 'monitor', 'preview', 'settings'] as const
 type TabKey = (typeof validTabs)[number]
 
 function isTabKey(value: string | undefined): value is TabKey {
@@ -43,6 +44,8 @@ export function ProjectPage() {
         <div className="min-h-0 flex-1">
           <LoopsView projectId={project.id} />
         </div>
+      ) : tab === 'tasks' ? (
+        <TasksView projectId={project.id} />
       ) : tab === 'chat' ? (
         <ChatView projectId={project.id} />
       ) : tab === 'terminal' ? (

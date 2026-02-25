@@ -499,17 +499,23 @@ describe('chat tRPC routes', () => {
     })
 
     const started = await chatService.startSession(projectId, 'plan')
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    expect(started.processId).toBeTruthy()
-    await processManager.kill(started.processId as string)
-
     await waitFor(() => {
       const row = connection.db
         .select()
         .from(chatSessions)
         .where(eq(chatSessions.id, started.id))
         .get()
-      return row?.state === 'completed'
+      return row?.state === 'waiting'
+    })
+
+    await waitFor(() => {
+      const rows = connection.db
+        .select()
+        .from(chatMessages)
+        .where(eq(chatMessages.sessionId, started.id))
+        .all()
+      const assistantMessages = rows.filter((message) => message.role === 'assistant')
+      return assistantMessages.length === 1
     })
 
     const initialHistory = await chatService.getHistory(started.id)

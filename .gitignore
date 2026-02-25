@@ -2,10 +2,13 @@
 node_modules
 .pnp
 .pnp.js
+.pnpm-store
+pnpm-lock.yaml
 
 # Testing
 coverage
 .nyc_output
+reports/jscpd
 
 # Build
 dist

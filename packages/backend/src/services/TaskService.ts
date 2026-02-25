@@ -12,6 +12,7 @@ type Database = BetterSQLite3Database<typeof schema>
 const execFile = promisify(execFileCallback)
 const RALPH_BINARY_SETTING_KEY = 'ralph.binaryPath'
 const TASK_LIST_ARGS = ['tools', 'task', 'list', '--all', '--format', 'json']
+const PRIMARY_LOOP_ID_PATTERN = /^primary-\d{8}-\d{6}$/i
 
 export interface TaskRecord {
   id: string
@@ -81,6 +82,36 @@ function asNullableString(value: unknown) {
 
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function asPrimaryLoopId(value: unknown) {
+  const normalized = asNullableString(value)
+  if (!normalized) {
+    return null
+  }
+
+  return PRIMARY_LOOP_ID_PATTERN.test(normalized) ? normalized : null
+}
+
+function toMilliseconds(timestamp: number | null | undefined) {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) {
+    return null
+  }
+
+  return timestamp < 1_000_000_000_000 ? timestamp * 1_000 : timestamp
+}
+
+function primaryLoopIdFromTimestamp(timestamp: number | null | undefined) {
+  const ms = toMilliseconds(timestamp)
+  if (ms === null) {
+    return null
+  }
+
+  const date = new Date(ms)
+  const pad = (value: number) => value.toString().padStart(2, '0')
+  const datePart = `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}`
+  const timePart = `${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`
+  return `primary-${datePart}-${timePart}`
 }
 
 function asRequiredString(value: unknown, message: string) {
@@ -277,7 +308,9 @@ export class TaskService {
     const rows = this.db
       .select({
         id: loopRuns.id,
-        config: loopRuns.config
+        ralphLoopId: loopRuns.ralphLoopId,
+        config: loopRuns.config,
+        startedAt: loopRuns.startedAt
       })
       .from(loopRuns)
       .where(eq(loopRuns.projectId, projectId))
@@ -291,9 +324,22 @@ export class TaskService {
       }
 
       const config = parseConfigRecord(row.config)
-      const ralphLoopId = asNullableString(config.ralphLoopId)
-      if (ralphLoopId && !map.has(ralphLoopId)) {
-        map.set(ralphLoopId, row.id)
+      const persistedRalphLoopId = asNullableString(row.ralphLoopId)
+      if (persistedRalphLoopId && !map.has(persistedRalphLoopId)) {
+        map.set(persistedRalphLoopId, row.id)
+      }
+
+      const configRalphLoopId = asNullableString(config.ralphLoopId)
+      if (configRalphLoopId && !map.has(configRalphLoopId)) {
+        map.set(configRalphLoopId, row.id)
+      }
+
+      const canonicalPrimaryLoopId =
+        asPrimaryLoopId(row.ralphLoopId) ??
+        asPrimaryLoopId(config.ralphLoopId) ??
+        primaryLoopIdFromTimestamp(row.startedAt)
+      if (canonicalPrimaryLoopId && !map.has(canonicalPrimaryLoopId)) {
+        map.set(canonicalPrimaryLoopId, row.id)
       }
     }
 

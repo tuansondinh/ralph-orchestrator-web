@@ -5,10 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/serve.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
     "start": "node dist/serve.js",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" vitest.config.ts",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "coverage": "vitest run --coverage --coverage.provider=v8 --coverage.reportsDirectory=coverage",
+    "complexity": "eslint \"src/**/*.ts\" --max-warnings=0 --rule \"complexity: [\\\"error\\\", 12]\"",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts"
@@ -27,6 +30,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.18",
     "@ralph-orchestrator/ralph-cli": "^2.5.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.2.3",

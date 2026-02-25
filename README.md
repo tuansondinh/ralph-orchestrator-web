@@ -53,6 +53,11 @@ npm run db:migrate -w @ralph-ui/backend
 npm run dev
 ```
 
+Package manager:
+- Use `npm` for this repository.
+- Lockfile/source of truth: `package-lock.json`.
+- `pnpm` artifacts are ignored and not part of the workflow.
+
 Open:
 - `http://localhost:5174`
 
@@ -89,6 +94,32 @@ Default dev ports:
 
 - Node.js 18+
 - npm
+- Ralph Orchestrator CLI (`ralph`) installed and available on `PATH`
+
+Optional global install:
+
+```bash
+npm install -g @ralph-orchestrator/ralph-cli
+```
+
+Note:
+- This is optional for this repo.
+- `@ralph-orchestrator/ralph-cli` is already included as a project dependency and is installed by `npm install`.
+
+### AI Backend CLI Requirements
+
+If you choose a specific AI backend in Loops/Chat, the matching CLI must be installed on your machine.
+
+- `claude` backend: Claude Code CLI (`claude`)
+- `codex` backend: Codex CLI (`codex`)
+- `gemini` backend: Gemini CLI (`gemini`)
+- Other backends (`kiro`, `amp`, `copilot`, `opencode`): install their corresponding CLIs
+
+Quick check:
+
+```bash
+which ralph claude codex gemini
+```
 
 ## Config Notes
 
@@ -128,9 +159,21 @@ See [SECURITY.md](SECURITY.md) for details.
 
 ## Workspace Commands
 
+- Lint all workspaces: `npm run lint`
 - Test all workspaces: `npm run test`
+- Coverage all workspaces: `npm run test:coverage`
 - Typecheck all workspaces: `npm run typecheck`
+- Complexity check: `npm run complexity`
+- Duplication check: `npm run duplication`
+- Quick quality gate (lint + typecheck + test): `npm run quality:quick`
+- Full quality gate (all checks): `npm run quality`
 - Build all workspaces: `npm run build -ws`
+
+### Recommended pre-push check
+
+```bash
+npm run quality
+```
 
 ## License
 

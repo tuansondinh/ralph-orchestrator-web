@@ -1,0 +1,31 @@
+{
+  "reporters": [
+    "console",
+    "json"
+  ],
+  "output": "./reports/jscpd",
+  "threshold": 2,
+  "gitignore": true,
+  "minLines": 8,
+  "minTokens": 70,
+  "formats": [
+    "typescript",
+    "tsx",
+    "javascript",
+    "jsx",
+    "json",
+    "yaml",
+    "markdown"
+  ],
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+    "**/.ralph/**",
+    "**/.ralph-ui/**",
+    "**/.worktrees/**",
+    "**/*.d.ts",
+    "packages/*/vite.config.js",
+    "packages/*/vitest.config.js"
+  ]
+}

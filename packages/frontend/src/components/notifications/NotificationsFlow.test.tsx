@@ -152,6 +152,7 @@ describe('notifications flow', () => {
       createdAt: Date.now()
     }))
     vi.mocked(settingsApi.get).mockResolvedValue({
+      chatModel: 'gemini',
       ralphBinaryPath: null,
       notifications: {
         loopComplete: true,
@@ -243,6 +244,7 @@ describe('notifications flow', () => {
 
   it('suppresses loop complete toasts when disabled in settings', async () => {
     vi.mocked(settingsApi.get).mockResolvedValue({
+      chatModel: 'gemini',
       ralphBinaryPath: null,
       notifications: {
         loopComplete: false,

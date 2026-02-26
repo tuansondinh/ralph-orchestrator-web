@@ -5,9 +5,14 @@ import type { ChatMessageRecord } from '@/lib/chatApi'
 interface MessageListProps {
   messages: ChatMessageRecord[]
   isThinking?: boolean
+  onMessageLinkClick?: () => void
 }
 
-export function MessageList({ messages, isThinking = false }: MessageListProps) {
+export function MessageList({
+  messages,
+  isThinking = false,
+  onMessageLinkClick
+}: MessageListProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -27,7 +32,9 @@ export function MessageList({ messages, isThinking = false }: MessageListProps) 
       {messages.length === 0 ? (
         <p className="text-sm text-zinc-500">No messages yet</p>
       ) : (
-        messages.map((message) => <ChatMessage key={message.id} message={message} />)
+        messages.map((message) => (
+          <ChatMessage key={message.id} message={message} onLinkClick={onMessageLinkClick} />
+        ))
       )}
       {isThinking ? (
         <article className="flex justify-start" data-testid="chat-thinking-indicator">

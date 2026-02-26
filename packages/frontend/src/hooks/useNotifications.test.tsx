@@ -41,6 +41,7 @@ describe('useNotifications', () => {
 
     vi.mocked(notificationApi.list).mockResolvedValue([])
     vi.mocked(settingsApi.get).mockResolvedValue({
+      chatModel: 'gemini',
       ralphBinaryPath: null,
       notifications: {
         loopComplete: true,

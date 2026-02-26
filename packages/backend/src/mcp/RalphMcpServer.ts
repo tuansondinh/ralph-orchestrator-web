@@ -71,6 +71,16 @@ interface UpdateSettingsInput {
   }
 }
 
+export interface RalphMcpToolDefinition {
+  name: string
+  description: string
+  inputSchema: z.ZodTypeAny
+  annotations?: {
+    readOnlyHint?: boolean
+  }
+  execute: (args: unknown) => Promise<unknown>
+}
+
 export interface RalphMcpServerDependencies {
   projectService: {
     list: () => Promise<unknown>
@@ -116,6 +126,7 @@ export interface RalphMcpServerDependencies {
 export class RalphMcpServer {
   readonly server: McpServer
   private readonly transport: StreamableHTTPServerTransport
+  private readonly tools = new Map<string, RalphMcpToolDefinition>()
   private connected = false
 
   constructor(private readonly dependencies: RalphMcpServerDependencies) {
@@ -164,18 +175,57 @@ export class RalphMcpServer {
     this.connected = false
   }
 
+  getToolDefinitions() {
+    return Array.from(this.tools.values())
+  }
+
+  async executeTool(name: string, args: unknown) {
+    const definition = this.tools.get(name)
+    if (!definition) {
+      throw new Error(`Unknown MCP tool: ${name}`)
+    }
+
+    return definition.execute(args)
+  }
+
+  private registerTool<TSchema extends z.ZodTypeAny>(
+    name: string,
+    options: {
+      description: string
+      inputSchema: TSchema
+      annotations?: {
+        readOnlyHint?: boolean
+      }
+    },
+    execute: (args: z.infer<TSchema>) => Promise<unknown>
+  ) {
+    const executeTool = async (args: unknown) => execute(options.inputSchema.parse(args))
+    const callback = async (args: z.infer<TSchema>) =>
+      this.asJsonToolResult(await execute(args))
+
+    this.tools.set(name, {
+      name,
+      description: options.description,
+      inputSchema: options.inputSchema,
+      annotations: options.annotations,
+      execute: executeTool
+    })
+
+    this.server.registerTool(name, options as never, callback as never)
+  }
+
   private registerReadOnlyTools() {
-    this.server.registerTool(
+    this.registerTool(
       'list_projects',
       {
         description: 'List all projects',
         inputSchema: z.object({}),
         annotations: { readOnlyHint: true }
       },
-      async () => this.asJsonToolResult(await this.dependencies.projectService.list())
+      async () => this.dependencies.projectService.list()
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'get_project',
       {
         description: 'Get project details',
@@ -184,11 +234,10 @@ export class RalphMcpServer {
         }),
         annotations: { readOnlyHint: true }
       },
-      async (args) =>
-        this.asJsonToolResult(await this.dependencies.projectService.get(args.projectId))
+      async (args) => this.dependencies.projectService.get(args.projectId)
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'list_presets',
       {
         description: 'List presets for a project',
@@ -199,16 +248,14 @@ export class RalphMcpServer {
       },
       async (args) => {
         const project = await this.dependencies.projectService.get(args.projectId)
-        return this.asJsonToolResult(
-          await this.dependencies.presetService.listForProject({
-            path: project.path,
-            ralphConfig: project.ralphConfig
-          })
-        )
+        return this.dependencies.presetService.listForProject({
+          path: project.path,
+          ralphConfig: project.ralphConfig
+        })
       }
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'get_loop_runs',
       {
         description: 'List loop runs for a project or return a specific loop',
@@ -224,16 +271,14 @@ export class RalphMcpServer {
       },
       async (args: ReadOnlyLoopRunsInput) => {
         if (args.loopId) {
-          return this.asJsonToolResult(await this.dependencies.loopService.get(args.loopId))
+          return this.dependencies.loopService.get(args.loopId)
         }
 
-        return this.asJsonToolResult(
-          await this.dependencies.loopService.list(String(args.projectId))
-        )
+        return this.dependencies.loopService.list(String(args.projectId))
       }
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'get_loop_output',
       {
         description: 'Get recent loop output lines with a deep-link',
@@ -243,43 +288,42 @@ export class RalphMcpServer {
         }),
         annotations: { readOnlyHint: true }
       },
-      async (args: LoopOutputInput) =>
-        this.asJsonToolResult(await this.dependencies.loopService.getOutput(args))
+      async (args: LoopOutputInput) => this.dependencies.loopService.getOutput(args)
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'get_monitoring',
       {
         description: 'Get monitoring status',
         inputSchema: z.object({}),
         annotations: { readOnlyHint: true }
       },
-      async () => this.asJsonToolResult(await this.dependencies.monitoringService.getStatus())
+      async () => this.dependencies.monitoringService.getStatus()
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'get_settings',
       {
         description: 'Get application settings',
         inputSchema: z.object({}),
         annotations: { readOnlyHint: true }
       },
-      async () => this.asJsonToolResult(await this.dependencies.settingsService.get())
+      async () => this.dependencies.settingsService.get()
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'list_hats_presets',
       {
         description: 'List hats presets',
         inputSchema: z.object({}),
         annotations: { readOnlyHint: true }
       },
-      async () => this.asJsonToolResult(await this.dependencies.hatsPresetService.list())
+      async () => this.dependencies.hatsPresetService.list()
     )
   }
 
   private registerDestructiveTools() {
-    this.server.registerTool(
+    this.registerTool(
       'start_loop',
       {
         description: '[DESTRUCTIVE] Start a Ralph loop run',
@@ -298,11 +342,11 @@ export class RalphMcpServer {
       },
       async (args: StartLoopInput) => {
         const { projectId, ...options } = args
-        return this.asJsonToolResult(await this.dependencies.loopService.start(projectId, options))
+        return this.dependencies.loopService.start(projectId, options)
       }
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'stop_loop',
       {
         description: '[DESTRUCTIVE] Stop a running loop',
@@ -312,11 +356,11 @@ export class RalphMcpServer {
       },
       async (args: StopLoopInput) => {
         await this.dependencies.loopService.stop(args.loopId)
-        return this.asJsonToolResult(null)
+        return null
       }
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'create_project',
       {
         description: '[DESTRUCTIVE] Create a new project',
@@ -326,11 +370,10 @@ export class RalphMcpServer {
           createIfMissing: z.boolean().optional()
         })
       },
-      async (args: CreateProjectInput) =>
-        this.asJsonToolResult(await this.dependencies.projectService.create(args))
+      async (args: CreateProjectInput) => this.dependencies.projectService.create(args)
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'update_project',
       {
         description: '[DESTRUCTIVE] Update project config',
@@ -346,13 +389,11 @@ export class RalphMcpServer {
       },
       async (args: UpdateProjectInput) => {
         const { projectId, ...updates } = args
-        return this.asJsonToolResult(
-          await this.dependencies.projectService.update(projectId, updates)
-        )
+        return this.dependencies.projectService.update(projectId, updates)
       }
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'delete_project',
       {
         description: '[DESTRUCTIVE] Delete a project',
@@ -362,11 +403,11 @@ export class RalphMcpServer {
       },
       async (args: DeleteProjectInput) => {
         await this.dependencies.projectService.delete(args.projectId)
-        return this.asJsonToolResult(null)
+        return null
       }
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'kill_process',
       {
         description: '[DESTRUCTIVE] Kill a specific Ralph process by PID',
@@ -376,11 +417,11 @@ export class RalphMcpServer {
       },
       async (args: KillProcessInput) => {
         await this.dependencies.ralphProcessService.kill(args.pid)
-        return this.asJsonToolResult(null)
+        return null
       }
     )
 
-    this.server.registerTool(
+    this.registerTool(
       'update_settings',
       {
         description: '[DESTRUCTIVE] Update app settings',
@@ -403,8 +444,7 @@ export class RalphMcpServer {
             .optional()
         })
       },
-      async (args: UpdateSettingsInput) =>
-        this.asJsonToolResult(await this.dependencies.settingsService.update(args))
+      async (args: UpdateSettingsInput) => this.dependencies.settingsService.update(args)
     )
   }
 

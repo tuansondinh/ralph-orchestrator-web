@@ -7,8 +7,8 @@
     "packages/frontend"
   ],
   "scripts": {
-    "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev -w @ralph-ui/backend\" \"npm run dev -w @ralph-ui/frontend\"",
-    "dev:watch": "concurrently -n backend,frontend -c blue,green \"npm run dev:watch -w @ralph-ui/backend\" \"npm run dev -w @ralph-ui/frontend\"",
+    "dev": "concurrently -n backend,frontend -c blue,green \"PORT=3003 npm run dev -w @ralph-ui/backend\" \"VITE_PORT=5174 VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN=http://127.0.0.1:3003 npm run dev -w @ralph-ui/frontend\"",
+    "dev:watch": "concurrently -n backend,frontend -c blue,green \"PORT=3004 npm run dev:watch -w @ralph-ui/backend\" \"VITE_PORT=5175 VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN=http://127.0.0.1:3004 npm run dev -w @ralph-ui/frontend\"",
     "lint": "npm run lint -ws",
     "test": "npm run test -ws",
     "test:coverage": "npm run coverage -ws",

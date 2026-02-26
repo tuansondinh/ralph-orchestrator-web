@@ -4,7 +4,7 @@ import { createTRPCProxyClient, httpLink } from '@trpc/client'
 
 type RuntimeEnv = {
   DEV: boolean
-  VITE_RALPH_UI_BACKEND_ORIGIN?: string
+  VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN?: string
 }
 
 type RuntimeLocation = Pick<Location, 'hostname'>
@@ -20,7 +20,7 @@ export function resolveTrpcBaseUrl(
   env: RuntimeEnv = import.meta.env,
   runtimeLocation: RuntimeLocation = window.location
 ) {
-  const backendOrigin = env.VITE_RALPH_UI_BACKEND_ORIGIN
+  const backendOrigin = env.VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN
   if (typeof backendOrigin === 'string' && backendOrigin.trim().length > 0) {
     return `${backendOrigin.replace(/\/$/, '')}/trpc`
   }

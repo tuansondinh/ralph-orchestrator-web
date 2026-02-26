@@ -4,6 +4,7 @@ interface UseKeyboardShortcutsOptions {
   onQuickSwitcher?: () => void
   onNewProject?: () => void
   onSwitchTab?: (tabNumber: 1 | 2 | 3 | 4) => void
+  onToggleChatOverlay?: () => void
   onEscape?: () => void
 }
 
@@ -44,6 +45,7 @@ export function useKeyboardShortcuts({
   onQuickSwitcher,
   onNewProject,
   onSwitchTab,
+  onToggleChatOverlay,
   onEscape
 }: UseKeyboardShortcutsOptions) {
   useEffect(() => {
@@ -78,6 +80,12 @@ export function useKeyboardShortcuts({
         return
       }
 
+      if (key === 'c' && event.shiftKey) {
+        event.preventDefault()
+        onToggleChatOverlay?.()
+        return
+      }
+
       if (key === '1' || key === '2' || key === '3' || key === '4') {
         event.preventDefault()
         onSwitchTab?.(Number.parseInt(key, 10) as 1 | 2 | 3 | 4)
@@ -88,5 +96,5 @@ export function useKeyboardShortcuts({
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [onEscape, onNewProject, onQuickSwitcher, onSwitchTab])
+  }, [onEscape, onNewProject, onQuickSwitcher, onSwitchTab, onToggleChatOverlay])
 }

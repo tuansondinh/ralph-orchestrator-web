@@ -233,7 +233,7 @@ describe('resolveWebsocketUrl', () => {
       resolveWebsocketUrl(
         {
           DEV: true,
-          VITE_RALPH_UI_BACKEND_ORIGIN: 'http://127.0.0.1:43300'
+          VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://127.0.0.1:43300'
         }
       )
     ).toBe('ws://127.0.0.1:43300/ws')
@@ -243,14 +243,14 @@ describe('resolveWebsocketUrl', () => {
     expect(
       resolveWebsocketUrl({
         DEV: true,
-        VITE_RALPH_UI_BACKEND_ORIGIN: 'http://localhost:3001'
+        VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://localhost:3001'
       })
     ).toBe('ws://localhost:3001/ws')
 
     expect(
       resolveWebsocketUrl({
         DEV: true,
-        VITE_RALPH_UI_BACKEND_ORIGIN: 'http://127.0.0.1:3001'
+        VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://127.0.0.1:3001'
       })
     ).toBe('ws://127.0.0.1:3001/ws')
   })

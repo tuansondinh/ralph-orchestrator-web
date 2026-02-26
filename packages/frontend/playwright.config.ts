@@ -114,7 +114,7 @@ export default defineConfig({
       timeout: 120_000,
       env: {
         ...process.env,
-        VITE_RALPH_UI_BACKEND_ORIGIN: backendOrigin
+        VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: backendOrigin
       }
     }
   ]

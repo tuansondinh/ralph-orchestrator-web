@@ -1,6 +1,7 @@
 import { trpcClient } from '@/lib/trpc'
 
 export interface SettingsSnapshot {
+  chatModel: 'gemini' | 'openai' | 'claude'
   ralphBinaryPath: string | null
   notifications: {
     loopComplete: boolean
@@ -19,6 +20,7 @@ export interface SettingsSnapshot {
 }
 
 export interface SettingsUpdateInput {
+  chatModel?: 'gemini' | 'openai' | 'claude'
   ralphBinaryPath?: string | null
   notifications?: {
     loopComplete?: boolean

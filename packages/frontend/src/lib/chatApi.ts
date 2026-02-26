@@ -23,6 +23,7 @@ export interface ChatMessageRecord {
   role: ChatRole
   content: string
   timestamp: number
+  link?: string
 }
 
 export const chatApi = {

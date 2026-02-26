@@ -148,6 +148,7 @@ describe('settings tRPC routes', () => {
     const { caller, binaryPath, tempDir } = await setupCaller()
 
     const initial = await caller.settings.get()
+    expect(initial.chatModel).toBe('gemini')
     expect(initial.ralphBinaryPath).toBeNull()
     expect(initial.notifications).toEqual({
       loopComplete: true,
@@ -163,6 +164,7 @@ describe('settings tRPC routes', () => {
     expect(initial.data.dbPath.endsWith('settings.db')).toBe(true)
 
     const updated = await caller.settings.update({
+      chatModel: 'openai',
       ralphBinaryPath: binaryPath,
       notifications: {
         loopComplete: false,
@@ -177,6 +179,7 @@ describe('settings tRPC routes', () => {
       }
     })
 
+    expect(updated.chatModel).toBe('openai')
     expect(updated.ralphBinaryPath).toBe(binaryPath)
     expect(updated.notifications.loopComplete).toBe(false)
     expect(updated.notifications.needsInput).toBe(false)
@@ -188,6 +191,7 @@ describe('settings tRPC routes', () => {
     })
 
     const reloaded = await caller.settings.get()
+    expect(reloaded.chatModel).toBe('openai')
     expect(reloaded).toEqual(updated)
 
     const versionResult = await caller.settings.testBinary({ path: binaryPath })

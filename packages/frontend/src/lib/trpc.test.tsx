@@ -12,7 +12,7 @@ describe('resolveTrpcBaseUrl', () => {
     expect(
       resolveTrpcBaseUrl({
         DEV: true,
-        VITE_RALPH_UI_BACKEND_ORIGIN: 'http://127.0.0.1:43300/'
+        VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://127.0.0.1:43300/'
       }, { hostname: 'localhost' })
     ).toBe('http://127.0.0.1:43300/trpc')
   })
@@ -21,14 +21,14 @@ describe('resolveTrpcBaseUrl', () => {
     expect(
       resolveTrpcBaseUrl({
         DEV: true,
-        VITE_RALPH_UI_BACKEND_ORIGIN: 'http://localhost:3001'
+        VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://localhost:3001'
       }, { hostname: 'localhost' })
     ).toBe('http://localhost:3001/trpc')
 
     expect(
       resolveTrpcBaseUrl({
         DEV: true,
-        VITE_RALPH_UI_BACKEND_ORIGIN: 'http://127.0.0.1:3001'
+        VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://127.0.0.1:3001'
       }, { hostname: 'localhost' })
     ).toBe('http://127.0.0.1:3001/trpc')
   })

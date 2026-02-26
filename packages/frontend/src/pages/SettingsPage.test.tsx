@@ -13,6 +13,7 @@ vi.mock('@/lib/settingsApi', () => ({
 }))
 
 const baseSettings = {
+  chatModel: 'gemini' as const,
   ralphBinaryPath: '/usr/local/bin/ralph',
   notifications: {
     loopComplete: true,
@@ -37,6 +38,7 @@ describe('SettingsPage', () => {
     vi.mocked(settingsApi.update).mockImplementation(async (input) => ({
       ...baseSettings,
       ...input,
+      chatModel: input.chatModel ?? baseSettings.chatModel,
       notifications: {
         ...baseSettings.notifications,
         ...(input.notifications ?? {})
@@ -75,10 +77,14 @@ describe('SettingsPage', () => {
     fireEvent.change(screen.getByLabelText('Preview port end'), {
       target: { value: '4200' }
     })
+    fireEvent.change(screen.getByLabelText('AI model'), {
+      target: { value: 'claude' }
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
 
     await waitFor(() => {
       expect(settingsApi.update).toHaveBeenCalledWith({
+        chatModel: 'claude',
         ralphBinaryPath: '/custom/bin/ralph',
         notifications: {
           loopComplete: false,

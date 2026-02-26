@@ -1,11 +1,13 @@
 import ReactMarkdown from 'react-markdown'
+import { Link } from 'react-router-dom'
 import type { ChatMessageRecord } from '@/lib/chatApi'
 
 interface ChatMessageProps {
   message: ChatMessageRecord
+  onLinkClick?: () => void
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, onLinkClick }: ChatMessageProps) {
   const isUser = message.role === 'user'
 
   return (
@@ -55,6 +57,17 @@ export function ChatMessage({ message }: ChatMessageProps) {
         >
           {message.content}
         </ReactMarkdown>
+        {message.link ? (
+          <div className="mt-2">
+            <Link
+              className="text-xs font-medium text-cyan-300 underline-offset-2 hover:underline"
+              onClick={onLinkClick}
+              to={message.link}
+            >
+              View details
+            </Link>
+          </div>
+        ) : null}
       </div>
     </article>
   )

@@ -9,6 +9,7 @@ import { RalphProcessList } from '@/components/system/RalphProcessList'
 
 function toUpdateInput(settings: SettingsSnapshot): SettingsUpdateInput {
   return {
+    chatModel: settings.chatModel,
     ralphBinaryPath: settings.ralphBinaryPath,
     notifications: { ...settings.notifications },
     preview: { ...settings.preview }
@@ -142,6 +143,28 @@ export function SettingsPage() {
           Configure Ralph binary path, notification behavior, and preview defaults.
         </p>
       </header>
+
+      <section className="space-y-3 rounded-md border border-zinc-800 p-4">
+        <h2 className="text-lg font-semibold">Assistant</h2>
+        <label className="flex max-w-sm flex-col gap-1 text-sm" htmlFor="chat-model">
+          AI model
+          <select
+            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
+            id="chat-model"
+            onChange={(event) =>
+              updateSettings((current) => ({
+                ...current,
+                chatModel: event.target.value as SettingsSnapshot['chatModel']
+              }))
+            }
+            value={settings.chatModel}
+          >
+            <option value="gemini">Gemini</option>
+            <option value="openai">OpenAI (GPT-4o)</option>
+            <option value="claude">Claude</option>
+          </select>
+        </label>
+      </section>
 
       <section className="space-y-3 rounded-md border border-zinc-800 p-4">
         <h2 className="text-lg font-semibold">Ralph binary</h2>

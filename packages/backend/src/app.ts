@@ -1,6 +1,8 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
+import type { ModelMessage } from 'ai'
 import cors from '@fastify/cors'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
+import { z } from 'zod'
 import { appRouter } from './trpc/router.js'
 import { createContext } from './trpc/context.js'
 import {
@@ -20,11 +22,52 @@ import { RalphProcessService } from './services/RalphProcessService.js'
 import { ProjectService } from './services/ProjectService.js'
 import { PresetService } from './services/PresetService.js'
 import { HatsPresetService } from './services/HatsPresetService.js'
-import { McpChatService } from './services/McpChatService.js'
+import { McpChatService, type AIModel } from './services/McpChatService.js'
 import { RalphMcpServer } from './mcp/RalphMcpServer.js'
 import { resolveRalphBinary } from './lib/ralph.js'
 import { isOriginAllowed, parseAllowedOrigins } from './lib/origin.js'
 import { registerWebsocket } from './api/websocket.js'
+
+const CHAT_STREAM_MESSAGE_SCHEMA = z
+  .object({
+    role: z.enum(['system', 'user', 'assistant', 'tool']),
+    content: z.union([z.string(), z.array(z.unknown())])
+  })
+  .passthrough()
+
+const CHAT_STREAM_BODY_SCHEMA = z.object({
+  messages: z.array(CHAT_STREAM_MESSAGE_SCHEMA).min(1),
+  model: z.enum(['gemini', 'openai', 'claude']).optional(),
+  sessionId: z.string().trim().min(1)
+})
+
+const CHAT_CONFIRM_BODY_SCHEMA = z.object({
+  sessionId: z.string().trim().min(1),
+  toolCallId: z.string().trim().min(1),
+  confirmed: z.boolean()
+})
+
+function writeSseEvent(
+  rawReply: FastifyReply['raw'],
+  event: string,
+  data: unknown
+) {
+  rawReply.write(`event: ${event}\n`)
+  rawReply.write(`data: ${JSON.stringify(data)}\n\n`)
+}
+
+function getValidationErrorMessage(error: z.ZodError) {
+  const firstIssue = error.issues[0]
+  return firstIssue?.message ?? 'Invalid request body'
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message
+  }
+
+  return 'Failed to stream chat response'
+}
 
 function parseSettingInteger(value: string | undefined, fallback: number) {
   if (!value) {
@@ -37,6 +80,42 @@ function parseSettingInteger(value: string | undefined, fallback: number) {
   }
 
   return parsed
+}
+
+function createChatStreamTimeoutError(timeoutMs: number) {
+  const timeoutSeconds = Math.ceil(timeoutMs / 1000)
+  return new Error(`Chat stream timed out after ${timeoutSeconds}s`)
+}
+
+function createChatStreamFirstEventTimeoutError(timeoutMs: number) {
+  const timeoutSeconds = Math.ceil(timeoutMs / 1000)
+  return new Error(
+    `Chat stream produced no events after ${timeoutSeconds}s. Check model credentials/network and try again.`
+  )
+}
+
+function getMissingModelCredential(model: AIModel) {
+  if (model === 'gemini') {
+    if (process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY) {
+      return null
+    }
+
+    return 'Missing Gemini API key. Set GOOGLE_GENERATIVE_AI_API_KEY.'
+  }
+
+  if (model === 'openai') {
+    if (process.env.OPENAI_API_KEY) {
+      return null
+    }
+
+    return 'Missing OpenAI API key. Set OPENAI_API_KEY.'
+  }
+
+  if (process.env.ANTHROPIC_API_KEY) {
+    return null
+  }
+
+  return 'Missing Claude API key. Set ANTHROPIC_API_KEY.'
 }
 
 export function createApp() {
@@ -85,7 +164,6 @@ export function createApp() {
   const projectService = new ProjectService(database.db)
   const presetService = new PresetService()
   const hatsPresetService = new HatsPresetService()
-  const mcpChatService = new McpChatService()
   const ralphMcpServer = new RalphMcpServer({
     projectService,
     presetService,
@@ -95,8 +173,19 @@ export function createApp() {
     ralphProcessService,
     hatsPresetService
   })
+  const mcpChatService = new McpChatService({
+    mcpServer: ralphMcpServer
+  })
   const configuredAllowedOrigins = parseAllowedOrigins(
     process.env.RALPH_UI_ALLOWED_ORIGINS
+  )
+  const chatStreamTimeoutMs = parseSettingInteger(
+    process.env.RALPH_UI_CHAT_STREAM_TIMEOUT_MS,
+    120_000
+  )
+  const chatStreamFirstEventTimeoutMs = parseSettingInteger(
+    process.env.RALPH_UI_CHAT_STREAM_FIRST_EVENT_TIMEOUT_MS,
+    25_000
   )
 
   app.decorate('db', database.db)
@@ -157,6 +246,189 @@ export function createApp() {
     url: '/mcp',
     handler: handleMcpRequest
   })
+
+  const handleChatStream = async (request: FastifyRequest, reply: FastifyReply) => {
+    reply.hijack()
+
+    const rawReply = reply.raw
+    const abortController = new AbortController()
+    const requestOrigin =
+      typeof request.headers.origin === 'string' ? request.headers.origin : undefined
+    const requestOriginAllowed = isOriginAllowed(requestOrigin, configuredAllowedOrigins)
+    let streamClosed = false
+    const markClosed = () => {
+      streamClosed = true
+      if (!abortController.signal.aborted) {
+        abortController.abort(new Error('Chat stream closed by client'))
+      }
+    }
+
+    const endStream = () => {
+      rawReply.off('close', markClosed)
+      request.raw.off('aborted', markClosed)
+
+      if (!streamClosed && !rawReply.writableEnded && !rawReply.destroyed) {
+        rawReply.end()
+      }
+    }
+
+    const sendEvent = (event: string, data: unknown) => {
+      if (streamClosed || rawReply.writableEnded || rawReply.destroyed) {
+        return
+      }
+
+      writeSseEvent(rawReply, event, data)
+    }
+
+    rawReply.on('close', markClosed)
+    request.raw.on('aborted', markClosed)
+
+    const setSseHeaders = (statusCode: number) => {
+      rawReply.statusCode = statusCode
+      rawReply.setHeader('content-type', 'text/event-stream; charset=utf-8')
+      rawReply.setHeader('cache-control', 'no-cache, no-transform')
+      rawReply.setHeader('connection', 'keep-alive')
+      if (requestOrigin && requestOriginAllowed) {
+        rawReply.setHeader('access-control-allow-origin', requestOrigin)
+        rawReply.setHeader('access-control-allow-credentials', 'true')
+        rawReply.setHeader('vary', 'Origin')
+      }
+      rawReply.flushHeaders?.()
+    }
+
+    const parsed = CHAT_STREAM_BODY_SCHEMA.safeParse(request.body)
+    if (!parsed.success) {
+      setSseHeaders(400)
+      sendEvent('error', {
+        message: getValidationErrorMessage(parsed.error)
+      })
+      endStream()
+      return
+    }
+
+    const input = parsed.data
+    const selectedModel = (input.model ?? 'gemini') as AIModel
+    setSseHeaders(200)
+
+    let timeoutId: NodeJS.Timeout | null = null
+    let firstEventTimeoutId: NodeJS.Timeout | null = null
+    let receivedStreamEvent = false
+    const markStreamEvent = () => {
+      receivedStreamEvent = true
+      if (firstEventTimeoutId) {
+        clearTimeout(firstEventTimeoutId)
+        firstEventTimeoutId = null
+      }
+    }
+
+    try {
+      const missingCredential = getMissingModelCredential(selectedModel)
+      if (missingCredential) {
+        throw new Error(missingCredential)
+      }
+
+      const streamPromise = app.mcpChatService.streamChat({
+        sessionId: input.sessionId,
+        model: selectedModel,
+        messages: input.messages as ModelMessage[],
+        abortSignal: abortController.signal,
+        onTextDelta: (text) => {
+          markStreamEvent()
+          sendEvent('text-delta', { text })
+        },
+        onToolCall: (event) => {
+          markStreamEvent()
+          sendEvent('tool-call', event)
+        },
+        onToolResult: (event) => {
+          markStreamEvent()
+          sendEvent('tool-result', event)
+        }
+      })
+
+      const timeoutPromises: Array<Promise<never>> = []
+
+      if (chatStreamFirstEventTimeoutMs > 0) {
+        timeoutPromises.push(
+          new Promise<never>((_, reject) => {
+            firstEventTimeoutId = setTimeout(() => {
+              if (receivedStreamEvent) {
+                return
+              }
+
+              const timeoutError = createChatStreamFirstEventTimeoutError(
+                chatStreamFirstEventTimeoutMs
+              )
+              if (!abortController.signal.aborted) {
+                abortController.abort(timeoutError)
+              }
+              reject(timeoutError)
+            }, chatStreamFirstEventTimeoutMs)
+          })
+        )
+      }
+
+      if (chatStreamTimeoutMs > 0) {
+        timeoutPromises.push(new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            const timeoutError = createChatStreamTimeoutError(chatStreamTimeoutMs)
+            if (!abortController.signal.aborted) {
+              abortController.abort(timeoutError)
+            }
+            reject(timeoutError)
+          }, chatStreamTimeoutMs)
+        }))
+      }
+
+      if (timeoutPromises.length > 0) {
+        await Promise.race([streamPromise, ...timeoutPromises])
+      } else {
+        await streamPromise
+      }
+
+      sendEvent('done', {})
+    } catch (error) {
+      app.log.error({ error }, 'Failed to stream chat response')
+      sendEvent('error', {
+        message: getErrorMessage(error)
+      })
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+      if (firstEventTimeoutId) {
+        clearTimeout(firstEventTimeoutId)
+      }
+      endStream()
+    }
+  }
+
+  const handleChatConfirm = async (request: FastifyRequest, reply: FastifyReply) => {
+    const parsed = CHAT_CONFIRM_BODY_SCHEMA.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({
+        ok: false,
+        message: getValidationErrorMessage(parsed.error)
+      })
+    }
+
+    const confirmed = app.mcpChatService.confirmToolCall(parsed.data)
+    if (!confirmed) {
+      return reply.status(404).send({
+        ok: false,
+        message: 'No pending confirmation found'
+      })
+    }
+
+    return {
+      ok: true
+    }
+  }
+
+  app.post('/chat/stream', handleChatStream)
+  app.post('/trpc/chat/stream', handleChatStream)
+  app.post('/chat/confirm', handleChatConfirm)
+  app.post('/trpc/chat/confirm', handleChatConfirm)
 
   app.register(registerWebsocket)
 

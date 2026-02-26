@@ -5,6 +5,7 @@ import { monitoringApi } from '@/lib/monitoringApi'
 import { taskApi } from '@/lib/taskApi'
 import { terminalApi } from '@/lib/terminalApi'
 import { worktreeApi } from '@/lib/worktreeApi'
+import { resetChatOverlayStore } from '@/stores/chatOverlayStore'
 import { resetLoopStore } from '@/stores/loopStore'
 import { resetProjectStore } from '@/stores/projectStore'
 import { resetTerminalStore } from '@/stores/terminalStore'
@@ -87,6 +88,7 @@ function seedProjects(nextProjects: ProjectRecord[]) {
 
 beforeEach(() => {
   resetLoopStore()
+  resetChatOverlayStore()
   resetProjectStore()
   resetTerminalStore()
   vi.clearAllMocks()
@@ -224,6 +226,25 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: 'No projects yet' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Create Project' })).toBeInTheDocument()
+  })
+
+  it('toggles chat overlay with Cmd/Ctrl+Shift+C keyboard shortcut', async () => {
+    render(<App />)
+    await screen.findByRole('button', { name: 'Open chat assistant' })
+
+    fireEvent.keyDown(window, {
+      key: 'c',
+      metaKey: true,
+      shiftKey: true
+    })
+    expect(screen.getByRole('heading', { name: 'Ralph Assistant' })).toBeInTheDocument()
+
+    fireEvent.keyDown(window, {
+      key: 'c',
+      ctrlKey: true,
+      shiftKey: true
+    })
+    expect(screen.queryByRole('heading', { name: 'Ralph Assistant' })).not.toBeInTheDocument()
   })
 
   it('renders developer-focused empty homepage content', async () => {

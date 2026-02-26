@@ -609,6 +609,7 @@ const settingsRouter = t.router({
     .input(
       z
         .object({
+          chatModel: z.enum(['gemini', 'openai', 'claude']).optional(),
           ralphBinaryPath: z.string().optional().nullable(),
           appearance: z
             .object({

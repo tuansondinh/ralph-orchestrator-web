@@ -21,6 +21,7 @@ const DEFAULT_PREVIEW_BASE_URL = 'http://localhost'
 const DEFAULT_PRESET_FILENAME = 'hatless-baseline.yml'
 
 const SETTING_KEYS = {
+  chatModel: 'chat.model',
   ralphBinaryPath: 'ralph.binaryPath',
   notifyLoopComplete: 'notifications.loopComplete.enabled',
   notifyLoopFailed: 'notifications.loopFailed.enabled',
@@ -33,12 +34,16 @@ const SETTING_KEYS = {
   defaultPreset: 'ralph.defaultPreset'
 } as const
 
+const CHAT_MODELS = ['gemini', 'openai', 'claude'] as const
+type ChatModel = (typeof CHAT_MODELS)[number]
+
 export interface PreviewSettingsSnapshot {
   baseUrl: string
   command: string | null
 }
 
 export interface SettingsSnapshot {
+  chatModel: ChatModel
   ralphBinaryPath: string | null
   notifications: {
     loopComplete: boolean
@@ -57,6 +62,7 @@ export interface SettingsSnapshot {
 }
 
 export interface SettingsUpdateInput {
+  chatModel?: ChatModel
   ralphBinaryPath?: string | null
   notifications?: {
     loopComplete?: boolean
@@ -127,6 +133,18 @@ function normalizePath(value: string | null | undefined) {
 
 function stripTrailingSlash(url: string) {
   return url.endsWith('/') ? url.slice(0, -1) : url
+}
+
+function normalizeChatModel(value: string | undefined): ChatModel {
+  if (!value) {
+    return 'gemini'
+  }
+
+  if ((CHAT_MODELS as readonly string[]).includes(value)) {
+    return value as ChatModel
+  }
+
+  return 'gemini'
 }
 
 function normalizePreviewBaseUrl(raw: string, fallback = DEFAULT_PREVIEW_BASE_URL) {
@@ -241,6 +259,7 @@ export class SettingsService {
     const previewCommand = normalizePath(map.get(SETTING_KEYS.previewCommand))
 
     return {
+      chatModel: normalizeChatModel(map.get(SETTING_KEYS.chatModel)),
       ralphBinaryPath: normalizePath(map.get(SETTING_KEYS.ralphBinaryPath)),
       notifications: {
         loopComplete: parseBoolean(map.get(SETTING_KEYS.notifyLoopComplete), true),
@@ -260,6 +279,10 @@ export class SettingsService {
   }
 
   async update(input: SettingsUpdateInput): Promise<SettingsSnapshot> {
+    if (input.chatModel !== undefined) {
+      await this.upsert(SETTING_KEYS.chatModel, input.chatModel)
+    }
+
     if (input.preview?.portStart !== undefined) {
       this.assertValidPort('preview.portStart', input.preview.portStart)
     }

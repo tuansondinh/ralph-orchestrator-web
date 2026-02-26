@@ -12,6 +12,7 @@ import {
 import { AppShell } from '@/components/layout/AppShell'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { AppErrorBoundary } from '@/components/errors/AppErrorBoundary'
+import { ChatOverlay } from '@/components/chat/ChatOverlay'
 import { NotificationCenter } from '@/components/notifications/NotificationCenter'
 import { NotificationToast } from '@/components/notifications/NotificationToast'
 import { EmptyState } from '@/components/project/EmptyState'
@@ -22,6 +23,7 @@ import { useNotifications } from '@/hooks/useNotifications'
 import { ProjectPage } from '@/pages/ProjectPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import type { ProjectRecord } from '@/lib/projectApi'
+import { useChatOverlayStore } from '@/stores/chatOverlayStore'
 import { useProjectStore } from '@/stores/projectStore'
 
 const LAST_PROJECT_TAB_STORAGE_KEY = 'ralph-ui.last-project-tabs'
@@ -124,6 +126,8 @@ function AppRoutes() {
   const projects = useProjectStore((state) => state.projects)
   const activeProjectId = useProjectStore((state) => state.activeProjectId)
   const setActiveProject = useProjectStore((state) => state.setActiveProject)
+  const toggleChatOverlay = useChatOverlayStore((state) => state.toggle)
+  const closeChatOverlay = useChatOverlayStore((state) => state.close)
   const {
     notifications,
     toasts,
@@ -205,8 +209,12 @@ function AppRoutes() {
       window.dispatchEvent(new Event('ralph:new-project'))
     },
     onSwitchTab: handleTabShortcut,
+    onToggleChatOverlay: () => {
+      toggleChatOverlay()
+    },
     onEscape: () => {
       setIsQuickSwitcherOpen(false)
+      closeChatOverlay()
       window.dispatchEvent(new Event('ralph:close-dialogs'))
     }
   })
@@ -352,6 +360,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AppRoutes />
+      <ChatOverlay />
     </BrowserRouter>
   )
 }

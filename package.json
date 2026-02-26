@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev -w @ralph-ui/backend\" \"npm run dev -w @ralph-ui/frontend\"",
+    "dev:watch": "concurrently -n backend,frontend -c blue,green \"npm run dev:watch -w @ralph-ui/backend\" \"npm run dev -w @ralph-ui/frontend\"",
     "lint": "npm run lint -ws",
     "test": "npm run test -ws",
     "test:coverage": "npm run coverage -ws",

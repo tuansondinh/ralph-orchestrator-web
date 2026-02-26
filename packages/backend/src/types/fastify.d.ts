@@ -8,6 +8,8 @@ import type { MonitoringService } from '../services/MonitoringService.js'
 import type { DevPreviewManager } from '../services/DevPreviewManager.js'
 import type { TerminalService } from '../services/TerminalService.js'
 import type { RalphProcessService } from '../services/RalphProcessService.js'
+import type { McpChatService } from '../services/McpChatService.js'
+import type { RalphMcpServer } from '../mcp/RalphMcpServer.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -20,5 +22,7 @@ declare module 'fastify' {
     previewService: DevPreviewManager
     terminalService: TerminalService
     ralphProcessService: RalphProcessService
+    mcpChatService: McpChatService
+    ralphMcpServer: RalphMcpServer
   }
 }

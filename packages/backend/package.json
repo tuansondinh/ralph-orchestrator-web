@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/serve.ts",
+    "dev": "tsx src/serve.ts",
+    "dev:watch": "tsx watch src/serve.ts",
     "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
     "start": "node dist/serve.js",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" vitest.config.ts",
@@ -17,9 +18,14 @@
     "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.47",
+    "@ai-sdk/google": "^3.0.31",
+    "@ai-sdk/openai": "^3.0.33",
     "@fastify/cors": "^11.2.0",
     "@fastify/websocket": "^11.2.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@trpc/server": "^11.10.0",
+    "ai": "^6.0.100",
     "better-sqlite3": "^12.6.2",
     "drizzle-kit": "^0.31.9",
     "drizzle-orm": "^0.45.1",

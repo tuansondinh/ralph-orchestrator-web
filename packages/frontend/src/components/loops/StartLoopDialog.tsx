@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { LoopBackend, StartLoopInput } from '@/lib/loopApi'
+import { RALPH_BACKENDS } from '@/lib/backends'
 import { presetApi, type PresetSummary } from '@/lib/presetApi'
 import { settingsApi } from '@/lib/settingsApi'
 import { worktreeApi, type WorktreeSummary } from '@/lib/worktreeApi'
@@ -62,7 +63,7 @@ export function StartLoopDialog({
   const [defaultPreset, setDefaultPreset] = useState(FALLBACK_PRESET_FILENAME)
   const [selectedPreset, setSelectedPreset] = useState(FALLBACK_PRESET_FILENAME)
   const [selectedBackend, setSelectedBackend] = useState<BackendSelection>('auto')
-  const [exclusive, setExclusive] = useState(true)
+  const [exclusive, setExclusive] = useState(false)
 
   const resetForm = useCallback(() => {
     setPrompt(initialPrompt)
@@ -71,7 +72,7 @@ export function StartLoopDialog({
     setSelectedBackend('auto')
     setSelectedWorktree('')
     setNewWorktreeName('')
-    setExclusive(true)
+    setExclusive(false)
     setError(null)
     setStatusMessage(null)
   }, [defaultPreset, initialPrompt, presets])
@@ -441,13 +442,11 @@ export function StartLoopDialog({
             }}
           >
             <option value="auto">auto (default)</option>
-            <option value="claude">claude</option>
-            <option value="kiro">kiro</option>
-            <option value="gemini">gemini</option>
-            <option value="codex">codex</option>
-            <option value="amp">amp</option>
-            <option value="copilot">copilot</option>
-            <option value="opencode">opencode</option>
+            {RALPH_BACKENDS.map((backend) => (
+              <option key={backend} value={backend}>
+                {backend}
+              </option>
+            ))}
           </select>
           <p className="text-xs text-zinc-500">
             Auto leaves backend unset so Ralph config/auto-detection decides.

@@ -103,7 +103,7 @@ describe('StartLoopDialog', () => {
     await waitFor(() => {
       expect(onStart).toHaveBeenCalledWith({
         prompt: 'Ship it',
-        exclusive: true,
+        exclusive: false,
         presetFilename: 'spec-driven.yml'
       })
     })
@@ -128,7 +128,7 @@ describe('StartLoopDialog', () => {
     await waitFor(() => {
       expect(onStart).toHaveBeenCalledWith({
         prompt: 'Ship it',
-        exclusive: true,
+        exclusive: false,
         presetFilename: 'code-assist.yml'
       })
     })
@@ -158,7 +158,7 @@ describe('StartLoopDialog', () => {
     await waitFor(() => {
       expect(onStart).toHaveBeenCalledWith({
         prompt: 'Ship with named branch',
-        exclusive: true,
+        exclusive: false,
         presetFilename: 'hatless-baseline.yml',
         worktree: 'feature-a'
       })
@@ -182,7 +182,7 @@ describe('StartLoopDialog', () => {
       expect(onStart).toHaveBeenCalledWith({
         prompt: 'Use opencode for this loop',
         backend: 'opencode',
-        exclusive: true,
+        exclusive: false,
         presetFilename: 'hatless-baseline.yml'
       })
     })
@@ -210,7 +210,7 @@ describe('StartLoopDialog', () => {
     await waitFor(() => {
       expect(onStart).toHaveBeenCalledWith({
         prompt: 'Ship with custom settings',
-        exclusive: true,
+        exclusive: false,
         presetFilename: 'ralph.yml'
       })
     })

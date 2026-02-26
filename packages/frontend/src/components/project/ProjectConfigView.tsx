@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { parse } from 'yaml'
+import { SaveSettingsAction } from '@/components/common/SaveSettingsAction'
 import {
   projectConfigApi,
   type ProjectConfigSnapshot
@@ -99,16 +100,12 @@ export function ProjectConfigView({ projectId }: ProjectConfigViewProps) {
       </label>
 
       <div className="flex items-center gap-3">
-        <button
-          className="rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={isSaving}
-          onClick={() => void onSave()}
-          type="button"
-        >
-          Save settings
-        </button>
-        {saveMessage ? <p className="text-sm text-emerald-300">{saveMessage}</p> : null}
-        {errorMessage ? <p className="text-sm text-red-300">{errorMessage}</p> : null}
+        <SaveSettingsAction
+          errorMessage={errorMessage}
+          isSaving={isSaving}
+          onSave={onSave}
+          saveMessage={saveMessage}
+        />
       </div>
     </section>
   )

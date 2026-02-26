@@ -16,6 +16,13 @@ type RuntimeEnv = {
 }
 type RuntimeLocation = Pick<Location, 'protocol' | 'host'>
 
+function resolveDefaultDevWebsocketUrl(
+  runtimeLocation: RuntimeLocation = window.location
+) {
+  void runtimeLocation
+  return 'ws://127.0.0.1:3003/ws'
+}
+
 export function resolveWebsocketUrl(
   env: RuntimeEnv = import.meta.env,
   runtimeLocation: RuntimeLocation = window.location
@@ -23,18 +30,13 @@ export function resolveWebsocketUrl(
   if (env.DEV) {
     const backendOrigin = env.VITE_RALPH_UI_BACKEND_ORIGIN
     if (typeof backendOrigin === 'string' && backendOrigin.trim().length > 0) {
-      // Prefer Vite proxy (relative path) for default local backend to avoid CORS inconsistencies.
-      if (backendOrigin.includes('localhost:3001') || backendOrigin.includes('127.0.0.1:3001')) {
-        return '/ws'
-      }
-
       const origin = backendOrigin.replace(/\/$/, '')
       const host = origin.replace(/^https?:\/\//, '')
       const protocol = origin.startsWith('https://') ? 'wss' : 'ws'
       return `${protocol}://${host}/ws`
     }
 
-    return '/ws'
+    return resolveDefaultDevWebsocketUrl(runtimeLocation)
   }
 
   const protocol = runtimeLocation.protocol === 'https:' ? 'wss:' : 'ws:'

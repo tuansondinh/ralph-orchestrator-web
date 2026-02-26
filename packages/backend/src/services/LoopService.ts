@@ -81,6 +81,12 @@ export interface LoopMetrics {
   filesChanged: string[]
 }
 
+export interface LoopOutputSnapshot {
+  summary: string
+  lines: string[]
+  link: string
+}
+
 export interface LoopDiffStats {
   filesChanged: number
   additions: number
@@ -149,6 +155,7 @@ type LoopBackend =
 
 const STOP_ATTEMPTS = 3
 const STOP_WAIT_MS_PER_ATTEMPT = 700
+const PROJECT_RECONCILE_MIN_INTERVAL_MS = 2_000
 const DEFAULT_OUTPUT_BUFFER_LINES = 500
 const OUTPUT_ITERATION_PATTERNS = [
   /\biteration\s+(\d+)\b/gi,
@@ -197,6 +204,20 @@ function getErrorOutput(error: unknown) {
   }
 
   return 'Unknown error'
+}
+
+function isLoopUnavailableError(error: unknown) {
+  const output = getErrorOutput(error)
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+  return (
+    (output.includes('loop') && output.includes('not found')) ||
+    output.includes('not running') ||
+    output.includes('no such loop') ||
+    output.includes('no active loop') ||
+    output.includes('unable to find loop') ||
+    output.includes('cannot find loop')
+  )
 }
 
 function isMissingGitRevisionError(output: string) {
@@ -376,10 +397,6 @@ function buildRunArgs(options: LoopStartOptions) {
     args.push('--exclusive')
   }
 
-  if (options.worktree) {
-    args.push('--worktree', options.worktree)
-  }
-
   return args
 }
 
@@ -408,6 +425,10 @@ function usesLiveRuntime(state: string) {
 
 function uniqueLoopIds(loopIds: Array<string | undefined>) {
   return [...new Set(loopIds.filter((loopId): loopId is string => Boolean(loopId)))]
+}
+
+function isLikelyActiveLoopState(state: string) {
+  return usesLiveRuntime(state) || state === 'orphan' || state === 'needs-review'
 }
 
 function extractIterationCandidates(text: string): number[] {
@@ -483,6 +504,8 @@ export class LoopService {
   private readonly bufferLines: number
   private readonly runtimes = new Map<string, LoopRuntime>()
   private readonly events = new EventEmitter()
+  private readonly reconcileInFlightByProject = new Map<string, Promise<number>>()
+  private readonly lastReconcileAtByProject = new Map<string, number>()
 
   constructor(
     private readonly db: Database,
@@ -516,22 +539,32 @@ export class LoopService {
       )
     }
 
-    const existingLoopIds = await this.listRalphLoopIds(binaryPath, project.path)
-    const markerBefore = await this.readCurrentLoopId(project.path)
-    const currentEventsBefore = await this.readCurrentEventsLoopId(project.path)
+    let runCwd = project.path
+    if (options.worktree) {
+      const resolvedWorktreePath = await this.resolveWorktreePath(project.path, options.worktree)
+      if (!resolvedWorktreePath) {
+        throw new LoopServiceError('BAD_REQUEST', `Worktree not found: ${options.worktree}`)
+      }
+      runCwd = resolvedWorktreePath
+    }
+
+    const existingLoopIds = await this.listRalphLoopIds(binaryPath, runCwd)
+    const markerBefore = await this.readCurrentLoopId(runCwd)
+    const currentEventsBefore = await this.readCurrentEventsLoopId(runCwd)
 
     const loopId = randomUUID()
-    const startCommit = await this.resolveHeadCommit(project.path)
-    const promptSnapshot = await this.resolvePromptSnapshot(project.path, options)
+    const startCommit = await this.resolveHeadCommit(runCwd)
+    const promptSnapshot = await this.resolvePromptSnapshot(runCwd, options)
     const outputLogFile = join('.ralph-ui', 'loop-logs', `${loopId}.log`)
     await mkdir(join(project.path, '.ralph-ui', 'loop-logs'), { recursive: true })
-    const shellCommand = buildRunCommand(binaryPath, options, outputLogFile)
+    const outputLogPath = join(project.path, outputLogFile)
+    const shellCommand = buildRunCommand(binaryPath, options, outputLogPath)
     const handle = await this.processManager.spawn(projectId, 'bash', ['-lc', shellCommand], {
-      cwd: project.path
+      cwd: runCwd
     })
 
-    const markerAfter = await this.readCurrentLoopId(project.path)
-    const currentEventsAfter = await this.readCurrentEventsLoopId(project.path)
+    const markerAfter = await this.readCurrentLoopId(runCwd)
+    const currentEventsAfter = await this.readCurrentEventsLoopId(runCwd)
     const initialRalphLoopId =
       (currentEventsAfter && currentEventsAfter !== currentEventsBefore
         ? currentEventsAfter
@@ -606,7 +639,7 @@ export class LoopService {
     if (!initialRalphLoopId) {
       void this.bootstrapRalphLoopId(loopId, {
         binaryPath,
-        cwd: project.path,
+        cwd: runCwd,
         existingLoopIds,
         markerBefore,
         currentEventsBefore
@@ -627,13 +660,17 @@ export class LoopService {
 
   async stop(loopId: string): Promise<void> {
     const run = await this.requireLoop(loopId)
-    const runtime = this.runtimes.get(loopId)
+    const resolvedLoopId = run.id
+    const runtime = this.runtimes.get(resolvedLoopId)
     const persistedConfig = parsePersistedConfig(run.config)
     const stopLoopIds = uniqueLoopIds([
       runtime?.ralphLoopId ?? undefined,
       run.ralphLoopId ?? undefined,
       persistedConfig.ralphLoopId,
-      loopId
+      resolvedLoopId,
+      loopId,
+      asPrimaryLoopId(loopId),
+      primaryLoopIdFromTimestamp(run.startedAt)
     ])
 
     if (run.state === 'stopped' && (!runtime?.active || !runtime.processId)) {
@@ -653,36 +690,35 @@ export class LoopService {
       )
     }
 
-    let binaryPath: string
-    try {
-      binaryPath = await this.resolveBinary()
-    } catch (error) {
-      throw new LoopServiceError(
-        'BAD_REQUEST',
-        error instanceof Error ? error.message : 'Unable to resolve Ralph binary'
-      )
-    }
-
     if (runtime?.active && runtime.processId) {
       runtime.stopRequested = true
 
       let lastStopCliError: unknown
-      for (let attempt = 0; attempt < STOP_ATTEMPTS; attempt += 1) {
-        const stopResult = await this.tryStopLoopViaCli({
-          binaryPath,
-          cwd: project.path,
-          loopIds: stopLoopIds
-        })
-        if (stopResult.ok) {
+      let binaryPath: string | null = null
+      try {
+        binaryPath = await this.resolveBinary()
+      } catch (error) {
+        lastStopCliError = error
+      }
+
+      if (binaryPath) {
+        for (let attempt = 0; attempt < STOP_ATTEMPTS; attempt += 1) {
+          const stopResult = await this.tryStopLoopViaCli({
+            binaryPath,
+            cwd: project.path,
+            loopIds: stopLoopIds
+          })
+          if (stopResult.ok) {
           const didStop = await this.waitForRuntimeStop(
-            loopId,
+            resolvedLoopId,
             STOP_WAIT_MS_PER_ATTEMPT
           )
-          if (didStop) {
-            return
+            if (didStop) {
+              return
+            }
+          } else {
+            lastStopCliError = stopResult.lastError
           }
-        } else {
-          lastStopCliError = stopResult.lastError
         }
       }
 
@@ -695,7 +731,7 @@ export class LoopService {
         }
 
         const didStopViaKill = await this.waitForRuntimeStop(
-          loopId,
+          resolvedLoopId,
           STOP_WAIT_MS_PER_ATTEMPT * 2
         )
         if (didStopViaKill) {
@@ -718,6 +754,16 @@ export class LoopService {
     }
 
     if (run.state !== 'stopped') {
+      let binaryPath: string
+      try {
+        binaryPath = await this.resolveBinary()
+      } catch (error) {
+        throw new LoopServiceError(
+          'BAD_REQUEST',
+          error instanceof Error ? error.message : 'Unable to resolve Ralph binary'
+        )
+      }
+
       let lastStopCliError: unknown
       let didRequestStop = false
       for (let attempt = 0; attempt < STOP_ATTEMPTS; attempt += 1) {
@@ -731,6 +777,14 @@ export class LoopService {
           break
         }
         lastStopCliError = stopResult.lastError
+      }
+
+      if (!didRequestStop) {
+        if (isLoopUnavailableError(lastStopCliError)) {
+          // Runtime tracking is unavailable and CLI confirms the loop is already gone.
+          // Treat this as a stale-state reconciliation and continue with DB stop update.
+          didRequestStop = true
+        }
       }
 
       if (!didRequestStop) {
@@ -756,9 +810,9 @@ export class LoopService {
       updates.config = endCommitConfig
     }
 
-    await this.db.update(loopRuns).set(updates).where(eq(loopRuns.id, loopId)).run()
+    await this.db.update(loopRuns).set(updates).where(eq(loopRuns.id, resolvedLoopId)).run()
 
-    this.events.emit(`${STATE_EVENT_PREFIX}${loopId}`, 'stopped')
+    this.events.emit(`${STATE_EVENT_PREFIX}${resolvedLoopId}`, 'stopped')
   }
 
   private async tryStopLoopViaCli(input: {
@@ -819,6 +873,8 @@ export class LoopService {
   }
 
   async list(projectId: string): Promise<LoopSummary[]> {
+    await this.reconcileProjectLoops(projectId)
+
     const rows = this.db
       .select()
       .from(loopRuns)
@@ -830,9 +886,52 @@ export class LoopService {
       .map((row) => this.toSummary(row))
   }
 
+  async reconcileProjectLoops(
+    projectId: string,
+    options: { minIntervalMs?: number } = {}
+  ): Promise<number> {
+    const minIntervalMs = Math.max(
+      0,
+      options.minIntervalMs ?? PROJECT_RECONCILE_MIN_INTERVAL_MS
+    )
+    const nowMs = this.now().getTime()
+    const lastReconcileAt = this.lastReconcileAtByProject.get(projectId) ?? 0
+    if (nowMs - lastReconcileAt < minIntervalMs) {
+      return 0
+    }
+
+    const existing = this.reconcileInFlightByProject.get(projectId)
+    if (existing) {
+      return existing
+    }
+
+    const reconcilePromise = this.reconcileProjectLoopsInternal(projectId)
+      .catch(() => 0)
+      .finally(() => {
+        this.reconcileInFlightByProject.delete(projectId)
+        this.lastReconcileAtByProject.set(projectId, this.now().getTime())
+      })
+
+    this.reconcileInFlightByProject.set(projectId, reconcilePromise)
+    return reconcilePromise
+  }
+
   async get(loopId: string): Promise<LoopSummary> {
     const row = await this.requireLoop(loopId)
     return this.toSummary(row)
+  }
+
+  async getOutput(input: { loopId: string; limit?: number }): Promise<LoopOutputSnapshot> {
+    const run = await this.requireLoop(input.loopId)
+    const maxLines = Math.max(1, Math.min(input.limit ?? 50, 500))
+    const lines = this.replayOutput(input.loopId).slice(-maxLines)
+    const lineLabel = lines.length === 1 ? 'line' : 'lines'
+
+    return {
+      summary: `Showing ${lines.length} recent ${lineLabel} for loop ${input.loopId} (${run.state})`,
+      lines,
+      link: `/project/${run.projectId}/loops?loopId=${run.id}`
+    }
   }
 
   async getDiff(loopId: string): Promise<LoopDiff> {
@@ -1368,10 +1467,58 @@ export class LoopService {
 
   private async requireLoop(loopId: string) {
     const row = this.db.select().from(loopRuns).where(eq(loopRuns.id, loopId)).get()
-    if (!row) {
+    if (row) {
+      return row
+    }
+
+    const primaryLoopId = asPrimaryLoopId(loopId)
+    if (!primaryLoopId) {
       throw new LoopServiceError('NOT_FOUND', `Loop not found: ${loopId}`)
     }
-    return row
+
+    const ralphLoopRows = this.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.ralphLoopId, primaryLoopId))
+      .all()
+      .sort((a, b) => {
+        const stateScoreDiff =
+          Number(isLikelyActiveLoopState(b.state)) - Number(isLikelyActiveLoopState(a.state))
+        if (stateScoreDiff !== 0) {
+          return stateScoreDiff
+        }
+
+        return b.startedAt - a.startedAt
+      })
+
+    if (ralphLoopRows.length > 0) {
+      return ralphLoopRows[0] as LoopRun
+    }
+
+    const candidates = this.db.select().from(loopRuns).all()
+    const inferred = candidates
+      .filter((candidate) => {
+        const persisted = parsePersistedConfig(candidate.config)
+        return (
+          asPrimaryLoopId(persisted.ralphLoopId) === primaryLoopId ||
+          primaryLoopIdFromTimestamp(candidate.startedAt) === primaryLoopId
+        )
+      })
+      .sort((a, b) => {
+        const stateScoreDiff =
+          Number(isLikelyActiveLoopState(b.state)) - Number(isLikelyActiveLoopState(a.state))
+        if (stateScoreDiff !== 0) {
+          return stateScoreDiff
+        }
+
+        return b.startedAt - a.startedAt
+      })
+
+    if (inferred.length > 0) {
+      return inferred[0] as LoopRun
+    }
+
+    throw new LoopServiceError('NOT_FOUND', `Loop not found: ${loopId}`)
   }
 
   private async handleOutput(loopId: string, chunk: OutputChunk) {
@@ -1612,6 +1759,78 @@ export class LoopService {
       .run()
   }
 
+  private async reconcileProjectLoopsInternal(projectId: string): Promise<number> {
+    const runs = this.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.projectId, projectId))
+      .all()
+    const activeRuns = runs.filter((run) => usesLiveRuntime(run.state))
+    if (activeRuns.length === 0) {
+      return 0
+    }
+
+    const activeRunsWithoutRuntime = activeRuns.filter((run) => {
+      const runtime = this.runtimes.get(run.id)
+      return !(runtime?.active && runtime.processId)
+    })
+    if (activeRunsWithoutRuntime.length === 0) {
+      return 0
+    }
+
+    const project = this.db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .get()
+    if (!project) {
+      return 0
+    }
+
+    let binaryPath: string
+    try {
+      binaryPath = await this.resolveBinary()
+    } catch {
+      return 0
+    }
+
+    const listed = await this.listRalphLoopIdsWithStatus(binaryPath, project.path)
+    if (!listed.ok) {
+      return 0
+    }
+
+    const nowMs = this.now().getTime()
+    let reconciled = 0
+    for (const run of activeRunsWithoutRuntime) {
+      const persistedConfig = parsePersistedConfig(run.config)
+      const explicitRalphLoopId =
+        asPrimaryLoopId(run.ralphLoopId) ??
+        asPrimaryLoopId(persistedConfig.ralphLoopId) ??
+        null
+      if (!explicitRalphLoopId) {
+        continue
+      }
+
+      if (listed.ids.has(explicitRalphLoopId)) {
+        continue
+      }
+
+      await this.db
+        .update(loopRuns)
+        .set({
+          state: 'stopped',
+          endedAt: run.endedAt ?? nowMs
+        })
+        .where(eq(loopRuns.id, run.id))
+        .run()
+
+      this.events.emit(`${STATE_EVENT_PREFIX}${run.id}`, 'stopped')
+      reconciled += 1
+    }
+
+    return reconciled
+  }
+
   private async readCurrentLoopId(projectPath: string): Promise<string | null> {
     try {
       const marker = await readFile(join(projectPath, '.ralph', 'current-loop-id'), 'utf8')
@@ -1632,7 +1851,10 @@ export class LoopService {
     }
   }
 
-  private async listRalphLoopIds(binaryPath: string, cwd: string): Promise<Set<string>> {
+  private async listRalphLoopIdsWithStatus(
+    binaryPath: string,
+    cwd: string
+  ): Promise<{ ok: boolean; ids: Set<string> }> {
     try {
       const result = await execFile(binaryPath, ['loops', 'list', '--json'], {
         cwd,
@@ -1640,7 +1862,7 @@ export class LoopService {
       })
       const parsed: unknown = JSON.parse(result.stdout)
       if (!Array.isArray(parsed)) {
-        return new Set()
+        return { ok: true, ids: new Set() }
       }
 
       const ids = parsed
@@ -1658,10 +1880,15 @@ export class LoopService {
         })
         .filter((id): id is string => typeof id === 'string')
 
-      return new Set(ids)
+      return { ok: true, ids: new Set(ids) }
     } catch {
-      return new Set()
+      return { ok: false, ids: new Set() }
     }
+  }
+
+  private async listRalphLoopIds(binaryPath: string, cwd: string): Promise<Set<string>> {
+    const listed = await this.listRalphLoopIdsWithStatus(binaryPath, cwd)
+    return listed.ids
   }
 
   private async bootstrapRalphLoopId(

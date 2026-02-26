@@ -1,9 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { projectApi, type ProjectRecord } from '@/lib/projectApi'
+import { monitoringApi } from '@/lib/monitoringApi'
 import { taskApi } from '@/lib/taskApi'
 import { terminalApi } from '@/lib/terminalApi'
 import { worktreeApi } from '@/lib/worktreeApi'
+import { resetLoopStore } from '@/stores/loopStore'
 import { resetProjectStore } from '@/stores/projectStore'
 import { resetTerminalStore } from '@/stores/terminalStore'
 import App from './App'
@@ -46,6 +48,12 @@ vi.mock('@/lib/worktreeApi', () => ({
   }
 }))
 
+vi.mock('@/lib/monitoringApi', () => ({
+  monitoringApi: {
+    projectStatus: vi.fn()
+  }
+}))
+
 vi.mock('@/hooks/useNotifications', () => ({
   useNotifications: () => ({
     notifications: [],
@@ -78,6 +86,7 @@ function seedProjects(nextProjects: ProjectRecord[]) {
 }
 
 beforeEach(() => {
+  resetLoopStore()
   resetProjectStore()
   resetTerminalStore()
   vi.clearAllMocks()
@@ -115,6 +124,14 @@ beforeEach(() => {
     content: input.content
   }))
   vi.mocked(worktreeApi.list).mockResolvedValue([])
+  vi.mocked(monitoringApi.projectStatus).mockResolvedValue({
+    activeLoops: 0,
+    totalRuns: 0,
+    lastRunAt: null,
+    health: 'healthy',
+    tokenUsage: 0,
+    errorRate: 0
+  })
   vi.mocked(projectApi.selectDirectory).mockResolvedValue({
     path: '/tmp/existing-app'
   })
@@ -141,6 +158,67 @@ afterEach(() => {
 })
 
 describe('App', () => {
+  it('shows active loop spinner counts next to project names in the sidebar', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 10
+      },
+      {
+        id: 'beta',
+        name: 'Beta App',
+        path: '/tmp/beta-app',
+        type: 'python',
+        ralphConfig: 'ralph.yml',
+        createdAt: 2,
+        updatedAt: 20
+      }
+    ])
+
+    vi.mocked(monitoringApi.projectStatus).mockImplementation(async (projectId: string) => {
+      if (projectId === 'alpha') {
+        return {
+          activeLoops: 2,
+          totalRuns: 3,
+          lastRunAt: Date.now(),
+          health: 'healthy',
+          tokenUsage: 120,
+          errorRate: 0
+        }
+      }
+
+      if (projectId === 'beta') {
+        return {
+          activeLoops: 1,
+          totalRuns: 4,
+          lastRunAt: Date.now(),
+          health: 'warning',
+          tokenUsage: 200,
+          errorRate: 25
+        }
+      }
+
+      return {
+        activeLoops: 0,
+        totalRuns: 0,
+        lastRunAt: null,
+        health: 'healthy',
+        tokenUsage: 0,
+        errorRate: 0
+      }
+    })
+
+    render(<App />)
+
+    expect(await screen.findByTestId('project-active-loops-alpha')).toHaveTextContent('2')
+    expect(await screen.findByTestId('project-active-loops-beta')).toHaveTextContent('1')
+  })
+
   it('renders empty state when no projects exist', async () => {
     render(<App />)
 

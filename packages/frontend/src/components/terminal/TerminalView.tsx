@@ -42,11 +42,15 @@ function TerminalSession({
   selectedBackend,
   onBackendChange
 }: TerminalSessionProps) {
+  const MAX_PENDING_OUTPUT_CHUNKS = 600
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const scheduleSyncSizeRef = useRef<(() => void) | null>(null)
   const sessionStateRef = useRef<TerminalSessionState>(session.state)
+  const connectionGenerationRef = useRef(0)
+  const isFitReadyRef = useRef(false)
+  const pendingOutputChunksRef = useRef<string[]>([])
   const updateSession = useTerminalStore((state) => state.updateSession)
   const sessionId = session.id
 
@@ -57,7 +61,18 @@ function TerminalSession({
         message.sessionId === sessionId &&
         typeof message.data === 'string'
       ) {
-        terminalRef.current?.write(message.data)
+        if (message.replay === true && connectionGenerationRef.current > 1) {
+          return
+        }
+        if (!isFitReadyRef.current || !terminalRef.current) {
+          const queue = pendingOutputChunksRef.current
+          queue.push(message.data)
+          if (queue.length > MAX_PENDING_OUTPUT_CHUNKS) {
+            queue.splice(0, queue.length - MAX_PENDING_OUTPUT_CHUNKS)
+          }
+          return
+        }
+        terminalRef.current.write(message.data)
         return
       }
 
@@ -120,6 +135,8 @@ function TerminalSession({
       return
     }
 
+    connectionGenerationRef.current += 1
+    isFitReadyRef.current = false
     scheduleSyncSizeRef.current?.()
   }, [isConnected, sessionId])
 
@@ -140,6 +157,8 @@ function TerminalSession({
     const container = containerRef.current
     if (!container || terminalRef.current) return
 
+    isFitReadyRef.current = false
+    pendingOutputChunksRef.current = []
     const term = new XTerm({
       cursorBlink: true,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
@@ -159,23 +178,63 @@ function TerminalSession({
     terminalRef.current = term
     fitRef.current = fitAddon
     let rafId: number | null = null
+    let fitRetryTimeoutId: number | null = null
+    let fitRetryCount = 0
     let disposed = false
+    const MAX_FIT_RETRIES = 40
+    const FIT_RETRY_DELAY_MS = 50
+
+    const clearFitRetry = () => {
+      if (fitRetryTimeoutId !== null) {
+        window.clearTimeout(fitRetryTimeoutId)
+        fitRetryTimeoutId = null
+      }
+    }
+
+    const scheduleFitRetry = () => {
+      if (disposed || fitRetryTimeoutId !== null || fitRetryCount >= MAX_FIT_RETRIES) {
+        return
+      }
+      fitRetryCount += 1
+      fitRetryTimeoutId = window.setTimeout(() => {
+        fitRetryTimeoutId = null
+        scheduleSyncSize()
+      }, FIT_RETRY_DELAY_MS)
+    }
 
     const syncSize = () => {
-      if (disposed) return
+      if (disposed) return false
+      // When remounting after tab switches, layout can briefly report 0x0; retry until stable.
+      if (container.clientWidth < 16 || container.clientHeight < 16) {
+        scheduleFitRetry()
+        return false
+      }
+      clearFitRetry()
+      fitRetryCount = 0
       try {
         fitAddon.fit()
       } catch {
         // Keep focus/input behavior working even if fit fails during rapid tab switches.
+        scheduleFitRetry()
+        return false
       }
       term.refresh(0, Math.max(term.rows - 1, 0))
-      if (sessionStateRef.current !== 'active') return
+      if (!isFitReadyRef.current) {
+        isFitReadyRef.current = true
+        const queuedOutput = pendingOutputChunksRef.current.join('')
+        pendingOutputChunksRef.current = []
+        if (queuedOutput.length > 0) {
+          term.write(queuedOutput)
+        }
+      }
+      if (sessionStateRef.current !== 'active') return true
       sendRef.current({
         type: 'terminal.resize',
         sessionId,
         cols: term.cols,
         rows: term.rows
       })
+      return true
     }
 
     const scheduleSyncSize = () => {
@@ -184,29 +243,15 @@ function TerminalSession({
       }
       rafId = window.requestAnimationFrame(() => {
         rafId = window.requestAnimationFrame(() => {
-          syncSize()
-          term.focus()
+          const applied = syncSize()
+          if (applied) {
+            term.focus()
+          }
         })
       })
     }
     scheduleSyncSizeRef.current = scheduleSyncSize
-    let delayedSyncOne: number | null = null
-    let delayedSyncTwo: number | null = null
-
-    // Load history
-    void terminalApi
-      .getOutputHistory({ sessionId })
-      .then((history) => {
-        if (disposed) return
-        term.reset()
-        for (const chunk of history) {
-          term.write(chunk)
-        }
-        scheduleSyncSize()
-      })
-      .catch(() => {
-        // Keep rendering live output even if replay history fails.
-      })
+    const delayedSyncIds: number[] = []
 
     const dataDisposable = term.onData((data) => {
       if (sessionStateRef.current !== 'active' || !isConnectedRef.current) return
@@ -229,8 +274,9 @@ function TerminalSession({
     window.addEventListener('focus', scheduleSyncSize)
     document.addEventListener('visibilitychange', handleVisibilityChange)
     scheduleSyncSize()
-    delayedSyncOne = window.setTimeout(scheduleSyncSize, 60)
-    delayedSyncTwo = window.setTimeout(scheduleSyncSize, 240)
+    for (const delay of [60, 240, 600, 1200]) {
+      delayedSyncIds.push(window.setTimeout(scheduleSyncSize, delay))
+    }
 
     return () => {
       disposed = true
@@ -242,16 +288,16 @@ function TerminalSession({
       if (rafId) {
         window.cancelAnimationFrame(rafId)
       }
-      if (delayedSyncOne) {
-        window.clearTimeout(delayedSyncOne)
+      for (const timeoutId of delayedSyncIds) {
+        window.clearTimeout(timeoutId)
       }
-      if (delayedSyncTwo) {
-        window.clearTimeout(delayedSyncTwo)
-      }
+      clearFitRetry()
       scheduleSyncSizeRef.current = null
       term.dispose()
       terminalRef.current = null
       fitRef.current = null
+      isFitReadyRef.current = false
+      pendingOutputChunksRef.current = []
     }
   }, [sessionId])
 

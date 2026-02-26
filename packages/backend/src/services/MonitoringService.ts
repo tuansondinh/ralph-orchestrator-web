@@ -46,6 +46,13 @@ export interface MonitoringEvent {
   timestamp: number
 }
 
+export interface MonitoringStatus {
+  activeLoops: number
+  totalRuns: number
+  erroredRuns: number
+  timestamp: number
+}
+
 export interface EventQueryOptions {
   topic?: string
   sourceHat?: string
@@ -201,8 +208,19 @@ export class MonitoringService {
     this.watchDebounceMs = options.watchDebounceMs ?? 125
   }
 
+  async getStatus(): Promise<MonitoringStatus> {
+    const runs = this.db.select().from(loopRuns).all()
+    return {
+      activeLoops: runs.filter((run) => isActiveState(run.state)).length,
+      totalRuns: runs.length,
+      erroredRuns: runs.filter((run) => hasErrors(run)).length,
+      timestamp: this.now().getTime()
+    }
+  }
+
   async getProjectStatus(projectId: string): Promise<ProjectStatus> {
     await this.requireProject(projectId)
+    await this.loopService.reconcileProjectLoops(projectId)
 
     const runs = this.db
       .select()

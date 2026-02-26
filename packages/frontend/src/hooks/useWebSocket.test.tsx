@@ -224,8 +224,8 @@ describe('useWebSocket', () => {
 })
 
 describe('resolveWebsocketUrl', () => {
-  it('returns relative /ws in dev when backend origin is not set', () => {
-    expect(resolveWebsocketUrl({ DEV: true })).toBe('/ws')
+  it('defaults to 127.0.0.1 backend origin in dev when backend origin is not set', () => {
+    expect(resolveWebsocketUrl({ DEV: true })).toBe('ws://127.0.0.1:3003/ws')
   })
 
   it('uses explicit backend origin in dev when provided', () => {
@@ -239,19 +239,19 @@ describe('resolveWebsocketUrl', () => {
     ).toBe('ws://127.0.0.1:43300/ws')
   })
 
-  it('prefers relative /ws in dev for default localhost backend origin', () => {
+  it('uses localhost backend origin in dev when provided', () => {
     expect(
       resolveWebsocketUrl({
         DEV: true,
         VITE_RALPH_UI_BACKEND_ORIGIN: 'http://localhost:3001'
       })
-    ).toBe('/ws')
+    ).toBe('ws://localhost:3001/ws')
 
     expect(
       resolveWebsocketUrl({
         DEV: true,
         VITE_RALPH_UI_BACKEND_ORIGIN: 'http://127.0.0.1:3001'
       })
-    ).toBe('/ws')
+    ).toBe('ws://127.0.0.1:3001/ws')
   })
 })

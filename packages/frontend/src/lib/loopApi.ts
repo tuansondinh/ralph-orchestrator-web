@@ -1,13 +1,7 @@
 import { trpcClient } from '@/lib/trpc'
+import type { RalphBackend } from '@/lib/backends'
 
-export type LoopBackend =
-  | 'claude'
-  | 'kiro'
-  | 'gemini'
-  | 'codex'
-  | 'amp'
-  | 'copilot'
-  | 'opencode'
+export type LoopBackend = RalphBackend
 
 export interface LoopSummary {
   id: string

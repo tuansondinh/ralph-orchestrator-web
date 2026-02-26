@@ -57,7 +57,7 @@ Open:
 - `http://localhost:5174`
 
 Default dev ports:
-- Backend: `3001`
+- Backend: `3003`
 - Frontend: `5174` (proxies `/trpc` and `/ws` to backend)
 
 ## First 5 Minutes

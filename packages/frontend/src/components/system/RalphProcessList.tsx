@@ -1,31 +1,60 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ralphProcessApi, type RalphProcess } from '@/lib/ralphProcessApi'
+import { isMissingTrpcProcedure } from '@/lib/trpcError'
+
+const PROCESS_REFRESH_INTERVAL_MS = 5_000
+const RALPH_PROCESS_API_UNAVAILABLE_MESSAGE =
+  'Ralph process management is unavailable on this backend.'
 
 export function RalphProcessList() {
   const [processes, setProcesses] = useState<RalphProcess[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isEndpointUnavailable, setIsEndpointUnavailable] = useState(false)
 
-  const fetchProcesses = async () => {
+  const fetchProcesses = useCallback(async () => {
+    if (isEndpointUnavailable) {
+      return
+    }
+
     setIsLoading(true)
     setError(null)
     try {
       const result = await ralphProcessApi.list()
       setProcesses(result)
     } catch (err) {
+      if (isMissingTrpcProcedure(err, /ralph\.list/i)) {
+        setProcesses([])
+        setIsEndpointUnavailable(true)
+        setError(RALPH_PROCESS_API_UNAVAILABLE_MESSAGE)
+        return
+      }
       setError(err instanceof Error ? err.message : 'Failed to fetch Ralph processes')
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [isEndpointUnavailable])
 
   useEffect(() => {
-    fetchProcesses()
-    const interval = setInterval(fetchProcesses, 5000)
-    return () => clearInterval(interval)
-  }, [])
+    if (isEndpointUnavailable) {
+      return
+    }
+
+    void fetchProcesses()
+    const interval = window.setInterval(() => {
+      void fetchProcesses()
+    }, PROCESS_REFRESH_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [fetchProcesses, isEndpointUnavailable])
 
   const handleKill = async (pid: number) => {
+    if (isEndpointUnavailable) {
+      return
+    }
+
     if (!window.confirm(`Are you sure you want to kill process ${pid}?`)) {
       return
     }
@@ -38,6 +67,10 @@ export function RalphProcessList() {
   }
 
   const handleKillAll = async () => {
+    if (isEndpointUnavailable) {
+      return
+    }
+
     if (!window.confirm('Are you sure you want to kill ALL Ralph processes?')) {
       return
     }
@@ -56,13 +89,15 @@ export function RalphProcessList() {
         <div className="flex gap-2">
           <button
             className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
+            disabled={isEndpointUnavailable}
             onClick={() => void fetchProcesses()}
             type="button"
           >
             Refresh
           </button>
           <button
-            className="rounded-md border border-red-700 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/40"
+            className="rounded-md border border-red-700 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/40 disabled:opacity-60"
+            disabled={isEndpointUnavailable}
             onClick={() => void handleKillAll()}
             type="button"
           >

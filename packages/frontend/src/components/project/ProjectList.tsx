@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
+import { monitoringApi } from '@/lib/monitoringApi'
 import { projectApi, type ProjectRecord } from '@/lib/projectApi'
+import { isMissingTrpcProcedure } from '@/lib/trpcError'
+import { useLoopStore } from '@/stores/loopStore'
 import { useProjectStore } from '@/stores/projectStore'
 
 interface ProjectListProps {
@@ -8,6 +11,8 @@ interface ProjectListProps {
 }
 
 const PROJECT_ORDER_STORAGE_KEY = 'ralph-ui.sidebar.project-order'
+const ACTIVE_LOOP_STATES = new Set(['running', 'queued', 'merging'])
+const PROJECT_STATUS_REFRESH_INTERVAL_MS = 5_000
 
 function readStoredProjectOrder() {
   try {
@@ -81,6 +86,7 @@ function reorderProjects(projects: ProjectRecord[], draggedId: string, targetId:
 
 export function ProjectList({ onSelect, onDelete }: ProjectListProps) {
   const projects = useProjectStore((state) => state.projects)
+  const loopsByProject = useLoopStore((state) => state.loopsByProject)
   const activeProjectId = useProjectStore((state) => state.activeProjectId)
   const isLoading = useProjectStore((state) => state.isLoading)
   const error = useProjectStore((state) => state.error)
@@ -92,6 +98,11 @@ export function ProjectList({ onSelect, onDelete }: ProjectListProps) {
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null)
   const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null)
+  const [activeLoopCountByProject, setActiveLoopCountByProject] = useState<
+    Record<string, number>
+  >({})
+  const [isProjectStatusEndpointUnavailable, setIsProjectStatusEndpointUnavailable] =
+    useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -136,6 +147,74 @@ export function ProjectList({ onSelect, onDelete }: ProjectListProps) {
 
     persistProjectOrder(projects)
   }, [isLoading, projects])
+
+  useEffect(() => {
+    if (isProjectStatusEndpointUnavailable) {
+      return
+    }
+
+    let cancelled = false
+    let refreshTimer: number | null = null
+
+    const loadProjectStatuses = async () => {
+      if (projects.length === 0) {
+        if (!cancelled) {
+          setActiveLoopCountByProject({})
+        }
+        return
+      }
+
+      const responses = await Promise.allSettled(
+        projects.map(async (project) => ({
+          projectId: project.id,
+          status: await monitoringApi.projectStatus(project.id)
+        }))
+      )
+
+      if (cancelled) {
+        return
+      }
+
+      const next: Record<string, number> = {}
+      let rejectedCount = 0
+      let missingEndpointCount = 0
+      for (const response of responses) {
+          if (response.status !== 'fulfilled') {
+            rejectedCount += 1
+            if (
+              isMissingTrpcProcedure(response.reason, /monitoring\.projectStatus/i)
+            ) {
+              missingEndpointCount += 1
+            }
+            continue
+        }
+
+        next[response.value.projectId] = Math.max(
+          0,
+          Math.floor(response.value.status.activeLoops)
+        )
+      }
+
+      if (rejectedCount > 0 && rejectedCount === missingEndpointCount) {
+        setIsProjectStatusEndpointUnavailable(true)
+        return
+      }
+
+      setActiveLoopCountByProject(next)
+    }
+
+    void loadProjectStatuses()
+    refreshTimer = window.setInterval(() => {
+      void loadProjectStatuses()
+    }, PROJECT_STATUS_REFRESH_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      if (refreshTimer !== null) {
+        window.clearInterval(refreshTimer)
+      }
+    }
+  }, [isProjectStatusEndpointUnavailable, projects])
 
   const handleDeleteProject = async (projectId: string, projectName: string) => {
     const confirmed = window.confirm(`Remove project "${projectName}"?`)
@@ -199,6 +278,13 @@ export function ProjectList({ onSelect, onDelete }: ProjectListProps) {
         {projects.map((project) => {
           const isActive = project.id === activeProjectId
           const isDeleting = deletingProjectId === project.id
+          const activeLoopCountFromStore = (loopsByProject[project.id] ?? []).filter((loop) =>
+            ACTIVE_LOOP_STATES.has(loop.state)
+          ).length
+          const activeLoopCount = Math.max(
+            activeLoopCountByProject[project.id] ?? 0,
+            activeLoopCountFromStore
+          )
 
           return (
             <li
@@ -239,6 +325,7 @@ export function ProjectList({ onSelect, onDelete }: ProjectListProps) {
             >
               <div className="flex items-center gap-2">
                 <button
+                  aria-label={project.name}
                   className={`min-w-0 flex-1 truncate rounded-md px-3 py-2 text-left text-sm transition-colors ${
                     isActive
                       ? 'bg-zinc-100 text-zinc-900'
@@ -249,7 +336,23 @@ export function ProjectList({ onSelect, onDelete }: ProjectListProps) {
                   onClick={() => onSelect(project.id)}
                   type="button"
                 >
-                  {project.name}
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate">{project.name}</span>
+                    {activeLoopCount > 0 ? (
+                      <span
+                        aria-hidden="true"
+                        className={`relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${
+                          isActive ? 'text-zinc-900' : 'text-emerald-200'
+                        }`}
+                        data-testid={`project-active-loops-${project.id}`}
+                      >
+                        <span
+                          className="absolute inset-0 animate-spin rounded-full border-2 border-current border-t-transparent"
+                        />
+                        <span className="relative leading-none">{activeLoopCount}</span>
+                      </span>
+                    ) : null}
+                  </span>
                 </button>
                 <button
                   aria-label={`Remove ${project.name}`}

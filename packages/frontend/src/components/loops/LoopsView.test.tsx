@@ -231,7 +231,7 @@ describe('LoopsView', () => {
     })
     await waitFor(() => {
       expect(loopApi.start).toHaveBeenCalledWith('project-1', {
-        exclusive: true,
+        exclusive: false,
         promptSnapshot: 'Ship it',
         presetFilename: 'hatless-baseline.yml'
       })

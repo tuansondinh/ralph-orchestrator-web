@@ -63,6 +63,7 @@ async function createMockRalphBinary(
     outputTokenCount?: number
     emitIterationEvents?: boolean
     outputIterationHeader?: boolean
+    listedLoopIds?: string[]
   } = {}
 ) {
   const filePath = join(directory, 'mock-ralph.mjs')
@@ -75,6 +76,9 @@ async function createMockRalphBinary(
   const outputTokenCount = Number.isFinite(options.outputTokenCount)
     ? Number(options.outputTokenCount)
     : 0
+  const listedLoopIds = Array.isArray(options.listedLoopIds)
+    ? options.listedLoopIds.filter((id) => typeof id === 'string' && id.trim().length > 0)
+    : []
   const emitIterationEvents = options.emitIterationEvents !== false
   const outputIterationHeader = options.outputIterationHeader === true
   const script = `#!/usr/bin/env node
@@ -89,6 +93,7 @@ const currentEventsLoopId = ${JSON.stringify(currentEventsLoopId)}
 const eventLoopId = ${JSON.stringify(eventLoopId)}
 const eventLoopIdSnake = ${JSON.stringify(eventLoopIdSnake)}
 const outputTokenCount = ${outputTokenCount}
+const listedLoopIds = ${JSON.stringify(listedLoopIds)}
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const pidFile = join(scriptDir, 'mock-ralph.pid')
 const stopArgsFile = join(scriptDir, 'mock-ralph-stop-args.log')
@@ -113,7 +118,7 @@ if (args[0] === 'loops' && args[1] === 'stop') {
 }
 
 if (args[0] === 'loops' && args[1] === 'list') {
-  process.stdout.write('[]\\n')
+  process.stdout.write(\`\${JSON.stringify(listedLoopIds.map((loop_id) => ({ loop_id })))}\\n\`)
   process.exit(0)
 }
 
@@ -276,6 +281,7 @@ describe('loop tRPC routes', () => {
       outputTokenCount?: number
       emitIterationEvents?: boolean
       outputIterationHeader?: boolean
+      listedLoopIds?: string[]
     } = {}
   ) {
     const tempDir = await createTempDir('loop')
@@ -295,7 +301,8 @@ describe('loop tRPC routes', () => {
       eventLoopIdSnake: options.eventLoopIdSnake,
       outputTokenCount: options.outputTokenCount,
       emitIterationEvents: options.emitIterationEvents,
-      outputIterationHeader: options.outputIterationHeader
+      outputIterationHeader: options.outputIterationHeader,
+      listedLoopIds: options.listedLoopIds
     })
     const processManager = new ProcessManager({ killGraceMs: 100 })
     managers.push(processManager)
@@ -442,6 +449,38 @@ describe('loop tRPC routes', () => {
       await readFile(join(tempDir, 'mock-ralph-stop-args.log'), 'utf8')
     )
     expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', 'primary-20260225-090111'])
+  })
+
+  it('stops a loop when called with a primary loop id', async () => {
+    const { caller, connection, tempDir } = await setupCaller({
+      markerLoopId: 'primary-20260225-090512'
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running'
+    })
+
+    await waitFor(() => {
+      const row = connection.db
+        .select()
+        .from(loopRuns)
+        .where(eq(loopRuns.id, started.id))
+        .get()
+      return row?.ralphLoopId === 'primary-20260225-090512'
+    })
+
+    await expect(caller.loop.stop({ loopId: 'primary-20260225-090512' })).resolves.toBeUndefined()
+
+    const stopped = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+    expect(stopped?.state).toBe('stopped')
   })
 
   it('prefers payload.loop_id over payload.loopId when both are present', async () => {
@@ -839,6 +878,302 @@ describe('loop tRPC routes', () => {
     expect(stopSpy).toHaveBeenCalled()
     expect(stopSpy.mock.calls[0]?.[0]).toMatchObject({ loopId: started.id })
     expect(stoppedLoop?.state).toBe('stopped')
+  })
+
+  it('falls back to process kill when binary resolution fails for an active runtime', async () => {
+    const { caller, connection, processManager, loopService, tempDir } = await setupCaller()
+    const killSpy = vi.spyOn(processManager, 'kill')
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running'
+    })
+
+    ;(
+      loopService as unknown as {
+        resolveBinary: () => Promise<string>
+      }
+    ).resolveBinary = async () => {
+      throw new Error('Unable to resolve Ralph binary')
+    }
+
+    await expect(loopService.stop(started.id)).resolves.toBeUndefined()
+
+    const stoppedLoop = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+
+    expect(stoppedLoop?.state).toBe('stopped')
+    expect(killSpy).toHaveBeenCalled()
+  })
+
+  it('tries a derived primary loop id when runtime tracking is unavailable', async () => {
+    const { connection, processManager, tempDir, binaryPath } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+    const startedAt = Date.UTC(2026, 1, 25, 9, 0, 0)
+    const derivedPrimaryLoopId = 'primary-20260225-090000'
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'running',
+        config: null,
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt,
+        endedAt: null
+      })
+      .run()
+
+    const stopSpy = vi.fn(
+      async (input: { binaryPath: string; loopId: string; cwd: string }) => {
+        if (input.loopId !== derivedPrimaryLoopId) {
+          throw new Error(`loop not found: ${input.loopId}`)
+        }
+      }
+    )
+
+    const detachedLoopService = new LoopService(connection.db, processManager, {
+      resolveBinary: async () => binaryPath,
+      stopLoop: stopSpy
+    })
+
+    await expect(detachedLoopService.stop(loopId)).resolves.toBeUndefined()
+
+    expect(
+      stopSpy.mock.calls.some((call) => call[0]?.loopId === derivedPrimaryLoopId)
+    ).toBe(true)
+
+    const stoppedLoop = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, loopId))
+      .get()
+    expect(stoppedLoop?.state).toBe('stopped')
+  })
+
+  it('reconciles stale running loops when CLI reports loop not found', async () => {
+    const { connection, processManager, tempDir, binaryPath } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'running',
+        config: null,
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: Date.now(),
+        endedAt: null
+      })
+      .run()
+
+    const stopSpy = vi.fn(async () => {
+      throw new Error('loop not found')
+    })
+
+    const detachedLoopService = new LoopService(connection.db, processManager, {
+      resolveBinary: async () => binaryPath,
+      stopLoop: stopSpy
+    })
+
+    await expect(detachedLoopService.stop(loopId)).resolves.toBeUndefined()
+
+    const stoppedLoop = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, loopId))
+      .get()
+    expect(stoppedLoop?.state).toBe('stopped')
+    expect(stoppedLoop?.endedAt).toBeTypeOf('number')
+  })
+
+  it('reconciles stale running loops when CLI wraps not-found with loop id text', async () => {
+    const { connection, processManager, tempDir, binaryPath } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+    const primaryLoopId = 'primary-20260226-002039'
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        ralphLoopId: primaryLoopId,
+        state: 'running',
+        config: null,
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: Date.now(),
+        endedAt: null
+      })
+      .run()
+
+    const detachedLoopService = new LoopService(connection.db, processManager, {
+      resolveBinary: async () => binaryPath,
+      stopLoop: async () => {
+        throw new Error(
+          `Command failed: /mock/ralph loops stop ${primaryLoopId}\nError: Loop '${primaryLoopId}' not found\n`
+        )
+      }
+    })
+
+    await expect(detachedLoopService.stop(loopId)).resolves.toBeUndefined()
+
+    const stoppedLoop = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, loopId))
+      .get()
+    expect(stoppedLoop?.state).toBe('stopped')
+    expect(stoppedLoop?.endedAt).toBeTypeOf('number')
+  })
+
+  it('auto-reconciles stale running loops during list()', async () => {
+    const { connection, processManager, tempDir, binaryPath } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        ralphLoopId: 'primary-20260226-003500',
+        state: 'running',
+        config: null,
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: Date.now(),
+        endedAt: null
+      })
+      .run()
+
+    const detachedLoopService = new LoopService(connection.db, processManager, {
+      resolveBinary: async () => binaryPath
+    })
+
+    const listed = await detachedLoopService.list(projectId)
+    expect(listed.find((loop) => loop.id === loopId)?.state).toBe('stopped')
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, loopId))
+      .get()
+    expect(persisted?.state).toBe('stopped')
+    expect(persisted?.endedAt).toBeTypeOf('number')
+  })
+
+  it('keeps active loops running during reconciliation when CLI lists them', async () => {
+    const listedLoopId = 'primary-20260226-003559'
+    const { connection, processManager, tempDir, binaryPath } = await setupCaller({
+      listedLoopIds: [listedLoopId]
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        ralphLoopId: listedLoopId,
+        state: 'running',
+        config: null,
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: Date.now(),
+        endedAt: null
+      })
+      .run()
+
+    const detachedLoopService = new LoopService(connection.db, processManager, {
+      resolveBinary: async () => binaryPath
+    })
+
+    const listed = await detachedLoopService.list(projectId)
+    expect(listed.find((loop) => loop.id === loopId)?.state).toBe('running')
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, loopId))
+      .get()
+    expect(persisted?.state).toBe('running')
+    expect(persisted?.endedAt).toBeNull()
+  })
+
+  it('keeps throwing when CLI stop fails with non-stale errors', async () => {
+    const { connection, processManager, tempDir, binaryPath } = await setupCaller()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'running',
+        config: null,
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: Date.now(),
+        endedAt: null
+      })
+      .run()
+
+    const detachedLoopService = new LoopService(connection.db, processManager, {
+      resolveBinary: async () => binaryPath,
+      stopLoop: async () => {
+        throw new Error('permission denied')
+      }
+    })
+
+    await expect(detachedLoopService.stop(loopId)).rejects.toThrow(
+      /unable to stop runtime because process tracking was unavailable/i
+    )
   })
 
   it('replays output from persisted loop log files when runtime state is unavailable', async () => {

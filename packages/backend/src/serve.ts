@@ -1,7 +1,7 @@
 import { createApp } from './app.js'
 
 const app = createApp()
-const port = Number(process.env.PORT ?? 3001)
+const port = Number(process.env.PORT ?? 3003)
 const host = process.env.RALPH_UI_BIND_HOST ?? '127.0.0.1'
 let shuttingDown = false
 

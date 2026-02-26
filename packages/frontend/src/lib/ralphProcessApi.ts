@@ -1,4 +1,4 @@
-import { trpcClient } from './trpc.js'
+import { trpcClient } from '@/lib/trpc'
 
 export interface RalphProcess {
   pid: number

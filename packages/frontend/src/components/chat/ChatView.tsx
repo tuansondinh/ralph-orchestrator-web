@@ -10,6 +10,7 @@ import {
   type ChatSessionState,
   type ChatSessionType
 } from '@/lib/chatApi'
+import { RALPH_BACKENDS } from '@/lib/backends'
 import { useChatStore } from '@/stores/chatStore'
 
 interface ChatViewProps {
@@ -362,13 +363,11 @@ export function ChatView({ projectId }: ChatViewProps) {
             }
             value={sessionBackend}
           >
-            <option value="claude">claude</option>
-            <option value="kiro">kiro</option>
-            <option value="gemini">gemini</option>
-            <option value="codex">codex</option>
-            <option value="amp">amp</option>
-            <option value="copilot">copilot</option>
-            <option value="opencode">opencode</option>
+            {RALPH_BACKENDS.map((backend) => (
+              <option key={backend} value={backend}>
+                {backend}
+              </option>
+            ))}
           </select>
           <button
             className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-100 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"

@@ -1,14 +1,8 @@
 import { trpcClient } from '@/lib/trpc'
+import type { RalphBackend } from '@/lib/backends'
 
 export type ChatSessionType = 'plan' | 'task'
-export type ChatSessionBackend =
-  | 'claude'
-  | 'kiro'
-  | 'gemini'
-  | 'codex'
-  | 'amp'
-  | 'copilot'
-  | 'opencode'
+export type ChatSessionBackend = RalphBackend
 export type ChatSessionState = 'active' | 'waiting' | 'completed' | 'unknown'
 export type ChatRole = 'user' | 'assistant'
 

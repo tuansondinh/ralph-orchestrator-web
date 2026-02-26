@@ -1,4 +1,4 @@
-import Fastify from 'fastify'
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
 import cors from '@fastify/cors'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import { appRouter } from './trpc/router.js'
@@ -17,6 +17,11 @@ import { DevPreviewManager } from './services/DevPreviewManager.js'
 import { SettingsService } from './services/SettingsService.js'
 import { TerminalService } from './services/TerminalService.js'
 import { RalphProcessService } from './services/RalphProcessService.js'
+import { ProjectService } from './services/ProjectService.js'
+import { PresetService } from './services/PresetService.js'
+import { HatsPresetService } from './services/HatsPresetService.js'
+import { McpChatService } from './services/McpChatService.js'
+import { RalphMcpServer } from './mcp/RalphMcpServer.js'
 import { resolveRalphBinary } from './lib/ralph.js'
 import { isOriginAllowed, parseAllowedOrigins } from './lib/origin.js'
 import { registerWebsocket } from './api/websocket.js'
@@ -77,6 +82,19 @@ export function createApp() {
   const terminalService = new TerminalService(database.db, {
     logger: app.log
   })
+  const projectService = new ProjectService(database.db)
+  const presetService = new PresetService()
+  const hatsPresetService = new HatsPresetService()
+  const mcpChatService = new McpChatService()
+  const ralphMcpServer = new RalphMcpServer({
+    projectService,
+    presetService,
+    loopService,
+    monitoringService,
+    settingsService,
+    ralphProcessService,
+    hatsPresetService
+  })
   const configuredAllowedOrigins = parseAllowedOrigins(
     process.env.RALPH_UI_ALLOWED_ORIGINS
   )
@@ -90,6 +108,8 @@ export function createApp() {
   app.decorate('previewService', previewService)
   app.decorate('terminalService', terminalService)
   app.decorate('ralphProcessService', ralphProcessService)
+  app.decorate('mcpChatService', mcpChatService)
+  app.decorate('ralphMcpServer', ralphMcpServer)
 
   app.register(cors, {
     origin: (origin, callback) => {
@@ -108,9 +128,44 @@ export function createApp() {
       createContext
     }
   })
+
+  const handleMcpRequest = async (request: FastifyRequest, reply: FastifyReply) => {
+    reply.hijack()
+    try {
+      await ralphMcpServer.handleRequest(request.raw, reply.raw, request.body)
+    } catch (error) {
+      app.log.error({ error }, 'Failed to process MCP request')
+      if (!reply.raw.headersSent) {
+        reply.raw.statusCode = 500
+        reply.raw.setHeader('content-type', 'application/json')
+        reply.raw.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: {
+              code: -32603,
+              message: 'Internal server error'
+            },
+            id: null
+          })
+        )
+      }
+    }
+  }
+
+  app.route({
+    method: ['GET', 'POST', 'DELETE'],
+    url: '/mcp',
+    handler: handleMcpRequest
+  })
+
   app.register(registerWebsocket)
 
+  app.addHook('onReady', async () => {
+    await ralphMcpServer.start()
+  })
+
   app.addHook('onClose', async () => {
+    await ralphMcpServer.close()
     await terminalService.shutdown()
     await processManager.shutdown()
     closeDatabase(database)

@@ -21,6 +21,22 @@ import {
 } from '../lib/safety.js'
 
 const t = initTRPC.context<Context>().create()
+const CHAT_BACKENDS = [
+  'claude',
+  'kiro',
+  'gemini',
+  'codex',
+  'amp',
+  'copilot',
+  'opencode'
+] as const
+const chatBackendSchema = z.enum(CHAT_BACKENDS)
+const chatSessionMutationInputSchema = z.object({
+  projectId: z.string().min(1),
+  type: z.enum(['plan', 'task']),
+  backend: chatBackendSchema.optional(),
+  initialInput: z.string().trim().min(1).optional()
+})
 
 function asTRPCError(error: unknown): never {
   if (
@@ -220,9 +236,7 @@ const loopRouter = t.router({
         prompt: z.string().trim().min(1).optional(),
         promptSnapshot: z.string().optional(),
         promptFile: z.string().trim().min(1).optional(),
-        backend: z
-          .enum(['claude', 'kiro', 'gemini', 'codex', 'amp', 'copilot', 'opencode'])
-          .optional(),
+        backend: chatBackendSchema.optional(),
         exclusive: z.boolean().optional(),
         worktree: z.string().trim().min(1).optional()
       })
@@ -291,32 +305,14 @@ const loopRouter = t.router({
 
 const chatRouter = t.router({
   startSession: t.procedure
-    .input(
-      z.object({
-        projectId: z.string().min(1),
-        type: z.enum(['plan', 'task']),
-        backend: z
-          .enum(['claude', 'kiro', 'gemini', 'codex', 'amp', 'copilot', 'opencode'])
-          .optional(),
-        initialInput: z.string().trim().min(1).optional()
-      })
-    )
+    .input(chatSessionMutationInputSchema)
     .mutation(({ ctx, input }) =>
       ctx.chatService
         .startSession(input.projectId, input.type, input.initialInput, input.backend)
         .catch((error) => asTRPCError(error))
     ),
   restartSession: t.procedure
-    .input(
-      z.object({
-        projectId: z.string().min(1),
-        type: z.enum(['plan', 'task']),
-        backend: z
-          .enum(['claude', 'kiro', 'gemini', 'codex', 'amp', 'copilot', 'opencode'])
-          .optional(),
-        initialInput: z.string().trim().min(1).optional()
-      })
-    )
+    .input(chatSessionMutationInputSchema)
     .mutation(({ ctx, input }) =>
       ctx.chatService
         .restartSession(input.projectId, input.type, input.initialInput, input.backend)

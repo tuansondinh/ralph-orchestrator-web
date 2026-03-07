@@ -1,3 +1,4 @@
+/// <reference path="../types/fastify.d.ts" />
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import type { schema } from '../db/schema.js'

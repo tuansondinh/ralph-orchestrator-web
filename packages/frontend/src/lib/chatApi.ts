@@ -1,7 +1,7 @@
 import { trpcClient } from '@/lib/trpc'
 import type { RalphBackend } from '@/lib/backends'
 
-export type ChatSessionType = 'plan' | 'task'
+export type ChatSessionType = 'plan' | 'task' | 'loop'
 export type ChatSessionBackend = RalphBackend
 export type ChatSessionState = 'active' | 'waiting' | 'completed' | 'unknown'
 export type ChatRole = 'user' | 'assistant'
@@ -33,7 +33,7 @@ export const chatApi = {
     backend?: ChatSessionBackend
     initialInput?: string
   }): Promise<ChatSessionRecord> {
-    return trpcClient.chat.startSession.mutate(input)
+    return trpcClient.chat.startSession.mutate(input as { projectId: string; type: 'plan' | 'task'; backend?: ChatSessionBackend; initialInput?: string })
   },
   restartSession(input: {
     projectId: string
@@ -41,7 +41,7 @@ export const chatApi = {
     backend?: ChatSessionBackend
     initialInput?: string
   }): Promise<ChatSessionRecord> {
-    return trpcClient.chat.restartSession.mutate(input)
+    return trpcClient.chat.restartSession.mutate(input as { projectId: string; type: 'plan' | 'task'; backend?: ChatSessionBackend; initialInput?: string })
   },
   getProjectSession(input: {
     projectId: string

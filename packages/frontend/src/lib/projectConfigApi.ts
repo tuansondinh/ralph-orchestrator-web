@@ -24,5 +24,8 @@ export const projectConfigApi = {
   },
   update(input: UpdateProjectConfigInput): Promise<ProjectConfigSnapshot> {
     return trpcClient.project.updateConfig.mutate(input)
+  },
+  clearRalphCache(projectId: string): Promise<void> {
+    return trpcClient.project.clearRalphCache.mutate({ projectId })
   }
 }

@@ -1,0 +1,9 @@
+[     270ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5174/favicon.ico:0
+[  505317ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:3003/trpc/monitoring.projectStatus?input=%7B%22projectId%22%3A%22c14830f0-5c95-4c4a-b88e-c9897f547922%22%7D:0
+[  505317ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:3003/trpc/monitoring.projectStatus?input=%7B%22projectId%22%3A%22fb4ed83e-03b4-46ee-bf30-df5c19860194%22%7D:0
+[  505317ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:3003/trpc/monitoring.projectStatus?input=%7B%22projectId%22%3A%228fba57f3-9aa3-4483-8f93-4022180266c5%22%7D:0
+[  505318ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:3003/trpc/monitoring.projectStatus?input=%7B%22projectId%22%3A%22e9d4bd12-7545-4d58-9b08-edbacc635ad2%22%7D:0
+[  505318ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:3003/trpc/monitoring.projectStatus?input=%7B%22projectId%22%3A%22272adad5-e0c5-4b04-8519-f6eb1ddbfd50%22%7D:0
+[  505318ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:3003/trpc/monitoring.projectStatus?input=%7B%22projectId%22%3A%224984a3ba-2832-473a-b898-2b3700b5b6ff%22%7D:0
+[  505318ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:3003/trpc/monitoring.projectStatus?input=%7B%22projectId%22%3A%2293cbe705-a2eb-4487-89f4-ed626b3d246f%22%7D:0
+[  505589ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:3003/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5174/src/hooks/useWebSocket.ts:90

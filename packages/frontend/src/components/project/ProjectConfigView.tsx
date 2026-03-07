@@ -21,6 +21,8 @@ export function ProjectConfigView({ projectId }: ProjectConfigViewProps) {
   const [isSavingPreset, setIsSavingPreset] = useState(false)
   const [presetSaveMessage, setPresetSaveMessage] = useState<string | null>(null)
   const [presetErrorMessage, setPresetErrorMessage] = useState<string | null>(null)
+  const [isClearingCache, setIsClearingCache] = useState(false)
+  const [clearCacheMessage, setClearCacheMessage] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -96,6 +98,25 @@ export function ProjectConfigView({ projectId }: ProjectConfigViewProps) {
     }
   }
 
+  const onClearRalphCache = async () => {
+    const confirmed = window.confirm("Delete the .ralph folder for this project? This clears Ralph's memory and cache.")
+    if (!confirmed) {
+      return
+    }
+
+    setIsClearingCache(true)
+    setClearCacheMessage(null)
+
+    try {
+      await projectConfigApi.clearRalphCache(projectId)
+      setClearCacheMessage('Ralph cache cleared.')
+    } catch (error) {
+      setClearCacheMessage(error instanceof Error ? error.message : 'Unable to clear Ralph cache')
+    } finally {
+      setIsClearingCache(false)
+    }
+  }
+
   if (!snapshot) {
     return (
       <section className="space-y-3 rounded-md border border-zinc-800 p-4">
@@ -150,6 +171,20 @@ export function ProjectConfigView({ projectId }: ProjectConfigViewProps) {
         ) : null}
         {presetErrorMessage ? (
           <p className="text-sm text-red-400">{presetErrorMessage}</p>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          className="rounded-md border border-red-700 px-3 py-2 text-sm text-red-200 hover:bg-red-950/40 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={isClearingCache}
+          onClick={() => { void onClearRalphCache() }}
+          type="button"
+        >
+          {isClearingCache ? 'Clearing…' : 'Clear Ralph cache'}
+        </button>
+        {clearCacheMessage ? (
+          <p className="text-sm text-zinc-400">{clearCacheMessage}</p>
         ) : null}
       </div>
     </section>

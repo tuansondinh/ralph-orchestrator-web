@@ -2,8 +2,8 @@ event_loop:
    prompt_file: "PROMPT.md"
    completion_promise: "LOOP_COMPLETE"
    starting_event: "build.start" # Ralph publishes this after coordination
-   max_iterations: 50 # Generous for multi-task implementation
-   max_runtime_seconds: 5000 
+   max_iterations: 100 # Generous for multi-task implementation
+   max_runtime_seconds: 14400 # 4 hours max
    checkpoint_interval: 5
 
 cli:

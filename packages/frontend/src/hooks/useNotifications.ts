@@ -199,6 +199,7 @@ export function useNotifications() {
     toasts,
     dismissToast,
     markRead,
+    markReadLocal,
     requestPermission,
     notificationPermission,
     isConnected,

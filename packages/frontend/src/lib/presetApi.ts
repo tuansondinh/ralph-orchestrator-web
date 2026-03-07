@@ -11,5 +11,8 @@ export const presetApi = {
   },
   get(filename: string, projectId?: string): Promise<{ filename: string; content: string }> {
     return trpcClient.presets.get.query({ filename, projectId })
+  },
+  save(name: string, content: string): Promise<PresetSummary> {
+    return trpcClient.presets.save.mutate({ name, content })
   }
 }

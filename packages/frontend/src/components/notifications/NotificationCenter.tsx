@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { NotificationRecord } from '@/lib/notificationApi'
+import { useProjectStore } from '@/stores/projectStore'
 
 interface NotificationCenterProps {
   notifications: NotificationRecord[]
@@ -42,6 +43,7 @@ export function NotificationCenter({
   panelAlign = 'right'
 }: NotificationCenterProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const projects = useProjectStore((state) => state.projects)
 
   const accessibleName = unreadCount > 0 ? `Notifications (${unreadCount} unread)` : 'Notifications'
   const recent = useMemo(() => notifications.slice(0, 10), [notifications])
@@ -106,6 +108,11 @@ export function NotificationCenter({
                     </div>
                     {notification.message ? (
                       <p className="mt-1 text-xs text-zinc-400">{notification.message}</p>
+                    ) : null}
+                    {notification.projectId ? (
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {projects.find((p) => p.id === notification.projectId)?.name ?? notification.projectId}
+                      </p>
                     ) : null}
                   </button>
                 </li>

@@ -1,5 +1,4 @@
-import { homedir } from 'node:os'
-import { access, readdir, readFile } from 'node:fs/promises'
+import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import {
   basename,
   dirname,
@@ -17,21 +16,22 @@ const DEFAULT_PRESET_DIRECTORY = resolve(
   dirname(fileURLToPath(import.meta.url)),
   '../../presets'
 )
+const DEFAULT_WORKING_DIRECTORY_PRESET_CANDIDATES = [
+  resolve(process.cwd(), 'presets'),
+  resolve(process.cwd(), 'packages', 'backend', 'presets')
+]
+const DEFAULT_BUILD_OUTPUT_PRESET_DIRECTORY = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../presets'
+)
+const CUSTOM_PRESETS_DIRECTORY = resolve(DEFAULT_PRESET_DIRECTORY, 'custom')
 
 function defaultPresetDirectories() {
-  const envOverride = process.env.RALPH_UI_HATS_PRESETS_DIR?.trim()
-  const hatsCandidates = [
-    envOverride && envOverride.length > 0 ? envOverride : null,
-    resolve(homedir(), 'Workspace', 'ralph-orchestrator', 'presets'),
-    resolve(homedir(), 'Documents', 'ralph-orchestrator', 'presets')
-  ]
-
-  const deduped = new Set<string>([resolve(DEFAULT_PRESET_DIRECTORY)])
-  for (const candidate of hatsCandidates) {
-    if (candidate) {
-      deduped.add(resolve(candidate))
-    }
-  }
+  const deduped = new Set<string>([
+    resolve(DEFAULT_PRESET_DIRECTORY),
+    resolve(DEFAULT_BUILD_OUTPUT_PRESET_DIRECTORY),
+    ...DEFAULT_WORKING_DIRECTORY_PRESET_CANDIDATES
+  ])
 
   return Array.from(deduped)
 }
@@ -62,6 +62,10 @@ function toPresetName(filename: string) {
 
 function toPosixPath(path: string) {
   return path.split(sep).join('/')
+}
+
+function isValidPresetName(name: string) {
+  return /^[a-zA-Z0-9][a-zA-Z0-9\-_]*$/.test(name)
 }
 
 function isSafeRelativePath(path: string) {
@@ -208,6 +212,20 @@ export class PresetService {
       'NOT_FOUND',
       `Preset not found: ${normalized}`
     )
+  }
+
+  async save(name: string, content: string): Promise<PresetSummary> {
+    if (!isValidPresetName(name)) {
+      throw new PresetServiceError(
+        'BAD_REQUEST',
+        `Invalid preset name: "${name}". Use only letters, numbers, hyphens, and underscores.`
+      )
+    }
+
+    await mkdir(CUSTOM_PRESETS_DIRECTORY, { recursive: true })
+    await writeFile(resolve(CUSTOM_PRESETS_DIRECTORY, `${name}.yml`), content, 'utf8')
+
+    return { name, filename: `custom/${name}.yml` }
   }
 
   private async collectPresetFilenames(presetDirectory: string) {

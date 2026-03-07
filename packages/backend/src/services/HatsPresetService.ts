@@ -1,6 +1,6 @@
-import { homedir } from 'node:os'
 import { access, readdir, readFile, stat } from 'node:fs/promises'
-import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND'
 
@@ -35,10 +35,10 @@ function normalizePresetId(id: string) {
 
 function defaultCandidateDirectories() {
   const envOverride = process.env.RALPH_UI_HATS_PRESETS_DIR?.trim()
+  const builtinPresetsDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../presets')
   const candidates = [
     envOverride && envOverride.length > 0 ? envOverride : null,
-    resolve(homedir(), 'Workspace', 'ralph-orchestrator', 'presets'),
-    resolve(homedir(), 'Documents', 'ralph-orchestrator', 'presets')
+    builtinPresetsDir
   ]
 
   return candidates.filter((candidate): candidate is string => Boolean(candidate))

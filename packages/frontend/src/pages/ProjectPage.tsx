@@ -55,7 +55,9 @@ export function ProjectPage() {
           <LoopsView projectId={project.id} />
         </div>
       ) : tab === 'tasks' ? (
-        <TasksView projectId={project.id} />
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <TasksView projectId={project.id} />
+        </div>
       ) : tab === 'chat' ? (
         <ChatView projectId={project.id} />
       ) : tab === 'terminal' ? (

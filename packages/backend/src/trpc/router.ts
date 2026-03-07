@@ -527,7 +527,12 @@ const presetsRouter = t.router({
       return new PresetService()
         .get(input.filename, projectPath)
         .catch((error) => asTRPCError(error))
-    })
+    }),
+  save: t.procedure
+    .input(z.object({ name: z.string().trim().min(1), content: z.string().trim().min(1) }))
+    .mutation(({ input }) =>
+      new PresetService().save(input.name, input.content).catch((error) => asTRPCError(error))
+    )
 })
 
 const hatsPresetsRouter = t.router({

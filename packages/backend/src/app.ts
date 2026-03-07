@@ -1,7 +1,10 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
 import type { ModelMessage } from 'ai'
 import cors from '@fastify/cors'
+import fastifyStatic from '@fastify/static'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { z } from 'zod'
 import { appRouter } from './trpc/router.js'
 import { createContext } from './trpc/context.js'
@@ -118,6 +121,48 @@ function getMissingModelCredential(model: AIModel) {
   return 'Missing Claude API key. Set ANTHROPIC_API_KEY.'
 }
 
+const API_ROUTE_PREFIXES = ['/trpc', '/chat', '/ws', '/mcp', '/health']
+
+function resolveStaticDirectory() {
+  const configuredRoot = process.env.RALPH_UI_STATIC_ROOT
+  const candidates = [
+    configuredRoot,
+    resolve(process.cwd(), 'packages', 'frontend', 'dist'),
+    resolve(process.cwd(), '..', 'frontend', 'dist')
+  ]
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue
+    }
+
+    const resolved = resolve(candidate)
+    if (existsSync(resolve(resolved, 'index.html'))) {
+      return resolved
+    }
+  }
+
+  return null
+}
+
+function isApiRequestPath(pathname: string) {
+  return API_ROUTE_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+}
+
+function toStaticRelativePath(pathname: string) {
+  const stripped = pathname.replace(/^\/+/, '')
+  if (!stripped) {
+    return 'index.html'
+  }
+
+  const segments = stripped.split('/')
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    return null
+  }
+
+  return stripped
+}
+
 export function createApp() {
   const app = Fastify({
     logger: {
@@ -171,7 +216,8 @@ export function createApp() {
     monitoringService,
     settingsService,
     ralphProcessService,
-    hatsPresetService
+    hatsPresetService,
+    chatService
   })
   const mcpChatService = new McpChatService({
     mcpServer: ralphMcpServer
@@ -431,6 +477,43 @@ export function createApp() {
   app.post('/trpc/chat/confirm', handleChatConfirm)
 
   app.register(registerWebsocket)
+
+  const staticDirectory = resolveStaticDirectory()
+  if (staticDirectory) {
+    app.register(fastifyStatic, {
+      root: staticDirectory,
+      serve: false,
+      index: false
+    })
+
+    const serveFrontend = async (request: FastifyRequest, reply: FastifyReply) => {
+      const rawUrl = request.raw.url ?? request.url
+      const pathname = rawUrl.split('?')[0] ?? '/'
+      if (isApiRequestPath(pathname)) {
+        return reply.callNotFound()
+      }
+
+      const relativePath = toStaticRelativePath(pathname)
+      if (!relativePath) {
+        return reply.callNotFound()
+      }
+
+      if (
+        relativePath !== 'index.html' &&
+        existsSync(resolve(staticDirectory, relativePath))
+      ) {
+        return reply.sendFile(relativePath)
+      }
+
+      return reply.sendFile('index.html')
+    }
+
+    app.get('/', serveFrontend)
+    app.get('/*', serveFrontend)
+    app.log.info({ staticDirectory }, 'Serving frontend static bundle')
+  } else {
+    app.log.info('Frontend static bundle not found; running API-only mode')
+  }
 
   app.addHook('onReady', async () => {
     await ralphMcpServer.start()

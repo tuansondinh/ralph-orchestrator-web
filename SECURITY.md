@@ -2,17 +2,17 @@
 
 ## Threat Model
 
-This project is intentionally designed for **local development use**.
+This project is intentionally designed for **trusted environments** (local-first).
 
 - No user authentication is implemented.
-- Backend defaults to loopback bind (`127.0.0.1`).
+- Backend defaults to loopback bind (`127.0.0.1`) in non-production mode.
 - SQLite is used for local state storage.
 
 This is acceptable only when the backend is not exposed to untrusted networks.
 
-## Local-Only Defaults
+## Default Network Behavior
 
-- `RALPH_UI_BIND_HOST` defaults to `127.0.0.1`.
+- `RALPH_UI_BIND_HOST` defaults to `127.0.0.1` in non-production mode and `0.0.0.0` in production mode.
 - CORS and WebSocket origin checks allow loopback origins by default.
 - Additional allowed origins can be configured via `RALPH_UI_ALLOWED_ORIGINS`.
 

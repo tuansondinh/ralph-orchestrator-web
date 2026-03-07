@@ -74,6 +74,8 @@ type Database = BetterSQLite3Database<typeof schema>
 const MESSAGE_EVENT_PREFIX = 'chat-message:'
 const STATE_EVENT_PREFIX = 'chat-state:'
 const C0_CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g
+const C1_CONTROL_CHAR_PATTERN = /[\u0080-\u009F]/
+const UTF8_MOJIBAKE_TOKEN_PATTERN = /(?:Ã.|Â.|â.|ð[\u0080-\u00BF]|Ð.|Ñ.)/
 const MAX_BUFFERED_MESSAGE_CHARS = 1_200
 const NOOP_LOGGER: ChatLogger = {
   debug: () => { },
@@ -95,6 +97,7 @@ class ChatOutputParser {
   private lineBuffer = ''
   private messageBuffer = ''
   private escapeRemainder = ''
+  private pendingCarriageReturn = false
 
   parseChunk(chunk: string) {
     const messages: string[] = []
@@ -104,20 +107,24 @@ class ChatOutputParser {
     for (let index = 0; index < sanitized.length; index += 1) {
       const char = sanitized[index]
 
-      if (char === '\r') {
-        const next = sanitized[index + 1]
-        if (next === '\n') {
-          continue
-        }
+      if (this.pendingCarriageReturn) {
+        this.pendingCarriageReturn = false
 
-        // PTY streams may emit bare CR as either redraw or line terminator.
-        // Treat it as a soft line break to avoid dropping output lines.
-        if (this.lineBuffer.length > 0) {
+        if (char === '\n') {
           if (this.consumeLine(this.lineBuffer, messages)) {
             waiting = true
           }
           this.lineBuffer = ''
+          continue
         }
+
+        // Treat bare CR as terminal cursor reset (line redraw), not as a line break.
+        // This avoids persisting one-character "lines" from animated/progress output.
+        this.lineBuffer = ''
+      }
+
+      if (char === '\r') {
+        this.pendingCarriageReturn = true
         continue
       }
 
@@ -145,6 +152,7 @@ class ChatOutputParser {
   flushRemaining() {
     const messages: string[] = []
 
+    this.pendingCarriageReturn = false
     if (this.lineBuffer.length > 0) {
       this.appendLine(this.cleanLine(this.lineBuffer))
     }
@@ -203,12 +211,34 @@ class ChatOutputParser {
       ? combined.slice(0, -this.escapeRemainder.length)
       : combined
 
-    return stripVTControlCharacters(stableText).replace(C0_CONTROL_CHAR_PATTERN, '')
+    const stripped = stripVTControlCharacters(stableText).replace(C0_CONTROL_CHAR_PATTERN, '')
+    return maybeRepairUtf8Mojibake(stripped)
   }
 
   private cleanLine(line: string) {
     return line.replace(C0_CONTROL_CHAR_PATTERN, '')
   }
+}
+
+function countMojibakeSignals(value: string) {
+  const matches = value.match(/(?:[\u0080-\u009F]|Ã.|Â.|â.|ð[\u0080-\u00BF]|Ð.|Ñ.|�)/g)
+  return matches?.length ?? 0
+}
+
+function maybeRepairUtf8Mojibake(value: string) {
+  if (
+    value.length === 0 ||
+    (!C1_CONTROL_CHAR_PATTERN.test(value) && !UTF8_MOJIBAKE_TOKEN_PATTERN.test(value))
+  ) {
+    return value
+  }
+
+  const repaired = Buffer.from(value, 'latin1').toString('utf8')
+  if (!repaired || repaired === value) {
+    return value
+  }
+
+  return countMojibakeSignals(repaired) < countMojibakeSignals(value) ? repaired : value
 }
 
 function findTrailingEscapePrefix(input: string) {

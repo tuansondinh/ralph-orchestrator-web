@@ -156,4 +156,15 @@ describe('TasksView', () => {
     expect(await screen.findByText('Refresh failed')).toBeInTheDocument()
     expect(screen.getByText('Fix selector timeout')).toBeInTheDocument()
   })
+
+  it('root section has scrollable overflow classes', async () => {
+    vi.mocked(taskApi.list).mockResolvedValue([])
+
+    const { container } = render(<TasksView projectId="project-1" />)
+
+    const section = container.querySelector('section')
+    expect(section).toHaveClass('overflow-y-auto')
+    expect(section).toHaveClass('flex-1')
+    expect(section).toHaveClass('min-h-0')
+  })
 })

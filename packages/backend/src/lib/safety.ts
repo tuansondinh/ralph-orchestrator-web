@@ -16,7 +16,15 @@ function parseBoolean(value: string | undefined) {
 }
 
 export function resolveBindHost() {
-  return process.env.RALPH_UI_BIND_HOST ?? '127.0.0.1'
+  if (process.env.RALPH_UI_BIND_HOST) {
+    return process.env.RALPH_UI_BIND_HOST
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    return '0.0.0.0'
+  }
+
+  return '127.0.0.1'
 }
 
 export function isLoopbackBindHost(host = resolveBindHost()) {

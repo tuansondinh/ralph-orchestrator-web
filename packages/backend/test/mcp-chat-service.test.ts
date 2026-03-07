@@ -5,6 +5,7 @@ import {
   RalphMcpServer,
   type RalphMcpServerDependencies
 } from '../src/mcp/RalphMcpServer.js'
+import type { ChatSessionSummary } from '../src/services/ChatService.js'
 import {
   McpChatService,
   type McpChatStreamPart,
@@ -32,6 +33,21 @@ const ALL_MCP_TOOLS = [
 ]
 
 function createDependencies(): RalphMcpServerDependencies {
+  const activePlanSession: ChatSessionSummary = {
+    id: 'chat-session-1',
+    projectId: 'project-1',
+    type: 'plan',
+    backend: 'gemini',
+    state: 'active',
+    processId: 'process-1',
+    createdAt: 1,
+    endedAt: null
+  }
+  const waitingPlanSession: ChatSessionSummary = {
+    ...activePlanSession,
+    state: 'waiting'
+  }
+
   return {
     projectService: {
       list: vi.fn(async () => [{ id: 'project-1', name: 'Project 1' }]),
@@ -130,6 +146,14 @@ function createDependencies(): RalphMcpServerDependencies {
         sourceDirectory: '/tmp/presets',
         presets: [{ id: 'builder.yml', name: 'builder' }]
       }))
+    },
+    chatService: {
+      startSession: vi.fn(async () => activePlanSession),
+      restartSession: vi.fn(async () => activePlanSession),
+      getProjectSession: vi.fn(async () => null),
+      getSession: vi.fn(async () => waitingPlanSession),
+      sendMessage: vi.fn(async () => undefined),
+      getHistory: vi.fn(async () => [])
     }
   }
 }
@@ -254,9 +278,9 @@ describe('McpChatService', () => {
     ])
 
     expect(streamCalls).toHaveLength(2)
-    expect(streamCalls[0]?.messages).toHaveLength(1)
-    expect(streamCalls[1]?.messages).toHaveLength(3)
-    expect(streamCalls[1]?.messages[1]).toMatchObject({
+    expect(streamCalls[0]?.messages).toHaveLength(2)
+    expect(streamCalls[1]?.messages).toHaveLength(4)
+    expect(streamCalls[1]?.messages[2]).toMatchObject({
       role: 'assistant',
       content: 'hello world'
     })
@@ -667,9 +691,9 @@ describe('McpChatService', () => {
       onToolResult: () => { }
     })
 
-    expect(streamCalls[0]?.messages).toHaveLength(1)
-    expect(streamCalls[1]?.messages).toHaveLength(1)
-    expect(streamCalls[1]?.messages[0]).toMatchObject({
+    expect(streamCalls[0]?.messages).toHaveLength(2)
+    expect(streamCalls[1]?.messages).toHaveLength(2)
+    expect(streamCalls[1]?.messages[1]).toMatchObject({
       role: 'user',
       content: 'second message'
     })

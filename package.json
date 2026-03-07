@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "concurrently -n backend,frontend -c blue,green \"PORT=3003 npm run dev -w @ralph-ui/backend\" \"VITE_PORT=5174 VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN=http://127.0.0.1:3003 npm run dev -w @ralph-ui/frontend\"",
     "dev:watch": "concurrently -n backend,frontend -c blue,green \"PORT=3004 npm run dev:watch -w @ralph-ui/backend\" \"VITE_PORT=5175 VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN=http://127.0.0.1:3004 npm run dev -w @ralph-ui/frontend\"",
+    "build": "npm run build -ws",
+    "start": "NODE_ENV=production RALPH_UI_BIND_HOST=${RALPH_UI_BIND_HOST:-0.0.0.0} npm run start -w @ralph-ui/backend",
     "lint": "npm run lint -ws",
     "test": "npm run test -ws",
     "test:coverage": "npm run coverage -ws",

@@ -1,6 +1,6 @@
 # Ralph Orchestrator Web
 
-A local web app for running Ralph workflows across multiple projects, watching loop activity live, and reviewing changes before you ship.
+A web app for running Ralph workflows across multiple projects, watching loop activity live, and reviewing changes before you ship.
 
 This repo contains:
 - `packages/backend`: Fastify + tRPC backend (pretty much copied from ralph-orchestrator, with features built on top)
@@ -59,6 +59,41 @@ Open:
 Default dev ports:
 - Backend: `3003`
 - Frontend: `5174` (proxies `/trpc` and `/ws` to backend)
+
+## Cloud Deployment
+
+This project can run as a single cloud service:
+- Backend serves API (`/trpc`, `/ws`, `/chat`, `/mcp`)
+- Backend also serves the built frontend SPA
+
+### Option 1: Node Service (Render/Railway/Fly/VM)
+
+From repo root:
+
+```bash
+npm install
+npm run build
+npm run start
+```
+
+Recommended environment variables:
+- `PORT`: port from your cloud provider (default `3003`)
+- `RALPH_UI_BIND_HOST`: set to `0.0.0.0` (root `start` script already does this)
+- `RALPH_UI_ALLOWED_ORIGINS`: optional comma-separated allowlist for cross-origin frontend deployments
+- `RALPH_UI_DB_PATH`: optional persistent DB path (for example mounted volume path)
+
+Notes:
+- Built frontend is loaded from `packages/frontend/dist`.
+- If frontend is deployed on another domain, set `VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN` at frontend build time and configure `RALPH_UI_ALLOWED_ORIGINS` on backend.
+
+### Option 2: Docker
+
+Build and run:
+
+```bash
+docker build -t ralph-orchestrator-web .
+docker run --rm -p 3003:3003 -e PORT=3003 ralph-orchestrator-web
+```
 
 ## First 5 Minutes
 
@@ -132,11 +167,11 @@ The backend resolves the Ralph binary in this order:
 - Typical local path in this repo: `packages/backend/.ralph-ui/data.db`
 - Override with: `RALPH_UI_DB_PATH`
 
-## Security Model (Local-Only)
+## Security Model
 
-This app is intentionally local-only and has no authentication layer.
+This app has no authentication layer. Treat it as trusted-environment software.
 
-- Backend bind host defaults to `127.0.0.1`
+- Backend bind host defaults to `127.0.0.1` in non-production mode and `0.0.0.0` in production mode
 - Localhost origins are allowed for CORS + WebSocket by default
 - Additional origins: `RALPH_UI_ALLOWED_ORIGINS`
 - Bind another interface: `RALPH_UI_BIND_HOST`

@@ -5,6 +5,9 @@ import {
   RalphMcpServer,
   type RalphMcpServerDependencies
 } from '../src/mcp/RalphMcpServer.js'
+import type {
+  ChatSessionSummary
+} from '../src/services/ChatService.js'
 import { DESTRUCTIVE_TOOLS } from '../src/services/McpChatService.js'
 
 const ALL_MCP_TOOLS = [
@@ -54,6 +57,21 @@ function parseToolText(
 }
 
 function createDependencies(): RalphMcpServerDependencies {
+  const activePlanSession: ChatSessionSummary = {
+    id: 'chat-session-1',
+    projectId: 'project-1',
+    type: 'plan',
+    backend: 'gemini',
+    state: 'active',
+    processId: 'process-1',
+    createdAt: 1,
+    endedAt: null
+  }
+  const waitingPlanSession: ChatSessionSummary = {
+    ...activePlanSession,
+    state: 'waiting'
+  }
+
   const projectService = {
     list: vi.fn(async () => [{ id: 'project-1', name: 'Project 1' }]),
     get: vi.fn(async (projectId: string) => ({
@@ -177,6 +195,14 @@ function createDependencies(): RalphMcpServerDependencies {
         sourceDirectory: '/tmp/presets',
         presets: [{ id: 'builder.yml', name: 'builder' }]
       }))
+    },
+    chatService: {
+      startSession: vi.fn(async () => activePlanSession),
+      restartSession: vi.fn(async () => activePlanSession),
+      getProjectSession: vi.fn(async () => null),
+      getSession: vi.fn(async () => waitingPlanSession),
+      sendMessage: vi.fn(async () => undefined),
+      getHistory: vi.fn(async () => [])
     }
   }
 }

@@ -8,7 +8,11 @@ import type { MonitoringLoopMetrics } from '../services/MonitoringService.js'
 import type { PreviewInfo } from '../services/DevPreviewManager.js'
 import type { LoopNotification } from '../services/LoopService.js'
 import type { TerminalSessionSummary } from '../services/TerminalService.js'
-import { isOriginAllowed, parseAllowedOrigins } from '../lib/origin.js'
+import {
+  isOriginAllowed,
+  parseAllowedOrigins,
+  parseRequestHosts
+} from '../lib/origin.js'
 import {
   allowsDangerousOperations,
   getDangerousOperationBlockMessage
@@ -262,7 +266,14 @@ export async function registerWebsocket(app: FastifyInstance) {
 
   app.get('/ws', { websocket: true }, (socket, req) => {
     const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined
-    if (!isOriginAllowed(origin, configuredAllowedOrigins)) {
+    const requestHosts = parseRequestHosts([
+      typeof req.headers.host === 'string' ? req.headers.host : undefined,
+      typeof req.headers['x-forwarded-host'] === 'string'
+        ? req.headers['x-forwarded-host']
+        : undefined
+    ])
+
+    if (!isOriginAllowed(origin, configuredAllowedOrigins, requestHosts)) {
       app.log.warn({ origin }, '[WS] Connection rejected due to origin policy')
       socket.close(1008, 'Origin not allowed')
       return

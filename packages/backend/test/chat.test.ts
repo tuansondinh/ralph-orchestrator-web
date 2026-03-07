@@ -119,6 +119,47 @@ process.stdin.on('data', (chunk) => {
   return filePath
 }
 
+async function createMojibakeRedrawMockBinary(directory: string) {
+  const filePath = join(directory, 'mock-chat-mojibake-redraw.mjs')
+  const script = `#!/usr/bin/env node
+const brokenEmoji = '\\u00f0\\u009f\\u008e\\u00af'
+const tip = 'Tip: Visit the Codex community forum: https://community.example.com'
+
+setTimeout(() => {
+  process.stdout.write(\`\${brokenEmoji} Starting Prompt-Driven Development session...\\n\`)
+
+  for (let index = 1; index <= tip.length; index += 1) {
+    process.stdout.write(tip.slice(0, index))
+    process.stdout.write('\\r')
+  }
+
+  process.stdout.write(\`\${tip}\\n\`)
+  process.stdout.write('Your input: ')
+}, 10)
+
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => {
+  const message = chunk.trim()
+  if (!message) {
+    return
+  }
+
+  if (message === '__exit__') {
+    process.stdout.write('Session finished\\n')
+    process.exit(0)
+    return
+  }
+
+  process.stdout.write('Acknowledged: ' + message + '\\n')
+  process.stdout.write('Your input: ')
+})
+`
+
+  await writeFile(filePath, script, 'utf8')
+  await chmod(filePath, 0o755)
+  return filePath
+}
+
 async function createOneShotMockChatBinary(directory: string) {
   const filePath = join(directory, 'mock-chat-one-shot.mjs')
   const script = `#!/usr/bin/env node
@@ -530,6 +571,48 @@ describe('chat tRPC routes', () => {
       'rough_idea (required): your idea as either:'
     )
     expect(initialAssistantMessages[0]?.content).toContain('- a URL?')
+  })
+
+  it('repairs mojibake and ignores carriage-return redraw noise in assistant output', async () => {
+    const tempDir = await createTempDir('chat-redraw')
+    tempDirs.push(tempDir)
+
+    const dbPath = join(tempDir, 'chat-redraw.db')
+    const connection = createDatabase({ filePath: dbPath })
+    migrateDatabase(connection.db)
+    connections.push(connection)
+
+    const processManager = new ProcessManager({ killGraceMs: 100 })
+    managers.push(processManager)
+
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const redrawBinaryPath = await createMojibakeRedrawMockBinary(tempDir)
+
+    const chatService = new ChatService(connection.db, processManager, {
+      resolveBinary: async () => redrawBinaryPath
+    })
+
+    const started = await chatService.startSession(projectId, 'plan')
+    await waitFor(() => {
+      const row = connection.db
+        .select()
+        .from(chatSessions)
+        .where(eq(chatSessions.id, started.id))
+        .get()
+      return row?.state === 'waiting'
+    })
+
+    const history = await chatService.getHistory(started.id)
+    const assistantMessages = history.filter((message) => message.role === 'assistant')
+    expect(assistantMessages.length).toBeGreaterThan(0)
+    const content = assistantMessages.map((message) => message.content).join('\n\n')
+
+    expect(content).toContain('\u{1F3AF} Starting Prompt-Driven Development session...')
+    expect(content).toContain('Tip: Visit the Codex community forum: https://community.example.com')
+    expect(content).not.toContain('ð')
+    expect(content).not.toMatch(/\nT\ni\np\n:/)
   })
 
   it('keeps session reusable when the process exits after a response', async () => {

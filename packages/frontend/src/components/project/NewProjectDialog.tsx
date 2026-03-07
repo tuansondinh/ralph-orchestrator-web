@@ -19,6 +19,24 @@ function deriveProjectName(projectPath: string) {
   return candidate || 'project'
 }
 
+function buildCreateProjectPath(basePath: string, projectName: string) {
+  const trimmedBasePath = basePath.trim()
+  const trimmedProjectName = projectName.trim()
+
+  if (!trimmedBasePath) {
+    return trimmedProjectName
+  }
+
+  if (/[\\/]$/.test(trimmedBasePath)) {
+    return `${trimmedBasePath}${trimmedProjectName}`
+  }
+
+  const separator =
+    trimmedBasePath.includes('\\') && !trimmedBasePath.includes('/') ? '\\' : '/'
+
+  return `${trimmedBasePath}${separator}${trimmedProjectName}`
+}
+
 export function NewProjectDialog({
   triggerLabel = 'New Project',
   onCreated,
@@ -29,6 +47,7 @@ export function NewProjectDialog({
   const [isOpen, setIsOpen] = useState(false)
   const [mode, setMode] = useState<'create' | 'open'>('create')
   const [name, setName] = useState('')
+  const [createPath, setCreatePath] = useState('')
   const [path, setPath] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -39,6 +58,7 @@ export function NewProjectDialog({
     setError(null)
     setMode('create')
     setName('')
+    setCreatePath('')
     setPath('')
     setIsSelectingPath(false)
   }, [])
@@ -68,8 +88,11 @@ export function NewProjectDialog({
     setError(null)
 
     try {
-      const submitPath = (mode === 'create' ? name : path).trim()
-      const submitName = mode === 'create' ? name.trim() : deriveProjectName(submitPath)
+      const submitName = mode === 'create' ? name.trim() : deriveProjectName(path)
+      const submitPath =
+        mode === 'create'
+          ? buildCreateProjectPath(createPath, submitName)
+          : path.trim()
       const project = await projectApi.create({
         name: submitName,
         path: submitPath,
@@ -87,14 +110,14 @@ export function NewProjectDialog({
     }
   }
 
-  const handleSelectPath = useCallback(async () => {
+  const handleSelectPath = useCallback(async (onSelect: (selectedPath: string) => void) => {
     setError(null)
     setIsSelectingPath(true)
 
     try {
       const selected = await projectApi.selectDirectory()
       if (selected?.path) {
-        setPath(selected.path)
+        onSelect(selected.path)
       }
     } catch (selectionError) {
       const message =
@@ -157,18 +180,44 @@ export function NewProjectDialog({
             </div>
             <form className="space-y-3" onSubmit={handleSubmit}>
               {mode === 'create' && (
-                <div className="space-y-1">
-                  <label className="text-sm text-zinc-300" htmlFor="project-name">
-                    Project name
-                  </label>
-                  <input
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
-                    id="project-name"
-                    placeholder="my-new-project"
-                    onChange={(event) => setName(event.target.value)}
-                    required
-                    value={name}
-                  />
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-sm text-zinc-300" htmlFor="project-name">
+                      Project name
+                    </label>
+                    <input
+                      className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
+                      id="project-name"
+                      placeholder="my-new-project"
+                      onChange={(event) => setName(event.target.value)}
+                      required
+                      value={name}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-zinc-300" htmlFor="project-create-path">
+                      Project path (optional)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
+                        id="project-create-path"
+                        onChange={(event) => setCreatePath(event.target.value)}
+                        placeholder="/path/to/new/project"
+                        value={createPath}
+                      />
+                      <button
+                        className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-800"
+                        disabled={isSelectingPath}
+                        onClick={() => {
+                          void handleSelectPath(setCreatePath)
+                        }}
+                        type="button"
+                      >
+                        {isSelectingPath ? 'Opening...' : 'Select Path'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
               {mode === 'open' && (
@@ -189,7 +238,7 @@ export function NewProjectDialog({
                       className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-800"
                       disabled={isSelectingPath}
                       onClick={() => {
-                        void handleSelectPath()
+                        void handleSelectPath(setPath)
                       }}
                       type="button"
                     >

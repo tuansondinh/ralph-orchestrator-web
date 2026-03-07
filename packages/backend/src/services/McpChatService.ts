@@ -19,6 +19,11 @@ const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash'
 const DEFAULT_OPENAI_MODEL = 'gpt-4o'
 const DEFAULT_CLAUDE_MODEL = 'claude-opus-4-6'
 const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000
+const MCP_CHAT_SYSTEM_PROMPT = [
+  'You are Ralph Assistant with access to MCP tools.',
+  'Prefer calling tools over guessing whenever a tool can produce concrete data or actions.',
+  'Do not claim that tools are unavailable when tools are provided.'
+].join(' ')
 
 type LanguageModelFactory = (modelId: string) => unknown
 
@@ -200,7 +205,13 @@ export class McpChatService {
     const toolLinksByCallId = new Map<string, string>()
     const stream = this.streamText({
       model: this.getModelProvider(input.model),
-      messages: [...session.messages],
+      messages: [
+        {
+          role: 'system',
+          content: MCP_CHAT_SYSTEM_PROMPT
+        },
+        ...session.messages
+      ],
       tools: this.buildToolsMap(input.sessionId, toolLinksByCallId, input.abortSignal),
       stopWhen: stepCountIs(10)
     })

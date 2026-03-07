@@ -1,8 +1,9 @@
 import { createApp } from './app.js'
+import { resolveBindHost } from './lib/safety.js'
 
 const app = createApp()
 const port = Number(process.env.PORT ?? 3003)
-const host = process.env.RALPH_UI_BIND_HOST ?? '127.0.0.1'
+const host = resolveBindHost()
 let shuttingDown = false
 
 const start = async () => {

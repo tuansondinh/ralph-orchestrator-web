@@ -15,3 +15,70 @@ body {
   background: #09090b;
   color: #f4f4f5;
 }
+
+.ralph-pixel-cat-wrap {
+  right: 4.75rem;
+  top: 0.55rem;
+  transform: translateZ(0);
+}
+
+.ralph-pixel-cat {
+  image-rendering: pixelated;
+  filter: drop-shadow(0 8px 14px rgb(0 0 0 / 0.35));
+  transform-origin: 60% 100%;
+  animation: ralph-cat-float 3.6s ease-in-out infinite;
+}
+
+.ralph-pixel-cat-tail {
+  transform-origin: 10px 46px;
+  animation: ralph-cat-tail 1.4s steps(2, end) infinite;
+}
+
+.ralph-pixel-cat-eyes {
+  transform-origin: 68px 34px;
+  animation: ralph-cat-blink 5s linear infinite;
+}
+
+@keyframes ralph-cat-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes ralph-cat-tail {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+
+@keyframes ralph-cat-blink {
+  0%,
+  44%,
+  100% {
+    transform: scaleY(1);
+  }
+  46%,
+  48% {
+    transform: scaleY(0.15);
+  }
+}
+
+@media (max-width: 640px) {
+  .ralph-pixel-cat-wrap {
+    right: 2.7rem;
+    top: 0.35rem;
+  }
+
+  .ralph-pixel-cat {
+    transform: scale(0.78);
+    transform-origin: top right;
+  }
+}

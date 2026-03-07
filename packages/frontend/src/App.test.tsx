@@ -5,7 +5,6 @@ import { monitoringApi } from '@/lib/monitoringApi'
 import { taskApi } from '@/lib/taskApi'
 import { terminalApi } from '@/lib/terminalApi'
 import { worktreeApi } from '@/lib/worktreeApi'
-import { resetChatOverlayStore } from '@/stores/chatOverlayStore'
 import { resetLoopStore } from '@/stores/loopStore'
 import { resetProjectStore } from '@/stores/projectStore'
 import { resetTerminalStore } from '@/stores/terminalStore'
@@ -88,7 +87,6 @@ function seedProjects(nextProjects: ProjectRecord[]) {
 
 beforeEach(() => {
   resetLoopStore()
-  resetChatOverlayStore()
   resetProjectStore()
   resetTerminalStore()
   vi.clearAllMocks()
@@ -228,23 +226,12 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Create Project' })).toBeInTheDocument()
   })
 
-  it('toggles chat overlay with Cmd/Ctrl+Shift+C keyboard shortcut', async () => {
+  it('does not render a floating chat assistant button', async () => {
     render(<App />)
-    await screen.findByRole('button', { name: 'Open chat assistant' })
 
-    fireEvent.keyDown(window, {
-      key: 'c',
-      metaKey: true,
-      shiftKey: true
-    })
-    expect(screen.getByRole('heading', { name: 'Ralph Assistant' })).toBeInTheDocument()
+    await screen.findByRole('heading', { name: 'No projects yet' })
 
-    fireEvent.keyDown(window, {
-      key: 'c',
-      ctrlKey: true,
-      shiftKey: true
-    })
-    expect(screen.queryByRole('heading', { name: 'Ralph Assistant' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open chat assistant' })).not.toBeInTheDocument()
   })
 
   it('renders developer-focused empty homepage content', async () => {
@@ -319,6 +306,34 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
     expect(await screen.findByRole('button', { name: 'Sample App' })).toBeInTheDocument()
+  })
+
+  it('creates a project with selected path in create mode', async () => {
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Create Project' }))
+    fireEvent.change(screen.getByLabelText('Project name'), {
+      target: { value: 'Sample App' }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select Path' }))
+    await waitFor(() => {
+      expect(projectApi.selectDirectory).toHaveBeenCalled()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Project path (optional)')).toHaveValue('/tmp/existing-app')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => {
+      expect(projectApi.create).toHaveBeenCalledWith({
+        name: 'Sample App',
+        path: '/tmp/existing-app/Sample App',
+        createIfMissing: true
+      })
+    })
   })
 
   it('opens existing project without name input and derives name from selected path', async () => {

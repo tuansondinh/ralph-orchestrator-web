@@ -5,6 +5,11 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod'
 import type { LoopOutputSnapshot } from '../services/LoopService.js'
 import type { MonitoringStatus } from '../services/MonitoringService.js'
+import type {
+  ChatMessageSummary,
+  ChatSessionBackend,
+  ChatSessionSummary
+} from '../services/ChatService.js'
 
 interface ProjectWithPresetContext {
   path: string
@@ -120,6 +125,24 @@ export interface RalphMcpServerDependencies {
   }
   hatsPresetService: {
     list: () => Promise<unknown>
+  }
+  chatService: {
+    startSession: (
+      projectId: string,
+      type: 'plan' | 'task' | 'loop',
+      initialInput?: string,
+      backend?: ChatSessionBackend
+    ) => Promise<ChatSessionSummary>
+    restartSession: (
+      projectId: string,
+      type: 'plan' | 'task' | 'loop',
+      initialInput?: string,
+      backend?: ChatSessionBackend
+    ) => Promise<ChatSessionSummary>
+    getProjectSession: (projectId: string) => Promise<ChatSessionSummary | null>
+    getSession: (sessionId: string) => Promise<ChatSessionSummary>
+    sendMessage: (sessionId: string, message: string) => Promise<void>
+    getHistory: (sessionId: string) => Promise<ChatMessageSummary[]>
   }
 }
 

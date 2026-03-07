@@ -8,8 +8,7 @@ import {
   sep
 } from 'node:path'
 import { fileURLToPath } from 'node:url'
-
-type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND'
+import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
 const YAML_EXTENSIONS = new Set(['.yml', '.yaml'])
 const DEFAULT_PRESET_DIRECTORY = resolve(
@@ -41,13 +40,10 @@ export interface PresetSummary {
   filename: string
 }
 
-export class PresetServiceError extends Error {
-  code: ServiceErrorCode
-
+export class PresetServiceError extends ServiceError {
   constructor(code: ServiceErrorCode, message: string) {
-    super(message)
+    super(code, message)
     this.name = 'PresetServiceError'
-    this.code = code
   }
 }
 

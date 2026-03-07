@@ -1,5 +1,5 @@
 import { constants } from 'node:fs'
-import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join, resolve, isAbsolute, relative, sep, basename, dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
@@ -16,16 +16,12 @@ import {
   type Project,
   schema
 } from '../db/schema.js'
+import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
-type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND' | 'CONFLICT'
-
-export class ProjectServiceError extends Error {
-  code: ServiceErrorCode
-
+export class ProjectServiceError extends ServiceError {
   constructor(code: ServiceErrorCode, message: string) {
-    super(message)
+    super(code, message)
     this.name = 'ProjectServiceError'
-    this.code = code
   }
 }
 
@@ -632,6 +628,20 @@ export class ProjectService {
       projectId: project.id,
       yaml: yaml.endsWith('\n') ? yaml : `${yaml}\n`,
       config: parsedConfig
+    }
+  }
+
+  async clearRalphCache(projectId: string): Promise<void> {
+    const project = await this.get(projectId)
+    const ralphDir = join(project.path, '.ralph')
+
+    try {
+      await rm(ralphDir, { recursive: true, force: true })
+    } catch (error) {
+      throw new ProjectServiceError(
+        'BAD_REQUEST',
+        `Unable to delete Ralph cache: ${error instanceof Error ? error.message : String(error)}`
+      )
     }
   }
 

@@ -11,8 +11,8 @@ import {
   LoopServiceError,
   type LoopMetrics
 } from './LoopService.js'
+import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
-type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND'
 type Database = BetterSQLite3Database<typeof schema>
 
 export interface FileChange {
@@ -85,13 +85,10 @@ const MTIME_SCAN_IGNORE_DIRS = new Set([
 const MAX_MTIME_SCAN_RESULTS = 300
 const MAX_MTIME_SCAN_FILES = 3000
 
-export class MonitoringServiceError extends Error {
-  code: ServiceErrorCode
-
+export class MonitoringServiceError extends ServiceError {
   constructor(code: ServiceErrorCode, message: string) {
-    super(message)
+    super(code, message)
     this.name = 'MonitoringServiceError'
-    this.code = code
   }
 }
 

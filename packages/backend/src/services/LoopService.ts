@@ -24,7 +24,7 @@ import {
 } from '../runner/ProcessManager.js'
 import { RalphEventParser, type RalphEvent } from '../runner/RalphEventParser.js'
 
-type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND' | 'CONFLICT'
+import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
 type LoopLifecycleState =
   | ProcessState
@@ -34,13 +34,10 @@ type LoopLifecycleState =
   | 'needs-review'
   | 'orphan'
 
-export class LoopServiceError extends Error {
-  code: ServiceErrorCode
-
+export class LoopServiceError extends ServiceError {
   constructor(code: ServiceErrorCode, message: string) {
-    super(message)
+    super(code, message)
     this.name = 'LoopServiceError'
-    this.code = code
   }
 }
 

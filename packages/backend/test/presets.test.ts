@@ -17,6 +17,10 @@ import { DevPreviewManager } from '../src/services/DevPreviewManager.js'
 import { LoopService } from '../src/services/LoopService.js'
 import { MonitoringService } from '../src/services/MonitoringService.js'
 import { PresetService } from '../src/services/PresetService.js'
+import { ProjectService } from '../src/services/ProjectService.js'
+import { SettingsService } from '../src/services/SettingsService.js'
+import { HatsPresetService } from '../src/services/HatsPresetService.js'
+import { TaskService } from '../src/services/TaskService.js'
 
 async function createTempDir(prefix: string) {
   return mkdtemp(join(tmpdir(), `ralph-ui-${prefix}-`))
@@ -125,7 +129,12 @@ describe('preset features', () => {
       loopService,
       chatService,
       monitoringService,
-      previewService
+      previewService,
+      projectService: new ProjectService(connection.db),
+      presetService: new PresetService(),
+      settingsService: new SettingsService(connection.db),
+      hatsPresetService: new HatsPresetService(),
+      taskService: new TaskService(connection.db)
     })
 
     return {

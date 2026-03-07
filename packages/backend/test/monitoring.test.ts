@@ -17,6 +17,11 @@ import { ChatService } from '../src/services/ChatService.js'
 import { LoopService } from '../src/services/LoopService.js'
 import { MonitoringService } from '../src/services/MonitoringService.js'
 import { DevPreviewManager } from '../src/services/DevPreviewManager.js'
+import { ProjectService } from '../src/services/ProjectService.js'
+import { PresetService } from '../src/services/PresetService.js'
+import { SettingsService } from '../src/services/SettingsService.js'
+import { HatsPresetService } from '../src/services/HatsPresetService.js'
+import { TaskService } from '../src/services/TaskService.js'
 import { appRouter } from '../src/trpc/router.js'
 
 const execFile = promisify(execFileCallback)
@@ -112,7 +117,12 @@ describe('monitoring service', () => {
       loopService,
       chatService,
       monitoringService,
-      previewService
+      previewService,
+      projectService: new ProjectService(connection.db),
+      presetService: new PresetService(),
+      settingsService: new SettingsService(connection.db),
+      hatsPresetService: new HatsPresetService(),
+      taskService: new TaskService(connection.db)
     })
 
     return { caller, connection, monitoringService, tempDir }

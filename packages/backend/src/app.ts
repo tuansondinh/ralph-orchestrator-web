@@ -26,6 +26,7 @@ import { ProjectService } from './services/ProjectService.js'
 import { PresetService } from './services/PresetService.js'
 import { HatsPresetService } from './services/HatsPresetService.js'
 import { McpChatService, type AIModel } from './services/McpChatService.js'
+import { TaskService } from './services/TaskService.js'
 import { RalphMcpServer } from './mcp/RalphMcpServer.js'
 import { resolveRalphBinary } from './lib/ralph.js'
 import { isOriginAllowed, parseAllowedOrigins } from './lib/origin.js'
@@ -234,6 +235,8 @@ export function createApp() {
     25_000
   )
 
+  const taskService = new TaskService(database.db)
+
   app.decorate('db', database.db)
   app.decorate('dbConnection', database)
   app.decorate('processManager', processManager)
@@ -245,6 +248,11 @@ export function createApp() {
   app.decorate('ralphProcessService', ralphProcessService)
   app.decorate('mcpChatService', mcpChatService)
   app.decorate('ralphMcpServer', ralphMcpServer)
+  app.decorate('projectService', projectService)
+  app.decorate('presetService', presetService)
+  app.decorate('settingsService', settingsService)
+  app.decorate('hatsPresetService', hatsPresetService)
+  app.decorate('taskService', taskService)
 
   app.register(cors, {
     origin: (origin, callback) => {

@@ -11,8 +11,8 @@ import {
   settings
 } from '../db/schema.js'
 import { resolveRalphBinary } from '../lib/ralph.js'
+import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
-type ServiceErrorCode = 'BAD_REQUEST'
 type Database = BetterSQLite3Database<typeof schema>
 
 const DEFAULT_PORT_START = 3001
@@ -82,13 +82,10 @@ export interface BinaryTestResult {
   version: string
 }
 
-export class SettingsServiceError extends Error {
-  code: ServiceErrorCode
-
+export class SettingsServiceError extends ServiceError {
   constructor(code: ServiceErrorCode, message: string) {
-    super(message)
+    super(code, message)
     this.name = 'SettingsServiceError'
-    this.code = code
   }
 }
 

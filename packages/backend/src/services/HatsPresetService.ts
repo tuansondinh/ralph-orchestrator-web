@@ -1,8 +1,7 @@
 import { access, readdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-
-type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND'
+import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
 const YAML_EXTENSIONS = new Set(['.yml', '.yaml'])
 
@@ -61,13 +60,10 @@ export interface HatsPresetDetail {
   content: string
 }
 
-export class HatsPresetServiceError extends Error {
-  code: ServiceErrorCode
-
+export class HatsPresetServiceError extends ServiceError {
   constructor(code: ServiceErrorCode, message: string) {
-    super(message)
+    super(code, message)
     this.name = 'HatsPresetServiceError'
-    this.code = code
   }
 }
 

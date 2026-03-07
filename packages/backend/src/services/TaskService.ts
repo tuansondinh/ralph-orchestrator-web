@@ -6,8 +6,8 @@ import { desc, eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { resolveRalphBinary, type ResolveRalphBinaryOptions } from '../lib/ralph.js'
 import { loopRuns, projects, schema, settings } from '../db/schema.js'
+import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
-type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND'
 type Database = BetterSQLite3Database<typeof schema>
 const execFile = promisify(execFileCallback)
 const RALPH_BINARY_SETTING_KEY = 'ralph.binaryPath'
@@ -46,13 +46,10 @@ export interface TaskServiceOptions {
   execCommand?: TaskCommandExecutor
 }
 
-export class TaskServiceError extends Error {
-  code: ServiceErrorCode
-
+export class TaskServiceError extends ServiceError {
   constructor(code: ServiceErrorCode, message: string) {
-    super(message)
+    super(code, message)
     this.name = 'TaskServiceError'
-    this.code = code
   }
 }
 

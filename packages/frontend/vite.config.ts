@@ -21,7 +21,8 @@ export default defineConfig({
   resolve: {
     extensions: ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.json'],
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@ralph-ui/backend': fileURLToPath(new URL('../backend/src', import.meta.url))
     }
   },
   server: {

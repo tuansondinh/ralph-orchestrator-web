@@ -2,19 +2,7 @@ import { initTRPC } from '@trpc/server'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { Context } from './context.js'
-import { ProjectService, ProjectServiceError } from '../services/ProjectService.js'
-import { LoopServiceError } from '../services/LoopService.js'
-import { ChatServiceError } from '../services/ChatService.js'
-import { MonitoringServiceError } from '../services/MonitoringService.js'
-import { DevPreviewManagerError } from '../services/DevPreviewManager.js'
-import { SettingsService, SettingsServiceError } from '../services/SettingsService.js'
-import { PresetService, PresetServiceError } from '../services/PresetService.js'
-import {
-  HatsPresetService,
-  HatsPresetServiceError
-} from '../services/HatsPresetService.js'
-import { TerminalServiceError } from '../services/TerminalService.js'
-import { TaskService, TaskServiceError } from '../services/TaskService.js'
+import { ServiceError } from '../lib/ServiceError.js'
 import {
   allowsDangerousOperations,
   getDangerousOperationBlockMessage
@@ -39,18 +27,7 @@ const chatSessionMutationInputSchema = z.object({
 })
 
 function asTRPCError(error: unknown): never {
-  if (
-    error instanceof ProjectServiceError ||
-    error instanceof LoopServiceError ||
-    error instanceof ChatServiceError ||
-    error instanceof MonitoringServiceError ||
-    error instanceof DevPreviewManagerError ||
-    error instanceof SettingsServiceError ||
-    error instanceof PresetServiceError ||
-    error instanceof HatsPresetServiceError ||
-    error instanceof TerminalServiceError ||
-    error instanceof TaskServiceError
-  ) {
+  if (error instanceof ServiceError) {
     throw new TRPCError({
       code: error.code,
       message: error.message
@@ -73,7 +50,7 @@ function assertDangerousOperationAllowed(operation: string) {
 
 const projectRouter = t.router({
   list: t.procedure.query(({ ctx }) =>
-    new ProjectService(ctx.db).list().catch((error) => asTRPCError(error))
+    ctx.projectService.list().catch((error) => asTRPCError(error))
   ),
   get: t.procedure
     .input(
@@ -82,7 +59,7 @@ const projectRouter = t.router({
       })
     )
     .query(({ ctx, input }) =>
-      new ProjectService(ctx.db)
+      ctx.projectService
         .get(input.id)
         .catch((error) => asTRPCError(error))
     ),
@@ -96,12 +73,12 @@ const projectRouter = t.router({
       })
     )
     .mutation(({ ctx, input }) =>
-      new ProjectService(ctx.db)
+      ctx.projectService
         .create(input)
         .catch((error) => asTRPCError(error))
     ),
   selectDirectory: t.procedure.mutation(({ ctx }) =>
-    new ProjectService(ctx.db)
+    ctx.projectService
       .selectDirectory()
       .catch((error) => asTRPCError(error))
   ),
@@ -118,7 +95,7 @@ const projectRouter = t.router({
         })
     )
     .mutation(({ ctx, input }) =>
-      new ProjectService(ctx.db)
+      ctx.projectService
         .update(input.id, {
           name: input.name,
           path: input.path
@@ -132,7 +109,7 @@ const projectRouter = t.router({
       })
     )
     .mutation(({ ctx, input }) =>
-      new ProjectService(ctx.db)
+      ctx.projectService
         .delete(input.id)
         .catch((error) => asTRPCError(error))
     ),
@@ -143,7 +120,7 @@ const projectRouter = t.router({
       })
     )
     .query(({ ctx, input }) =>
-      new ProjectService(ctx.db)
+      ctx.projectService
         .getConfig(input.projectId)
         .catch((error) => asTRPCError(error))
     ),
@@ -154,7 +131,7 @@ const projectRouter = t.router({
       })
     )
     .query(({ ctx, input }) =>
-      new ProjectService(ctx.db)
+      ctx.projectService
         .getPrompt(input.projectId)
         .catch((error) => asTRPCError(error))
     ),
@@ -165,7 +142,7 @@ const projectRouter = t.router({
       })
     )
     .query(({ ctx, input }) =>
-      new ProjectService(ctx.db)
+      ctx.projectService
         .listWorktrees(input.projectId)
         .catch((error) => asTRPCError(error))
     ),
@@ -177,7 +154,7 @@ const projectRouter = t.router({
       })
     )
     .mutation(({ ctx, input }) =>
-      new ProjectService(ctx.db)
+      ctx.projectService
         .createWorktree(input.projectId, input.name)
         .catch((error) => asTRPCError(error))
     ),
@@ -194,7 +171,7 @@ const projectRouter = t.router({
         })
     )
     .mutation(({ ctx, input }) =>
-      new ProjectService(ctx.db)
+      ctx.projectService
         .updateConfig(input.projectId, {
           yaml: input.yaml,
           config: input.config
@@ -209,8 +186,19 @@ const projectRouter = t.router({
       })
     )
     .mutation(({ ctx, input }) =>
-      new ProjectService(ctx.db)
+      ctx.projectService
         .updatePrompt(input.projectId, { content: input.content })
+        .catch((error) => asTRPCError(error))
+    ),
+  clearRalphCache: t.procedure
+    .input(
+      z.object({
+        projectId: z.string().min(1)
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      ctx.projectService
+        .clearRalphCache(input.projectId)
         .catch((error) => asTRPCError(error))
     )
 })
@@ -244,11 +232,11 @@ const loopRouter = t.router({
     .mutation(async ({ ctx, input }) => {
       let config = input.config
       if (input.presetFilename) {
-        const project = await new ProjectService(ctx.db)
+        const project = await ctx.projectService
           .get(input.projectId)
           .catch((error) => asTRPCError(error))
 
-        config = await new PresetService()
+        config = await ctx.presetService
           .resolvePath(input.presetFilename, project.path)
           .catch((error) => asTRPCError(error))
       }
@@ -495,7 +483,7 @@ const presetsRouter = t.router({
     .query(async ({ ctx, input }) => {
       let projectConfig
       if (input?.projectId) {
-        const project = await new ProjectService(ctx.db)
+        const project = await ctx.projectService
           .get(input.projectId)
           .catch((error) => asTRPCError(error))
         projectConfig = {
@@ -504,7 +492,7 @@ const presetsRouter = t.router({
         }
       }
 
-      return new PresetService()
+      return ctx.presetService
         .listForProject(projectConfig)
         .catch((error) => asTRPCError(error))
     }),
@@ -518,26 +506,26 @@ const presetsRouter = t.router({
     .query(async ({ ctx, input }) => {
       let projectPath
       if (input.projectId) {
-        const project = await new ProjectService(ctx.db)
+        const project = await ctx.projectService
           .get(input.projectId)
           .catch((error) => asTRPCError(error))
         projectPath = project.path
       }
 
-      return new PresetService()
+      return ctx.presetService
         .get(input.filename, projectPath)
         .catch((error) => asTRPCError(error))
     }),
   save: t.procedure
     .input(z.object({ name: z.string().trim().min(1), content: z.string().trim().min(1) }))
-    .mutation(({ input }) =>
-      new PresetService().save(input.name, input.content).catch((error) => asTRPCError(error))
+    .mutation(({ ctx, input }) =>
+      ctx.presetService.save(input.name, input.content).catch((error) => asTRPCError(error))
     )
 })
 
 const hatsPresetsRouter = t.router({
-  list: t.procedure.query(() =>
-    new HatsPresetService().list().catch((error) => asTRPCError(error))
+  list: t.procedure.query(({ ctx }) =>
+    ctx.hatsPresetService.list().catch((error) => asTRPCError(error))
   ),
   get: t.procedure
     .input(
@@ -545,14 +533,14 @@ const hatsPresetsRouter = t.router({
         id: z.string().trim().min(1)
       })
     )
-    .query(({ input }) =>
-      new HatsPresetService().get(input.id).catch((error) => asTRPCError(error))
+    .query(({ ctx, input }) =>
+      ctx.hatsPresetService.get(input.id).catch((error) => asTRPCError(error))
     )
 })
 
 const previewSettingsRouter = t.router({
   get: t.procedure.query(({ ctx }) =>
-    new SettingsService(ctx.db)
+    ctx.settingsService
       .getPreviewSettings()
       .catch((error) => asTRPCError(error))
   ),
@@ -569,7 +557,7 @@ const previewSettingsRouter = t.router({
         )
     )
     .mutation(({ ctx, input }) =>
-      new SettingsService(ctx.db)
+      ctx.settingsService
         .updatePreviewSettings({
           baseUrl: input.baseUrl,
           command: input.command
@@ -580,10 +568,10 @@ const previewSettingsRouter = t.router({
 
 const settingsRouter = t.router({
   get: t.procedure.query(({ ctx }) =>
-    new SettingsService(ctx.db).get().catch((error) => asTRPCError(error))
+    ctx.settingsService.get().catch((error) => asTRPCError(error))
   ),
   getDefaultPreset: t.procedure.query(({ ctx }) =>
-    new SettingsService(ctx.db)
+    ctx.settingsService
       .getDefaultPreset()
       .catch((error) => asTRPCError(error))
   ),
@@ -597,16 +585,16 @@ const settingsRouter = t.router({
     .mutation(async ({ ctx, input }) => {
       let projectPath: string | undefined
       if (input.projectId) {
-        const project = await new ProjectService(ctx.db)
+        const project = await ctx.projectService
           .get(input.projectId)
           .catch((error) => asTRPCError(error))
         projectPath = project.path
       }
 
-      await new PresetService()
+      await ctx.presetService
         .resolvePath(input.filename, projectPath)
         .catch((error) => asTRPCError(error))
-      return new SettingsService(ctx.db)
+      return ctx.settingsService
         .setDefaultPreset(input.filename)
         .catch((error) => asTRPCError(error))
     }),
@@ -645,7 +633,7 @@ const settingsRouter = t.router({
         .optional()
     )
     .mutation(({ ctx, input }) =>
-      new SettingsService(ctx.db)
+      ctx.settingsService
         .update(input ?? {})
         .catch((error) => asTRPCError(error))
     ),
@@ -660,7 +648,7 @@ const settingsRouter = t.router({
     .mutation(({ ctx, input }) =>
       {
         assertDangerousOperationAllowed('settings.testBinary')
-        return new SettingsService(ctx.db)
+        return ctx.settingsService
           .testBinary(input?.path)
           .catch((error) => asTRPCError(error))
       }
@@ -674,7 +662,7 @@ const settingsRouter = t.router({
     .mutation(({ ctx, input }) =>
       {
         assertDangerousOperationAllowed('settings.clearData')
-        return new SettingsService(ctx.db)
+        return ctx.settingsService
           .clearData(input.confirm)
           .catch((error) => asTRPCError(error))
       }
@@ -824,7 +812,7 @@ const taskRouter = t.router({
       })
     )
     .query(({ ctx, input }) =>
-      new TaskService(ctx.db)
+      ctx.taskService
         .list(input.projectId)
         .catch((error) => asTRPCError(error))
     )

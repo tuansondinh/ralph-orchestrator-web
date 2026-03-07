@@ -15,6 +15,10 @@ import { ChatService } from '../src/services/ChatService.js'
 import { MonitoringService } from '../src/services/MonitoringService.js'
 import { DevPreviewManager } from '../src/services/DevPreviewManager.js'
 import { TaskService, TaskServiceError } from '../src/services/TaskService.js'
+import { ProjectService } from '../src/services/ProjectService.js'
+import { PresetService } from '../src/services/PresetService.js'
+import { SettingsService } from '../src/services/SettingsService.js'
+import { HatsPresetService } from '../src/services/HatsPresetService.js'
 
 async function createTempDir(prefix: string) {
   return mkdtemp(join(tmpdir(), `ralph-ui-${prefix}-`))
@@ -69,7 +73,12 @@ describe('task tRPC routes', () => {
       loopService,
       chatService,
       monitoringService,
-      previewService
+      previewService,
+      projectService: new ProjectService(connection.db),
+      presetService: new PresetService(),
+      settingsService: new SettingsService(connection.db),
+      hatsPresetService: new HatsPresetService(),
+      taskService: new TaskService(connection.db)
     })
 
     return { caller, connection, tempDir }

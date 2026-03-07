@@ -11,8 +11,8 @@ import {
   type OutputChunk,
   type ProcessState
 } from '../runner/ProcessManager.js'
+import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
-type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND' | 'CONFLICT'
 type Database = BetterSQLite3Database<typeof schema>
 type PreviewState = 'starting' | 'ready' | 'stopped' | 'error'
 
@@ -70,13 +70,10 @@ const NOOP_LOGGER: PreviewLogger = {
   error: () => {}
 }
 
-export class DevPreviewManagerError extends Error {
-  code: ServiceErrorCode
-
+export class DevPreviewManagerError extends ServiceError {
   constructor(code: ServiceErrorCode, message: string) {
-    super(message)
+    super(code, message)
     this.name = 'DevPreviewManagerError'
-    this.code = code
   }
 }
 

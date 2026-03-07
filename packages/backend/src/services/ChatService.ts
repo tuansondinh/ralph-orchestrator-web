@@ -13,8 +13,8 @@ import {
 } from '../db/schema.js'
 import { resolveRalphBinary } from '../lib/ralph.js'
 import { ProcessManager, type OutputChunk, type ProcessState } from '../runner/ProcessManager.js'
+import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
-type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND' | 'CONFLICT'
 type ChatState = 'active' | 'waiting' | 'completed'
 
 export type ChatSessionType = 'plan' | 'task' | 'loop'
@@ -83,13 +83,10 @@ const NOOP_LOGGER: ChatLogger = {
   error: () => { }
 }
 
-export class ChatServiceError extends Error {
-  code: ServiceErrorCode
-
+export class ChatServiceError extends ServiceError {
   constructor(code: ServiceErrorCode, message: string) {
-    super(message)
+    super(code, message)
     this.name = 'ChatServiceError'
-    this.code = code
   }
 }
 

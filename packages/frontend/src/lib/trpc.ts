@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { createTRPCProxyClient, httpLink } from '@trpc/client'
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import type { AppRouter } from '@ralph-ui/backend/trpc/router'
 
 type RuntimeEnv = {
   DEV: boolean
@@ -35,7 +35,7 @@ export function resolveTrpcBaseUrl(
 const trpcBaseUrl = resolveTrpcBaseUrl()
 
 export const queryClient = new QueryClient()
-export const trpcClient: any = createTRPCProxyClient<any>({
+export const trpcClient = createTRPCProxyClient<AppRouter>({
   links: [
     httpLink({
       url: trpcBaseUrl

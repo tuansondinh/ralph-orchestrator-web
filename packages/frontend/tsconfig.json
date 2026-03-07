@@ -7,7 +7,8 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@ralph-ui/backend/*": ["../backend/src/*"]
     },
     "types": ["vite/client", "vitest/globals"]
   },

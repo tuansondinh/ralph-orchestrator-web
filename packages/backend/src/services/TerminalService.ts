@@ -8,8 +8,8 @@ import { eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as pty from 'node-pty'
 import { projects, schema } from '../db/schema.js'
+import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
-type ServiceErrorCode = 'BAD_REQUEST' | 'NOT_FOUND' | 'CONFLICT'
 type TerminalSessionState = 'active' | 'completed'
 
 type Database = BetterSQLite3Database<typeof schema>
@@ -46,13 +46,10 @@ interface TerminalRuntime {
   outputBuffer: string[]
 }
 
-export class TerminalServiceError extends Error {
-  code: ServiceErrorCode
-
+export class TerminalServiceError extends ServiceError {
   constructor(code: ServiceErrorCode, message: string) {
-    super(message)
+    super(code, message)
     this.name = 'TerminalServiceError'
-    this.code = code
   }
 }
 

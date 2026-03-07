@@ -234,6 +234,29 @@ export function createApp() {
     process.env.RALPH_UI_CHAT_STREAM_FIRST_EVENT_TIMEOUT_MS,
     25_000
   )
+  const chatRateLimitPerMinute = parseSettingInteger(
+    process.env.RALPH_UI_CHAT_RATE_LIMIT,
+    10
+  )
+  const chatRateLimitWindowMs = 60_000
+
+  // In-memory rate limiter: tracks request timestamps per sessionId
+  const chatRateLimitMap = new Map<string, number[]>()
+
+  function isChatRateLimited(sessionId: string): boolean {
+    const now = Date.now()
+    const windowStart = now - chatRateLimitWindowMs
+    const timestamps = (chatRateLimitMap.get(sessionId) ?? []).filter(
+      (t) => t > windowStart
+    )
+    if (timestamps.length >= chatRateLimitPerMinute) {
+      chatRateLimitMap.set(sessionId, timestamps)
+      return true
+    }
+    timestamps.push(now)
+    chatRateLimitMap.set(sessionId, timestamps)
+    return false
+  }
 
   const taskService = new TaskService(database.db)
 
@@ -361,6 +384,16 @@ export function createApp() {
     }
 
     const input = parsed.data
+
+    if (isChatRateLimited(input.sessionId)) {
+      setSseHeaders(429)
+      sendEvent('error', {
+        message: `Rate limit exceeded. Max ${chatRateLimitPerMinute} requests per minute per session.`
+      })
+      endStream()
+      return
+    }
+
     const selectedModel = (input.model ?? 'gemini') as AIModel
     setSseHeaders(200)
 

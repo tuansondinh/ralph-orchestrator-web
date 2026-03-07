@@ -4,10 +4,10 @@ const tabs = [
   { id: 'loops', label: 'Loops' },
   { id: 'tasks', label: 'Tasks' },
   { id: 'terminal', label: 'Terminal' },
-  { id: 'monitor', label: 'Monitor' },
-  { id: 'preview', label: 'Preview' },
   { id: 'hats-presets', label: 'Hats presets' },
-  { id: 'settings', label: 'Settings' }
+  { id: 'settings', label: 'Settings' },
+  { id: 'monitor', label: 'Monitor' },
+  { id: 'preview', label: 'Preview' }
 ]
 
 interface TabBarProps {

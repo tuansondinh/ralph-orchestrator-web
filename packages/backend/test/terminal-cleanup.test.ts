@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalService } from '../src/services/TerminalService.js'
 
 // Minimal DB stub — TerminalService only uses db in startSession, not in completeSession
-const stubDb = {} as Parameters<typeof TerminalService['prototype']['constructor']>[0]
+const stubDb = {} as ConstructorParameters<typeof TerminalService>[0]
 
 describe('TerminalService — session cleanup', () => {
   beforeEach(() => {

@@ -16,7 +16,7 @@ import { TerminalService } from '../src/services/TerminalService.js'
 // Mock node-pty — must be hoisted so it intercepts before TerminalService loads
 // ---------------------------------------------------------------------------
 const { spawnMock, lastPty } = vi.hoisted(() => {
-  let _last: any = null
+  let _last: unknown = null
   const spawnFn = vi.fn(() => {
     const dataCbs: ((d: string) => void)[] = []
     const exitCbs: ((e: { exitCode: number; signal?: number }) => void)[] = []
@@ -59,8 +59,8 @@ function injectRuntime(
   projectId: string,
   options: { state?: 'active' | 'completed'; outputBuffer?: string[] } = {}
 ) {
-  const runtimes = (service as any).runtimes as Map<string, any>
-  const sessionsByProjectId = (service as any).sessionsByProjectId as Map<string, Set<string>>
+  const runtimes = (service as unknown as { runtimes: Map<string, unknown> }).runtimes
+  const sessionsByProjectId = (service as unknown as { sessionsByProjectId: Map<string, Set<string>> }).sessionsByProjectId
   const state = options.state ?? 'active'
   const mockPty = { kill: vi.fn(), write: vi.fn(), resize: vi.fn() }
 
@@ -117,6 +117,9 @@ async function insertProject(connection: DatabaseConnection, projectPath: string
     .run()
   return id
 }
+
+// Minimal DB stub for tests that don't call database methods
+const stubDb = {} as ConstructorParameters<typeof TerminalService>[0]
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -187,26 +190,26 @@ describe('TerminalService', () => {
 
   describe('sendInput', () => {
     it('forwards data to the PTY', () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       const pty = injectRuntime(service, 'sess-1', 'proj-1')
       service.sendInput('sess-1', 'echo hello\r')
       expect(pty.write).toHaveBeenCalledWith('echo hello\r')
     })
 
     it('does nothing for empty data', () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       const pty = injectRuntime(service, 'sess-2', 'proj-1')
       service.sendInput('sess-2', '')
       expect(pty.write).not.toHaveBeenCalled()
     })
 
     it('throws for unknown session ID', () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       expect(() => service.sendInput('ghost', 'data')).toThrow('Terminal session not found')
     })
 
     it('throws when session is not active', () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       injectRuntime(service, 'done', 'proj-1', { state: 'completed' })
       expect(() => service.sendInput('done', 'data')).toThrow('not active')
     })
@@ -214,14 +217,14 @@ describe('TerminalService', () => {
 
   describe('resizeSession', () => {
     it('forwards valid dimensions to the PTY', () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       const pty = injectRuntime(service, 'sess-resize', 'proj-2')
       service.resizeSession('sess-resize', 100, 40)
       expect(pty.resize).toHaveBeenCalledWith(100, 40)
     })
 
     it('clamps cols and rows below minimum', () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       const pty = injectRuntime(service, 'sess-min', 'proj-2')
       service.resizeSession('sess-min', 1, 1)
       // MIN_COLS=20, MIN_ROWS=8
@@ -229,7 +232,7 @@ describe('TerminalService', () => {
     })
 
     it('clamps cols and rows above maximum', () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       const pty = injectRuntime(service, 'sess-max', 'proj-2')
       service.resizeSession('sess-max', 9999, 9999)
       // MAX_COLS=400, MAX_ROWS=200
@@ -239,7 +242,7 @@ describe('TerminalService', () => {
 
   describe('endSession', () => {
     it('marks session as completed and emits state change', () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       const pty = injectRuntime(service, 'sess-end', 'proj-3')
 
       const states: string[] = []
@@ -254,7 +257,7 @@ describe('TerminalService', () => {
     })
 
     it('is idempotent for already-completed sessions', () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       const pty = injectRuntime(service, 'already-done', 'proj-3', { state: 'completed' })
 
       expect(() => service.endSession('already-done')).not.toThrow()
@@ -264,7 +267,7 @@ describe('TerminalService', () => {
 
   describe('getProjectSessions', () => {
     it('returns only active sessions for the project', async () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       const projectId = 'proj-sessions'
       injectRuntime(service, 'active-1', projectId)
       injectRuntime(service, 'active-2', projectId)
@@ -276,7 +279,7 @@ describe('TerminalService', () => {
     })
 
     it('returns empty array for unknown project', async () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       const sessions = await service.getProjectSessions('no-such-project')
       expect(sessions).toEqual([])
     })
@@ -284,13 +287,13 @@ describe('TerminalService', () => {
 
   describe('replayOutput', () => {
     it('returns buffered output chunks', () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       injectRuntime(service, 'sess-buf', 'proj-4', { outputBuffer: ['a', 'b', 'c'] })
       expect(service.replayOutput('sess-buf')).toEqual(['a', 'b', 'c'])
     })
 
     it('returns a copy of the buffer, not a reference', () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       injectRuntime(service, 'sess-copy', 'proj-4', { outputBuffer: ['x'] })
       const buf1 = service.replayOutput('sess-copy')
       const buf2 = service.replayOutput('sess-copy')
@@ -326,7 +329,7 @@ describe('TerminalService', () => {
 
   describe('shutdown', () => {
     it('ends all active sessions', async () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       const pty1 = injectRuntime(service, 'sd-1', 'proj-5')
       const pty2 = injectRuntime(service, 'sd-2', 'proj-5')
 
@@ -337,7 +340,7 @@ describe('TerminalService', () => {
     })
 
     it('skips already-completed sessions without throwing', async () => {
-      const service = new TerminalService({} as any)
+      const service = new TerminalService(stubDb)
       const pty = injectRuntime(service, 'sd-done', 'proj-5', { state: 'completed' })
 
       await expect(service.shutdown()).resolves.not.toThrow()

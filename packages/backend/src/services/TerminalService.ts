@@ -468,6 +468,9 @@ export class TerminalService {
       },
       '[TerminalService] Session ended'
     )
+    setTimeout(() => {
+      this.runtimes.delete(sessionId)
+    }, 30_000)
   }
 
   private requireRuntime(sessionId: string) {

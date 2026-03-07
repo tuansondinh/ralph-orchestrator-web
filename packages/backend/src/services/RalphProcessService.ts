@@ -2,6 +2,12 @@ import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
 
 const execAsync = promisify(exec)
+
+function validatePid(pid: number): void {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    throw new Error(`Invalid PID: ${pid}`)
+  }
+}
 const SHELL_WRAPPERS = new Set(['node', 'nodejs', 'bun', 'tsx', 'bash', 'sh', 'zsh'])
 const WRAPPER_OPTIONS_WITH_VALUE = new Set([
   '--conditions',
@@ -115,23 +121,24 @@ export class RalphProcessService {
 
   async kill(pid: number): Promise<void> {
     try {
-      await execAsync(`kill -9 ${pid}`)
+      validatePid(pid)
+      process.kill(pid, 'SIGKILL')
     } catch (error) {
       throw new Error(`Failed to kill process ${pid}: ${(error as Error).message}`)
     }
   }
 
   async killAll(): Promise<void> {
-    try {
-      // Get all Ralph pids first, then filter out the dev server pids before killing
-      const processes = await this.list()
-      const pidsToKill = processes.map(p => p.pid)
-      
-      if (pidsToKill.length > 0) {
-        await execAsync(`kill -9 ${pidsToKill.join(' ')}`)
+    const processes = await this.list()
+    const pidsToKill = processes.map(p => p.pid)
+
+    for (const pid of pidsToKill) {
+      try {
+        validatePid(pid)
+        process.kill(pid, 'SIGKILL')
+      } catch (error) {
+        console.error(`[RalphProcessService] Failed to kill process ${pid}: ${(error as Error).message}`)
       }
-    } catch (error) {
-      // If no processes found or kill fails
     }
   }
 }

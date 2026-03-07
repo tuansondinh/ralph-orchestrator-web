@@ -22,6 +22,9 @@ COPY packages/backend/package.json packages/backend/package.json
 COPY packages/frontend/package.json packages/frontend/package.json
 RUN npm ci --omit=dev --workspaces --include-workspace-root
 
+RUN addgroup --system app && adduser --system --ingroup app app
+USER app
+
 COPY --from=build /app/packages/backend/dist ./packages/backend/dist
 COPY --from=build /app/packages/backend/drizzle ./packages/backend/drizzle
 COPY --from=build /app/packages/backend/presets ./packages/backend/presets

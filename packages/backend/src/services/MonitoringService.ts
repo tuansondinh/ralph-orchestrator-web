@@ -3,17 +3,15 @@ import { watch, type Dirent, type FSWatcher } from 'node:fs'
 import { readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
-import { eq } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import { loopRuns, projects, type LoopRun, schema } from '../db/schema.js'
+import { type LoopRun } from '../db/schema.js'
+import type { LoopRunRepository, ProjectRepository } from '../db/repositories/contracts.js'
+import { resolveRepositoryBundle, type RepositoryBundleSource } from '../db/repositories/index.js'
 import {
   LoopService,
   LoopServiceError,
   type LoopMetrics
 } from './LoopService.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
-
-type Database = BetterSQLite3Database<typeof schema>
 
 export interface FileChange {
   path: string
@@ -195,18 +193,23 @@ function hasErrors(run: LoopRun) {
 export class MonitoringService {
   private readonly now: () => Date
   private readonly watchDebounceMs: number
+  private readonly projects: ProjectRepository
+  private readonly loopRuns: LoopRunRepository
 
   constructor(
-    private readonly db: Database,
+    source: RepositoryBundleSource,
     private readonly loopService: LoopService,
     options: MonitoringServiceOptions = {}
   ) {
+    const repositories = resolveRepositoryBundle(source)
+    this.projects = repositories.projects
+    this.loopRuns = repositories.loopRuns
     this.now = options.now ?? (() => new Date())
     this.watchDebounceMs = options.watchDebounceMs ?? 125
   }
 
   async getStatus(): Promise<MonitoringStatus> {
-    const runs = this.db.select().from(loopRuns).all()
+    const runs = await this.loopRuns.listAll()
     return {
       activeLoops: runs.filter((run) => isActiveState(run.state)).length,
       totalRuns: runs.length,
@@ -219,11 +222,7 @@ export class MonitoringService {
     await this.requireProject(projectId)
     await this.loopService.reconcileProjectLoops(projectId)
 
-    const runs = this.db
-      .select()
-      .from(loopRuns)
-      .where(eq(loopRuns.projectId, projectId))
-      .all()
+    const runs = await this.loopRuns.listByProjectId(projectId)
 
     const activeLoops = runs.filter((run) => isActiveState(run.state)).length
     const totalRuns = runs.length
@@ -791,7 +790,7 @@ export class MonitoringService {
   }
 
   private async requireProject(projectId: string) {
-    const row = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
+    const row = await this.projects.findById(projectId)
     if (!row) {
       throw new MonitoringServiceError('NOT_FOUND', `Project not found: ${projectId}`)
     }
@@ -799,7 +798,7 @@ export class MonitoringService {
   }
 
   private async requireLoop(loopId: string) {
-    const row = this.db.select().from(loopRuns).where(eq(loopRuns.id, loopId)).get()
+    const row = await this.loopRuns.findById(loopId)
     if (!row) {
       throw new MonitoringServiceError('NOT_FOUND', `Loop not found: ${loopId}`)
     }

@@ -4,15 +4,12 @@ import { constants } from 'node:fs'
 import { access, chmod, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
-import { eq } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as pty from 'node-pty'
-import { projects, schema } from '../db/schema.js'
+import type { ProjectRepository } from '../db/repositories/contracts.js'
+import { resolveRepositoryBundle, type RepositoryBundleSource } from '../db/repositories/index.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
 type TerminalSessionState = 'active' | 'completed'
-
-type Database = BetterSQLite3Database<typeof schema>
 
 const OUTPUT_EVENT_PREFIX = 'terminal-output:'
 const STATE_EVENT_PREFIX = 'terminal-state:'
@@ -98,7 +95,10 @@ export class TerminalService {
   private readonly sessionsByProjectId = new Map<string, Set<string>>()
   private helperPermissionsEnsured = false
 
-  constructor(private readonly db: Database, options: TerminalServiceOptions = {}) {
+  private readonly projects: ProjectRepository
+
+  constructor(source: RepositoryBundleSource, options: TerminalServiceOptions = {}) {
+    this.projects = resolveRepositoryBundle(source).projects
     this.now = options.now ?? (() => new Date())
     this.replayBufferChunks = options.replayBufferChunks ?? 500
     this.logger = options.logger ?? NOOP_LOGGER
@@ -233,11 +233,7 @@ export class TerminalService {
     rows?: number
     initialCommand?: string
   }): Promise<TerminalSessionSummary> {
-    const project = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, input.projectId))
-      .get()
+    const project = await this.projects.findById(input.projectId)
 
     if (!project) {
       throw new TerminalServiceError('NOT_FOUND', `Project not found: ${input.projectId}`)

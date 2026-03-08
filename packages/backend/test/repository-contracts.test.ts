@@ -87,7 +87,8 @@ function createNotificationRepositoryStub(): NotificationRepository {
       message: updates.message ?? null,
       read: updates.read ?? false,
       createdAt: updates.createdAt ?? 1
-    }))
+    })),
+    delete: vi.fn(async () => {})
   }
 }
 
@@ -175,6 +176,7 @@ function exerciseRepositoryBundle(bundle: RepositoryBundle) {
     createdAt: 1
   })
   void bundle.notifications.update('notification-1', { read: true })
+  void bundle.notifications.delete('notification-1')
 
   void bundle.settings.list()
   void bundle.settings.get('db.path')

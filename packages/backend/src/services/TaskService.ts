@@ -3,13 +3,10 @@ import { constants } from 'node:fs'
 import { access, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { desc, eq } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { resolveRalphBinary, type ResolveRalphBinaryOptions } from '../lib/ralph.js'
-import { loopRuns, projects, schema, settings } from '../db/schema.js'
+import type { RepositoryBundle } from '../db/repositories/contracts.js'
+import { resolveRepositoryBundle, type RepositoryBundleSource } from '../db/repositories/index.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
-
-type Database = BetterSQLite3Database<typeof schema>
 const execFile = promisify(execFileCallback)
 const RALPH_BINARY_SETTING_KEY = 'ralph.binaryPath'
 const TASK_LIST_ARGS = ['tools', 'task', 'list', '--all', '--format', 'json']
@@ -230,20 +227,16 @@ export class TaskService {
   ) => Promise<string>
   private readonly execCommand: TaskCommandExecutor
 
-  constructor(
-    private readonly db: Database,
-    options: TaskServiceOptions = {}
-  ) {
+  private readonly repositories: RepositoryBundle
+
+  constructor(source: RepositoryBundleSource, options: TaskServiceOptions = {}) {
+    this.repositories = resolveRepositoryBundle(source)
     this.resolveBinary = options.resolveBinary ?? resolveRalphBinary
     this.execCommand = options.execCommand ?? defaultTaskCommandExecutor
   }
 
   async list(projectId: string): Promise<TaskRecord[]> {
-    const project = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .get()
+    const project = await this.repositories.projects.findById(projectId)
 
     if (!project) {
       throw new TaskServiceError('NOT_FOUND', `Project not found: ${projectId}`)
@@ -255,7 +248,7 @@ export class TaskService {
     try {
       binaryPath = await this.resolveBinary({
         cwd: project.path,
-        customPath: this.getConfiguredBinaryPath()
+        customPath: await this.getConfiguredBinaryPath()
       })
     } catch (error) {
       throw new TaskServiceError(
@@ -306,7 +299,7 @@ export class TaskService {
     }
 
     const tasks = [...tasksById.values()]
-    const loopIdMap = this.buildProjectLoopIdMap(projectId)
+    const loopIdMap = await this.buildProjectLoopIdMap(projectId)
 
     return tasks.map((task) => ({
       ...task,
@@ -332,18 +325,10 @@ export class TaskService {
     }
   }
 
-  private buildProjectLoopIdMap(projectId: string) {
-    const rows = this.db
-      .select({
-        id: loopRuns.id,
-        ralphLoopId: loopRuns.ralphLoopId,
-        config: loopRuns.config,
-        startedAt: loopRuns.startedAt
-      })
-      .from(loopRuns)
-      .where(eq(loopRuns.projectId, projectId))
-      .orderBy(desc(loopRuns.startedAt))
-      .all()
+  private async buildProjectLoopIdMap(projectId: string) {
+    const rows = (await this.repositories.loopRuns.listByProjectId(projectId)).sort(
+      (left, right) => right.startedAt - left.startedAt
+    )
 
     const map = new Map<string, string>()
     for (const row of rows) {
@@ -375,15 +360,10 @@ export class TaskService {
   }
 
   private getConfiguredBinaryPath() {
-    const configured = this.db
-      .select({ value: settings.value })
-      .from(settings)
-      .where(eq(settings.key, RALPH_BINARY_SETTING_KEY))
-      .get()
-      ?.value
-      ?.trim()
-
-    return configured && configured.length > 0 ? configured : undefined
+    return this.repositories.settings
+      .get(RALPH_BINARY_SETTING_KEY)
+      .then((setting) => setting?.value?.trim())
+      .then((configured) => (configured && configured.length > 0 ? configured : undefined))
   }
 
   private async assertProjectPathAccessible(projectPath: string) {

@@ -20,6 +20,7 @@ import {
   getSetting,
   initializeDatabase
 } from './db/connection.js'
+import { createRepositoryBundle } from './db/repositories/index.js'
 import { ProcessManager } from './runner/ProcessManager.js'
 import { LoopService } from './services/LoopService.js'
 import { ChatService } from './services/ChatService.js'
@@ -210,33 +211,19 @@ export function createApp(options: CreateAppOptions = {}) {
     })
   const localDatabase =
     database.dialect === 'sqlite' ? initializeDatabase(database) : null
-  const processManager =
-    localDatabase
-      ? new ProcessManager({ logger: app.log })
-      : createUnavailableService<ProcessManager>('ProcessManager')
+  const repositories = createRepositoryBundle(database)
+  const processManager = new ProcessManager({ logger: app.log })
   const presetService = new PresetService()
   const hatsPresetService = new HatsPresetService()
-  const ralphProcessService =
-    localDatabase
-      ? new RalphProcessService()
-      : createUnavailableService<RalphProcessService>('RalphProcessService')
-
-  const settingsService =
-    localDatabase
-      ? new SettingsService(localDatabase.db)
-      : createUnavailableService<SettingsService>('SettingsService')
+  const ralphProcessService = new RalphProcessService()
+  const settingsService = new SettingsService(repositories)
   const resolveConfiguredBinary =
-    database.dialect === 'sqlite'
-      ? async () => {
-          const current = await settingsService.get()
-          return resolveRalphBinary({
-            customPath: current.ralphBinaryPath
-          })
-        }
-      : async () =>
-          resolveRalphBinary({
-            customPath: null
-          })
+    async () => {
+      const current = await settingsService.get()
+      return resolveRalphBinary({
+        customPath: current.ralphBinaryPath
+      })
+    }
 
   const loopService =
     localDatabase
@@ -253,7 +240,7 @@ export function createApp(options: CreateAppOptions = {}) {
       : createUnavailableService<ChatService>('ChatService')
   const monitoringService =
     localDatabase
-      ? new MonitoringService(localDatabase.db, loopService)
+      ? new MonitoringService(repositories, loopService)
       : createUnavailableService<MonitoringService>('MonitoringService')
   const rawPreviewPortStart =
     localDatabase
@@ -266,23 +253,15 @@ export function createApp(options: CreateAppOptions = {}) {
   const previewPortStart = Math.min(rawPreviewPortStart, rawPreviewPortEnd)
   const previewPortEnd = Math.max(rawPreviewPortStart, rawPreviewPortEnd)
   const previewService =
-    localDatabase
-      ? new DevPreviewManager(localDatabase.db, processManager, {
-          portStart: previewPortStart,
-          portEnd: previewPortEnd,
-          logger: app.log
-        })
-      : createUnavailableService<DevPreviewManager>('DevPreviewManager')
-  const terminalService =
-    localDatabase
-      ? new TerminalService(localDatabase.db, {
-          logger: app.log
-        })
-      : createUnavailableService<TerminalService>('TerminalService')
-  const projectService =
-    localDatabase
-      ? new ProjectService(localDatabase.db)
-      : createUnavailableService<ProjectService>('ProjectService')
+    new DevPreviewManager(repositories, processManager, {
+      portStart: previewPortStart,
+      portEnd: previewPortEnd,
+      logger: app.log
+    })
+  const terminalService = new TerminalService(repositories, {
+    logger: app.log
+  })
+  const projectService = new ProjectService(repositories)
   const ralphMcpServer =
     localDatabase
       ? new RalphMcpServer({
@@ -338,9 +317,7 @@ export function createApp(options: CreateAppOptions = {}) {
   }
 
   const taskService =
-    localDatabase
-      ? new TaskService(localDatabase.db)
-      : createUnavailableService<TaskService>('TaskService')
+    new TaskService(repositories)
 
   app.decorate('runtimeConfig', runtime)
   app.decorate(

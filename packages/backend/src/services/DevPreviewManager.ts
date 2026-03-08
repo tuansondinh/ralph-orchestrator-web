@@ -3,17 +3,14 @@ import { access, readFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { createServer as createNetServer } from 'node:net'
 import { join } from 'node:path'
-import { eq } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import { projects, schema, settings } from '../db/schema.js'
+import type { ProjectRepository, SettingsRepository } from '../db/repositories/contracts.js'
+import { resolveRepositoryBundle, type RepositoryBundleSource } from '../db/repositories/index.js'
 import {
   ProcessManager,
   type OutputChunk,
   type ProcessState
 } from '../runner/ProcessManager.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
-
-type Database = BetterSQLite3Database<typeof schema>
 type PreviewState = 'starting' | 'ready' | 'stopped' | 'error'
 
 export interface DevCommand {
@@ -165,9 +162,7 @@ function extractReadyUrl(output: string, port: number, baseUrl: string) {
     }
 
     const hostPortMatch =
-      /\b(?:listening on|started server on|server running at)\s+([0-9a-zA-Z\.\-:\[\]]+):(\d+)\b/i.exec(
-        line
-      )
+      /\b(?:listening on|started server on|server running at)\s+(\S+):(\d+)\b/i.exec(line)
     if (hostPortMatch) {
       return normalizeUrl(
         `http://${hostPortMatch[1]}:${hostPortMatch[2]}`,
@@ -372,12 +367,17 @@ export class DevPreviewManager {
   private readonly logger: PreviewLogger
   private readonly runtimes = new Map<string, PreviewRuntime>()
   private readonly events = new EventEmitter()
+  private readonly projects: ProjectRepository
+  private readonly settings: SettingsRepository
 
   constructor(
-    private readonly db: Database,
+    source: RepositoryBundleSource,
     private readonly processManager: ProcessManager,
     options: DevPreviewManagerOptions = {}
   ) {
+    const repositories = resolveRepositoryBundle(source)
+    this.projects = repositories.projects
+    this.settings = repositories.settings
     this.portStart = options.portStart ?? 3001
     this.portEnd = options.portEnd ?? 3010
     this.logger = options.logger ?? NOOP_LOGGER
@@ -421,8 +421,8 @@ export class DevPreviewManager {
       return cloneStatus(existing.status)
     }
 
-    const baseUrl = this.getPreviewBaseUrl()
-    const configuredCommand = this.getPreviewCommand()
+    const baseUrl = await this.getPreviewBaseUrl()
+    const configuredCommand = await this.getPreviewCommand()
     const parsedConfiguredCommand = configuredCommand
       ? parseConfiguredDevCommand(configuredCommand)
       : null
@@ -627,8 +627,8 @@ export class DevPreviewManager {
     return null
   }
 
-  private getPreviewBaseUrl() {
-    const configured = this.getSettingValue(PREVIEW_BASE_URL_KEY)
+  private async getPreviewBaseUrl() {
+    const configured = await this.getSettingValue(PREVIEW_BASE_URL_KEY)
     if (!configured) {
       return DEFAULT_PREVIEW_BASE_URL
     }
@@ -636,8 +636,8 @@ export class DevPreviewManager {
     return normalizeBaseUrl(configured, DEFAULT_PREVIEW_BASE_URL)
   }
 
-  private getPreviewCommand() {
-    const configured = this.getSettingValue(PREVIEW_COMMAND_KEY)
+  private async getPreviewCommand() {
+    const configured = await this.getSettingValue(PREVIEW_COMMAND_KEY)
     if (!configured) {
       return null
     }
@@ -646,22 +646,13 @@ export class DevPreviewManager {
     return normalized.length > 0 ? normalized : null
   }
 
-  private getSettingValue(key: string) {
-    const setting = this.db
-      .select()
-      .from(settings)
-      .where(eq(settings.key, key))
-      .get()
-
+  private async getSettingValue(key: string) {
+    const setting = await this.settings.get(key)
     return setting?.value
   }
 
   private async requireProject(projectId: string) {
-    const project = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .get()
+    const project = await this.projects.findById(projectId)
 
     if (!project) {
       throw new DevPreviewManagerError('NOT_FOUND', `Project not found: ${projectId}`)
@@ -672,7 +663,6 @@ export class DevPreviewManager {
 
   private async findAvailablePort() {
     for (let port = this.portStart; port <= this.portEnd; port += 1) {
-      // eslint-disable-next-line no-await-in-loop
       if (await this.isPortAvailable(port)) {
         return port
       }

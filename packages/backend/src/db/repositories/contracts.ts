@@ -141,6 +141,7 @@ export interface NotificationRepository {
   findById(id: string): Promise<NotificationRecord | null>
   create(notification: NotificationRecord): Promise<NotificationRecord>
   update(id: string, updates: NotificationUpdate): Promise<NotificationRecord>
+  delete(id: string): Promise<void>
 }
 
 export interface SettingsRepository {

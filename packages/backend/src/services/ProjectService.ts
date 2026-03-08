@@ -4,18 +4,11 @@ import { join, resolve, isAbsolute, relative, sep, basename, dirname } from 'nod
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { eq } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { parse, stringify } from 'yaml'
 import { detectProjectType, detectRalphConfig, type ProjectType } from '../lib/detect.js'
-import {
-  chatSessions,
-  loopRuns,
-  notifications,
-  projects,
-  type Project,
-  schema
-} from '../db/schema.js'
+import { type Project } from '../db/schema.js'
+import type { NotificationRepository, ProjectRepository } from '../db/repositories/contracts.js'
+import { resolveRepositoryBundle, type RepositoryBundleSource } from '../db/repositories/index.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
 export class ProjectServiceError extends ServiceError {
@@ -104,7 +97,6 @@ event_loop:
 # Create PROMPT.md with your task, then run: ralph run
 `
 const PRIMARY_RALPH_CONFIG_FILENAME = 'ralph.yml'
-const SECONDARY_RALPH_CONFIG_FILENAME = 'ralph.yaml'
 
 function resolveProjectsBaseDir() {
   return process.env.PROJECTS_DIR || resolve(process.cwd(), '../../projects')
@@ -412,10 +404,15 @@ async function openNativeFolderPicker() {
   }
 }
 
-type Database = BetterSQLite3Database<typeof schema>
-
 export class ProjectService {
-  constructor(private readonly db: Database) {}
+  private readonly projects: ProjectRepository
+  private readonly notifications: NotificationRepository
+
+  constructor(source: RepositoryBundleSource) {
+    const repositories = resolveRepositoryBundle(source)
+    this.projects = repositories.projects
+    this.notifications = repositories.notifications
+  }
 
   async create(input: CreateProjectInput): Promise<Project> {
     const now = Date.now()
@@ -429,18 +426,15 @@ export class ProjectService {
     const id = randomUUID()
 
     try {
-      await this.db
-        .insert(projects)
-        .values({
-          id,
-          name,
-          path,
-          type,
-          ralphConfig,
-          createdAt: now,
-          updatedAt: now
-        })
-        .run()
+      await this.projects.create({
+        id,
+        name,
+        path,
+        type,
+        ralphConfig,
+        createdAt: now,
+        updatedAt: now
+      })
     } catch (error) {
       if (isPathUniqueConstraintError(error)) {
         throw new ProjectServiceError(
@@ -456,7 +450,7 @@ export class ProjectService {
   }
 
   async list(): Promise<Project[]> {
-    return this.db.select().from(projects).all()
+    return await this.projects.list()
   }
 
   async selectDirectory(): Promise<SelectDirectoryResult | null> {
@@ -471,7 +465,7 @@ export class ProjectService {
   }
 
   async get(id: string): Promise<Project> {
-    const project = this.db.select().from(projects).where(eq(projects.id, id)).get()
+    const project = await this.projects.findById(id)
 
     if (!project) {
       throw new ProjectServiceError('NOT_FOUND', `Project not found: ${id}`)
@@ -496,17 +490,13 @@ export class ProjectService {
     }
 
     try {
-      await this.db
-        .update(projects)
-        .set({
-          name: nextName,
-          path: nextPath,
-          type: nextType,
-          ralphConfig: nextRalphConfig,
-          updatedAt: Date.now()
-        })
-        .where(eq(projects.id, id))
-        .run()
+      await this.projects.update(id, {
+        name: nextName,
+        path: nextPath,
+        type: nextType,
+        ralphConfig: nextRalphConfig,
+        updatedAt: Date.now()
+      })
     } catch (error) {
       if (isPathUniqueConstraintError(error)) {
         throw new ProjectServiceError(
@@ -523,10 +513,11 @@ export class ProjectService {
 
   async delete(id: string): Promise<void> {
     await this.get(id)
-    await this.db.delete(notifications).where(eq(notifications.projectId, id)).run()
-    await this.db.delete(loopRuns).where(eq(loopRuns.projectId, id)).run()
-    await this.db.delete(chatSessions).where(eq(chatSessions.projectId, id)).run()
-    await this.db.delete(projects).where(eq(projects.id, id)).run()
+    const notifications = await this.notifications.list({ projectId: id, limit: 200 })
+    for (const notification of notifications) {
+      await this.notifications.delete(notification.id)
+    }
+    await this.projects.delete(id)
   }
 
   async getConfig(projectId: string): Promise<ProjectConfigSnapshot> {
@@ -709,14 +700,10 @@ export class ProjectService {
     const detected = await detectRalphConfig(project.path)
     const resolved = detected ?? 'ralph.yml'
 
-    await this.db
-      .update(projects)
-      .set({
+    await this.projects.update(project.id, {
         ralphConfig: resolved,
         updatedAt: Date.now()
       })
-      .where(eq(projects.id, project.id))
-      .run()
 
     return resolved
   }

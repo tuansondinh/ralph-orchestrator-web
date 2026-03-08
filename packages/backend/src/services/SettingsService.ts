@@ -1,19 +1,8 @@
 import { spawn } from 'node:child_process'
-import { eq } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import {
-  chatMessages,
-  chatSessions,
-  loopRuns,
-  notifications,
-  projects,
-  schema,
-  settings
-} from '../db/schema.js'
+import type { RepositoryBundle, SettingsRepository } from '../db/repositories/contracts.js'
+import { resolveRepositoryBundle, type RepositoryBundleSource } from '../db/repositories/index.js'
 import { resolveRalphBinary } from '../lib/ralph.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
-
-type Database = BetterSQLite3Database<typeof schema>
 
 const DEFAULT_PORT_START = 3001
 const DEFAULT_PORT_END = 3010
@@ -235,10 +224,16 @@ function runBinaryVersion(binaryPath: string, timeoutMs = 4_000) {
 }
 
 export class SettingsService {
-  constructor(private readonly db: Database) {}
+  private readonly repositories: RepositoryBundle
+  private readonly settings: SettingsRepository
+
+  constructor(source: RepositoryBundleSource) {
+    this.repositories = resolveRepositoryBundle(source)
+    this.settings = this.repositories.settings
+  }
 
   async get(): Promise<SettingsSnapshot> {
-    const map = this.readMap()
+    const map = await this.readMap()
     const configuredPreviewStart = parseInteger(
       map.get(SETTING_KEYS.previewPortStart),
       DEFAULT_PORT_START
@@ -403,7 +398,7 @@ export class SettingsService {
   }
 
   async getDefaultPreset(): Promise<string> {
-    const configured = this.readMap().get(SETTING_KEYS.defaultPreset)
+    const configured = (await this.readMap()).get(SETTING_KEYS.defaultPreset)
     const normalized = configured?.trim()
     if (!normalized) {
       return DEFAULT_PRESET_FILENAME
@@ -427,7 +422,7 @@ export class SettingsService {
     let binaryPath: string
     try {
       binaryPath = await resolveRalphBinary({
-        customPath: candidate ?? this.readMap().get(SETTING_KEYS.ralphBinaryPath)
+        customPath: candidate ?? (await this.readMap()).get(SETTING_KEYS.ralphBinaryPath)
       })
     } catch (error) {
       throw new SettingsServiceError(
@@ -460,38 +455,32 @@ export class SettingsService {
       )
     }
 
-    await this.db.delete(chatMessages).run()
-    await this.db.delete(chatSessions).run()
-    await this.db.delete(loopRuns).run()
-    await this.db.delete(notifications).run()
-    await this.db.delete(projects).run()
+    const projects = await this.repositories.projects.list()
+    const notifications = await this.repositories.notifications.list({ limit: 200 })
+    for (const notification of notifications) {
+      await this.repositories.notifications.delete(notification.id)
+    }
+    for (const project of projects) {
+      // Project deletion cascades loop/chat/notification rows in both dialects.
+      await this.repositories.projects.delete(project.id)
+    }
 
     return { cleared: true as const }
   }
 
-  private readMap() {
+  private async readMap() {
+    const rows = await this.settings.list()
     return new Map(
-      this.db
-        .select()
-        .from(settings)
-        .all()
-        .map((row) => [row.key, row.value])
+      rows.map((row) => [row.key, row.value])
     )
   }
 
   private async upsert(key: string, value: string) {
-    await this.db
-      .insert(settings)
-      .values({ key, value })
-      .onConflictDoUpdate({
-        target: settings.key,
-        set: { value }
-      })
-      .run()
+    await this.settings.upsert({ key, value })
   }
 
   private async remove(key: string) {
-    await this.db.delete(settings).where(eq(settings.key, key)).run()
+    await this.settings.delete(key)
   }
 
   private assertValidPort(field: string, value: number) {

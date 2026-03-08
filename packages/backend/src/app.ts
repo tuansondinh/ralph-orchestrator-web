@@ -8,6 +8,7 @@ import { resolve } from 'node:path'
 import { z } from 'zod'
 import { appRouter } from './trpc/router.js'
 import { createContext } from './trpc/context.js'
+import { resolveRuntimeMode } from './config/runtimeMode.js'
 import {
   closeDatabase,
   createDatabase,
@@ -165,6 +166,7 @@ function toStaticRelativePath(pathname: string) {
 }
 
 export function createApp() {
+  const runtime = resolveRuntimeMode()
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL ?? 'info'
@@ -260,6 +262,7 @@ export function createApp() {
 
   const taskService = new TaskService(database.db)
 
+  app.decorate('runtimeConfig', runtime)
   app.decorate('db', database.db)
   app.decorate('dbConnection', database)
   app.decorate('processManager', processManager)
@@ -285,7 +288,13 @@ export function createApp() {
     credentials: true
   })
 
-  app.get('/health', async () => ({ status: 'ok' }))
+  app.get('/health', async () => ({
+    status: 'ok',
+    runtime: {
+      mode: runtime.mode,
+      capabilities: runtime.capabilities
+    }
+  }))
 
   app.register(fastifyTRPCPlugin, {
     prefix: '/trpc',

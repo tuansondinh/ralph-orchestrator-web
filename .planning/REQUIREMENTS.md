@@ -132,13 +132,74 @@ Full parity with ralph-cloud, integrated into the existing local-first app.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated during roadmap creation) | | |
+| DB-01 | Phase 1 | Pending |
+| DB-02 | Phase 1 | Pending |
+| DB-03 | Phase 1 | Pending |
+| DB-04 | Phase 1 | Pending |
+| DB-05 | Phase 1 | Pending |
+| MODE-01 | Phase 1 | Pending |
+| MODE-02 | Phase 1 | Pending |
+| MODE-03 | Phase 1 | Pending |
+| AUTH-01 | Phase 2 | Pending |
+| AUTH-02 | Phase 2 | Pending |
+| AUTH-03 | Phase 2 | Pending |
+| AUTH-04 | Phase 2 | Pending |
+| AUTH-05 | Phase 2 | Pending |
+| ORG-01 | Phase 3 | Pending |
+| ORG-02 | Phase 3 | Pending |
+| ORG-03 | Phase 3 | Pending |
+| ORG-04 | Phase 3 | Pending |
+| ORG-05 | Phase 3 | Pending |
+| PROJ-01 | Phase 3 | Pending |
+| PROJ-02 | Phase 3 | Pending |
+| PROJ-03 | Phase 3 | Pending |
+| PROJ-04 | Phase 3 | Pending |
+| RUN-01 | Phase 4 | Pending |
+| RUN-02 | Phase 4 | Pending |
+| RUN-03 | Phase 4 | Pending |
+| RUN-04 | Phase 4 | Pending |
+| RUN-05 | Phase 4 | Pending |
+| RUN-06 | Phase 4 | Pending |
+| SESS-01 | Phase 4 | Pending |
+| SESS-02 | Phase 4 | Pending |
+| SESS-03 | Phase 4 | Pending |
+| SESS-04 | Phase 4 | Pending |
+| CRED-01 | Phase 5 | Pending |
+| CRED-02 | Phase 5 | Pending |
+| CRED-03 | Phase 5 | Pending |
+| CRED-04 | Phase 5 | Pending |
+| USE-01 | Phase 5 | Pending |
+| USE-02 | Phase 5 | Pending |
+| USE-03 | Phase 5 | Pending |
+| AUD-01 | Phase 5 | Pending |
+| PREV-01 | Phase 6 | Pending |
+| PREV-02 | Phase 6 | Pending |
+| PREV-03 | Phase 6 | Pending |
+| PREV-04 | Phase 6 | Pending |
+| SRC-01 | Phase 6 | Pending |
+| SRC-02 | Phase 6 | Pending |
+| SRC-03 | Phase 6 | Pending |
+| RT-01 | Phase 6 | Pending |
+| RT-02 | Phase 6 | Pending |
+| RT-03 | Phase 6 | Pending |
+| UI-01 | Phase 7 | Pending |
+| UI-02 | Phase 7 | Pending |
+| UI-03 | Phase 7 | Pending |
+| UI-04 | Phase 7 | Pending |
+| UI-05 | Phase 7 | Pending |
+| UI-06 | Phase 7 | Pending |
+| UI-07 | Phase 7 | Pending |
+| UI-08 | Phase 7 | Pending |
+| UI-09 | Phase 7 | Pending |
+| INFRA-01 | Phase 7 | Pending |
+| INFRA-02 | Phase 7 | Pending |
+| INFRA-03 | Phase 7 | Pending |
 
 **Coverage:**
-- v1 requirements: 48 total
-- Mapped to phases: 0
-- Unmapped: 48
+- v1 requirements: 62 total
+- Mapped to phases: 62
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-08*
-*Last updated: 2026-03-08 after initial definition*
+*Last updated: 2026-03-08 after roadmap creation*

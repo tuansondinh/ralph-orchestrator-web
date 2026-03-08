@@ -10,6 +10,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import postgres, { type Sql } from 'postgres'
 import type { ResolvedRuntimeMode } from '../config/runtimeMode.js'
 import { schema, settings } from './schema.js'
+import { postgresSchema } from './schema/postgres.js'
 
 export interface CreateDatabaseOptions {
   filePath?: string
@@ -34,7 +35,7 @@ export interface CloudDatabaseConnection {
     connectionString: string
   }
   client: Sql
-  db: PostgresJsDatabase<Record<string, never>>
+  db: PostgresJsDatabase<typeof postgresSchema>
   close(): Promise<void>
 }
 
@@ -100,7 +101,7 @@ function createPostgresDatabase(connectionString: string) {
 
   return {
     client,
-    db: drizzlePostgres(client),
+    db: drizzlePostgres(client, { schema: postgresSchema }),
     close() {
       return client.end()
     }

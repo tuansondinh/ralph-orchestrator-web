@@ -3,6 +3,7 @@ import { constants } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveRuntimeMode } from '../src/config/runtimeMode.js'
 import {
@@ -11,6 +12,7 @@ import {
   type DatabaseProvider,
   initializeDatabase
 } from '../src/db/connection.js'
+import { postgresSchema } from '../src/db/schema/postgres.js'
 
 describe('database provider', () => {
   const tempDirs: string[] = []
@@ -70,7 +72,7 @@ describe('database provider', () => {
     const close = vi.fn(async () => {})
     const postgresFactory = vi.fn(() => ({
       client: {} as never,
-      db: drizzlePostgres.mock(),
+      db: drizzlePostgres.mock() as unknown as PostgresJsDatabase<typeof postgresSchema>,
       close
     }))
 

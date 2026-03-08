@@ -1,9 +1,7 @@
-import { closeDatabase, createDatabase, initializeDatabase } from './connection.js'
+import { runDatabaseMigrations } from './migrations.js'
 
-function main() {
-  const connection = createDatabase()
-  initializeDatabase(connection)
-  closeDatabase(connection)
+async function main() {
+  await runDatabaseMigrations()
 }
 
-main()
+void main()

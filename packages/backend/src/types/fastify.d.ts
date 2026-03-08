@@ -1,6 +1,6 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import type { ResolvedRuntimeMode } from '../config/runtimeMode.js'
-import type { DatabaseConnection } from '../db/connection.js'
+import type { DatabaseConnection, DatabaseProvider } from '../db/connection.js'
 import type { schema } from '../db/schema.js'
 import type { ProcessManager } from '../runner/ProcessManager.js'
 import type { LoopService } from '../services/LoopService.js'
@@ -22,6 +22,7 @@ declare module 'fastify' {
     runtimeConfig: ResolvedRuntimeMode
     db: BetterSQLite3Database<typeof schema>
     dbConnection: DatabaseConnection
+    databaseProvider: DatabaseProvider
     processManager: ProcessManager
     loopService: LoopService
     chatService: ChatService

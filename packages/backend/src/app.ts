@@ -8,10 +8,15 @@ import { resolve } from 'node:path'
 import { z } from 'zod'
 import { appRouter } from './trpc/router.js'
 import { createContext } from './trpc/context.js'
-import { resolveRuntimeMode } from './config/runtimeMode.js'
+import {
+  resolveRuntimeMode,
+  type ResolvedRuntimeMode
+} from './config/runtimeMode.js'
 import {
   closeDatabase,
-  createDatabase,
+  createDatabaseProvider,
+  type DatabaseConnection,
+  type DatabaseProvider,
   getSetting,
   initializeDatabase
 } from './db/connection.js'
@@ -165,66 +170,138 @@ function toStaticRelativePath(pathname: string) {
   return stripped
 }
 
-export function createApp() {
-  const runtime = resolveRuntimeMode()
+function createUnavailableService<T>(name: string): T {
+  const unavailable = () => {
+    throw new Error(
+      `${name} is unavailable in cloud mode until repository integration is implemented.`
+    )
+  }
+
+  return new Proxy(
+    {},
+    {
+      get(_target, property) {
+        if (property === 'then') {
+          return undefined
+        }
+
+        return unavailable
+      }
+    }
+  ) as T
+}
+
+export interface CreateAppOptions {
+  runtime?: ResolvedRuntimeMode
+  databaseProviderFactory?: () => DatabaseProvider
+}
+
+export function createApp(options: CreateAppOptions = {}) {
+  const runtime = options.runtime ?? resolveRuntimeMode()
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL ?? 'info'
     }
   })
-  const database = initializeDatabase(createDatabase())
-  const processManager = new ProcessManager({ logger: app.log })
-  const settingsService = new SettingsService(database.db)
-  const ralphProcessService = new RalphProcessService()
-  const resolveConfiguredBinary = async () => {
-    const current = await settingsService.get()
-    return resolveRalphBinary({
-      customPath: current.ralphBinaryPath
+  const database =
+    options.databaseProviderFactory?.() ??
+    createDatabaseProvider({
+      runtime
     })
-  }
-
-  const loopService = new LoopService(database.db, processManager, {
-    resolveBinary: resolveConfiguredBinary
-  })
-  const chatService = new ChatService(database.db, processManager, {
-    resolveBinary: resolveConfiguredBinary,
-    logger: app.log
-  })
-  const monitoringService = new MonitoringService(database.db, loopService)
-  const rawPreviewPortStart = parseSettingInteger(
-    getSetting(database, 'preview.portStart'),
-    3001
-  )
-  const rawPreviewPortEnd = parseSettingInteger(
-    getSetting(database, 'preview.portEnd'),
-    3010
-  )
-  const previewPortStart = Math.min(rawPreviewPortStart, rawPreviewPortEnd)
-  const previewPortEnd = Math.max(rawPreviewPortStart, rawPreviewPortEnd)
-  const previewService = new DevPreviewManager(database.db, processManager, {
-    portStart: previewPortStart,
-    portEnd: previewPortEnd,
-    logger: app.log
-  })
-  const terminalService = new TerminalService(database.db, {
-    logger: app.log
-  })
-  const projectService = new ProjectService(database.db)
+  const localDatabase =
+    database.dialect === 'sqlite' ? initializeDatabase(database) : null
+  const processManager =
+    localDatabase
+      ? new ProcessManager({ logger: app.log })
+      : createUnavailableService<ProcessManager>('ProcessManager')
   const presetService = new PresetService()
   const hatsPresetService = new HatsPresetService()
-  const ralphMcpServer = new RalphMcpServer({
-    projectService,
-    presetService,
-    loopService,
-    monitoringService,
-    settingsService,
-    ralphProcessService,
-    hatsPresetService,
-    chatService
-  })
-  const mcpChatService = new McpChatService({
-    mcpServer: ralphMcpServer
-  })
+  const ralphProcessService =
+    localDatabase
+      ? new RalphProcessService()
+      : createUnavailableService<RalphProcessService>('RalphProcessService')
+
+  const settingsService =
+    localDatabase
+      ? new SettingsService(localDatabase.db)
+      : createUnavailableService<SettingsService>('SettingsService')
+  const resolveConfiguredBinary =
+    database.dialect === 'sqlite'
+      ? async () => {
+          const current = await settingsService.get()
+          return resolveRalphBinary({
+            customPath: current.ralphBinaryPath
+          })
+        }
+      : async () =>
+          resolveRalphBinary({
+            customPath: null
+          })
+
+  const loopService =
+    localDatabase
+      ? new LoopService(localDatabase.db, processManager, {
+          resolveBinary: resolveConfiguredBinary
+        })
+      : createUnavailableService<LoopService>('LoopService')
+  const chatService =
+    localDatabase
+      ? new ChatService(localDatabase.db, processManager, {
+          resolveBinary: resolveConfiguredBinary,
+          logger: app.log
+        })
+      : createUnavailableService<ChatService>('ChatService')
+  const monitoringService =
+    localDatabase
+      ? new MonitoringService(localDatabase.db, loopService)
+      : createUnavailableService<MonitoringService>('MonitoringService')
+  const rawPreviewPortStart =
+    localDatabase
+      ? parseSettingInteger(getSetting(localDatabase, 'preview.portStart'), 3001)
+      : 3001
+  const rawPreviewPortEnd =
+    localDatabase
+      ? parseSettingInteger(getSetting(localDatabase, 'preview.portEnd'), 3010)
+      : 3010
+  const previewPortStart = Math.min(rawPreviewPortStart, rawPreviewPortEnd)
+  const previewPortEnd = Math.max(rawPreviewPortStart, rawPreviewPortEnd)
+  const previewService =
+    localDatabase
+      ? new DevPreviewManager(localDatabase.db, processManager, {
+          portStart: previewPortStart,
+          portEnd: previewPortEnd,
+          logger: app.log
+        })
+      : createUnavailableService<DevPreviewManager>('DevPreviewManager')
+  const terminalService =
+    localDatabase
+      ? new TerminalService(localDatabase.db, {
+          logger: app.log
+        })
+      : createUnavailableService<TerminalService>('TerminalService')
+  const projectService =
+    localDatabase
+      ? new ProjectService(localDatabase.db)
+      : createUnavailableService<ProjectService>('ProjectService')
+  const ralphMcpServer =
+    localDatabase
+      ? new RalphMcpServer({
+          projectService,
+          presetService,
+          loopService,
+          monitoringService,
+          settingsService,
+          ralphProcessService,
+          hatsPresetService,
+          chatService
+        })
+      : createUnavailableService<RalphMcpServer>('RalphMcpServer')
+  const mcpChatService =
+    localDatabase
+      ? new McpChatService({
+          mcpServer: ralphMcpServer
+        })
+      : createUnavailableService<McpChatService>('McpChatService')
   const configuredAllowedOrigins = parseAllowedOrigins(
     process.env.RALPH_UI_ALLOWED_ORIGINS
   )
@@ -260,11 +337,21 @@ export function createApp() {
     return false
   }
 
-  const taskService = new TaskService(database.db)
+  const taskService =
+    localDatabase
+      ? new TaskService(localDatabase.db)
+      : createUnavailableService<TaskService>('TaskService')
 
   app.decorate('runtimeConfig', runtime)
-  app.decorate('db', database.db)
-  app.decorate('dbConnection', database)
+  app.decorate(
+    'db',
+    (localDatabase?.db ?? (null as never)) as typeof app.db
+  )
+  app.decorate(
+    'dbConnection',
+    (localDatabase ?? (null as never)) as DatabaseConnection
+  )
+  app.decorate('databaseProvider', database as never)
   app.decorate('processManager', processManager)
   app.decorate('loopService', loopService)
   app.decorate('chatService', chatService)
@@ -566,14 +653,18 @@ export function createApp() {
   }
 
   app.addHook('onReady', async () => {
-    await ralphMcpServer.start()
+    if (localDatabase) {
+      await ralphMcpServer.start()
+    }
   })
 
   app.addHook('onClose', async () => {
-    await ralphMcpServer.close()
-    await terminalService.shutdown()
-    await processManager.shutdown()
-    closeDatabase(database)
+    if (localDatabase) {
+      await ralphMcpServer.close()
+      await terminalService.shutdown()
+      await processManager.shutdown()
+    }
+    await closeDatabase(database)
   })
 
   return app

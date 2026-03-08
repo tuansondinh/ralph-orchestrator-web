@@ -1,11 +1,14 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { homedir } from 'node:os'
 import Database from 'better-sqlite3'
-import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { eq } from 'drizzle-orm'
 import { type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
+import postgres, { type Sql } from 'postgres'
+import type { ResolvedRuntimeMode } from '../config/runtimeMode.js'
 import { schema, settings } from './schema.js'
 
 export interface CreateDatabaseOptions {
@@ -13,9 +16,36 @@ export interface CreateDatabaseOptions {
 }
 
 export interface DatabaseConnection {
+  mode: 'local'
+  dialect: 'sqlite'
   filePath: string
+  metadata: {
+    filePath: string
+  }
   sqlite: Database.Database
   db: BetterSQLite3Database<typeof schema>
+  close(): void
+}
+
+export interface CloudDatabaseConnection {
+  mode: 'cloud'
+  dialect: 'postgres'
+  metadata: {
+    connectionString: string
+  }
+  client: Sql
+  db: PostgresJsDatabase<Record<string, never>>
+  close(): Promise<void>
+}
+
+export type DatabaseProvider = DatabaseConnection | CloudDatabaseConnection
+
+export interface CreateDatabaseProviderOptions {
+  runtime?: ResolvedRuntimeMode
+  sqlite?: CreateDatabaseOptions
+  postgresFactory?: (
+    connectionString: string
+  ) => Pick<CloudDatabaseConnection, 'client' | 'db' | 'close'>
 }
 
 export interface MigrateDatabaseOptions {
@@ -46,12 +76,65 @@ export function createDatabase(options: CreateDatabaseOptions = {}): DatabaseCon
   sqlite.pragma('foreign_keys = ON')
   sqlite.pragma('journal_mode = WAL')
 
-  const db = drizzle(sqlite, { schema })
+  const db = drizzleSqlite(sqlite, { schema })
 
   return {
+    mode: 'local',
+    dialect: 'sqlite',
     filePath,
+    metadata: {
+      filePath
+    },
     sqlite,
-    db
+    db,
+    close() {
+      sqlite.close()
+    }
+  }
+}
+
+function createPostgresDatabase(connectionString: string) {
+  const client = postgres(connectionString, {
+    prepare: false
+  })
+
+  return {
+    client,
+    db: drizzlePostgres(client),
+    close() {
+      return client.end()
+    }
+  }
+}
+
+export function createDatabaseProvider(
+  options: CreateDatabaseProviderOptions = {}
+): DatabaseProvider {
+  const runtime = options.runtime
+
+  if (!runtime || runtime.mode === 'local') {
+    return createDatabase(options.sqlite)
+  }
+
+  const cloud = runtime.cloud
+  if (!cloud) {
+    throw new Error('Cloud runtime config is required when runtime mode is cloud')
+  }
+
+  const postgresConnection =
+    options.postgresFactory?.(cloud.databaseUrl) ?? createPostgresDatabase(cloud.databaseUrl)
+
+  return {
+    mode: 'cloud',
+    dialect: 'postgres',
+    metadata: {
+      connectionString: cloud.databaseUrl
+    },
+    client: postgresConnection.client,
+    db: postgresConnection.db,
+    close() {
+      return postgresConnection.close()
+    }
   }
 }
 
@@ -78,8 +161,8 @@ export function initializeDatabase(connection: DatabaseConnection) {
   return connection
 }
 
-export function closeDatabase(connection: DatabaseConnection) {
-  connection.sqlite.close()
+export function closeDatabase(connection: DatabaseProvider) {
+  return connection.close()
 }
 
 export function getSetting(

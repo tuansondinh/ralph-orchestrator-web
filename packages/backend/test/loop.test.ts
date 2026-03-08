@@ -69,6 +69,7 @@ async function createMockRalphBinary(
     emitIterationEvents?: boolean
     outputIterationHeader?: boolean
     listedLoopIds?: string[]
+    listedLoopEntries?: Array<Record<string, unknown>>
   } = {}
 ) {
   const filePath = join(directory, 'mock-ralph.mjs')
@@ -83,6 +84,9 @@ async function createMockRalphBinary(
     : 0
   const listedLoopIds = Array.isArray(options.listedLoopIds)
     ? options.listedLoopIds.filter((id) => typeof id === 'string' && id.trim().length > 0)
+    : []
+  const listedLoopEntries = Array.isArray(options.listedLoopEntries)
+    ? options.listedLoopEntries
     : []
   const emitIterationEvents = options.emitIterationEvents !== false
   const outputIterationHeader = options.outputIterationHeader === true
@@ -99,6 +103,7 @@ const eventLoopId = ${JSON.stringify(eventLoopId)}
 const eventLoopIdSnake = ${JSON.stringify(eventLoopIdSnake)}
 const outputTokenCount = ${outputTokenCount}
 const listedLoopIds = ${JSON.stringify(listedLoopIds)}
+const listedLoopEntries = ${JSON.stringify(listedLoopEntries)}
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const pidFile = join(scriptDir, 'mock-ralph.pid')
 const stopArgsFile = join(scriptDir, 'mock-ralph-stop-args.log')
@@ -123,7 +128,10 @@ if (args[0] === 'loops' && args[1] === 'stop') {
 }
 
 if (args[0] === 'loops' && args[1] === 'list') {
-  process.stdout.write(\`\${JSON.stringify(listedLoopIds.map((loop_id) => ({ loop_id })))}\\n\`)
+  const payload = listedLoopEntries.length > 0
+    ? listedLoopEntries
+    : listedLoopIds.map((loop_id) => ({ loop_id }))
+  process.stdout.write(\`\${JSON.stringify(payload)}\\n\`)
   process.exit(0)
 }
 
@@ -287,6 +295,7 @@ describe('loop tRPC routes', () => {
       emitIterationEvents?: boolean
       outputIterationHeader?: boolean
       listedLoopIds?: string[]
+      listedLoopEntries?: Array<Record<string, unknown>>
     } = {}
   ) {
     const tempDir = await createTempDir('loop')
@@ -307,7 +316,8 @@ describe('loop tRPC routes', () => {
       outputTokenCount: options.outputTokenCount,
       emitIterationEvents: options.emitIterationEvents,
       outputIterationHeader: options.outputIterationHeader,
-      listedLoopIds: options.listedLoopIds
+      listedLoopIds: options.listedLoopIds,
+      listedLoopEntries: options.listedLoopEntries
     })
     const processManager = new ProcessManager({ killGraceMs: 100 })
     managers.push(processManager)
@@ -429,6 +439,39 @@ describe('loop tRPC routes', () => {
       await readFile(join(tempDir, 'mock-ralph-stop-args.log'), 'utf8')
     )
     expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', 'primary-20260225-090000'])
+  })
+
+  it('captures non-primary Ralph loop ids from current-loop-id markers during start', async () => {
+    const { caller, connection, tempDir } = await setupCaller({
+      markerLoopId: 'feature-a-loop'
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running'
+    })
+
+    await waitFor(() => {
+      const row = connection.db
+        .select()
+        .from(loopRuns)
+        .where(eq(loopRuns.id, started.id))
+        .get()
+      return row?.ralphLoopId === 'feature-a-loop'
+    })
+
+    const refreshed = await caller.loop.list({ projectId })
+    expect(refreshed.find((loop) => loop.id === started.id)?.ralphLoopId).toBe('feature-a-loop')
+
+    await caller.loop.stop({ loopId: started.id })
+
+    const stopArgs = JSON.parse(
+      await readFile(join(tempDir, 'mock-ralph-stop-args.log'), 'utf8')
+    )
+    expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', 'feature-a-loop'])
   })
 
   it('captures the Ralph loop id from current-events during start', async () => {
@@ -1148,6 +1191,91 @@ describe('loop tRPC routes', () => {
       .get()
     expect(persisted?.state).toBe('running')
     expect(persisted?.endedAt).toBeNull()
+  })
+
+  it('keeps active loops running during reconciliation when CLI lists non-primary ids', async () => {
+    const listedLoopId = 'feature-b-loop'
+    const { connection, processManager, tempDir, binaryPath } = await setupCaller({
+      listedLoopIds: [listedLoopId]
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        ralphLoopId: listedLoopId,
+        state: 'running',
+        config: null,
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: Date.now(),
+        endedAt: null
+      })
+      .run()
+
+    const detachedLoopService = new LoopService(connection.db, processManager, {
+      resolveBinary: async () => binaryPath
+    })
+
+    const listed = await detachedLoopService.list(projectId)
+    expect(listed.find((loop) => loop.id === loopId)?.ralphLoopId).toBe(listedLoopId)
+    expect(listed.find((loop) => loop.id === loopId)?.state).toBe('running')
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, loopId))
+      .get()
+    expect(persisted?.state).toBe('running')
+    expect(persisted?.endedAt).toBeNull()
+  })
+
+  it('imports orphan loops from the CLI and preserves their worktree location', async () => {
+    const { connection, processManager, tempDir, binaryPath } = await setupCaller({
+      listedLoopEntries: [
+        {
+          id: 'fair-fox',
+          status: 'orphan',
+          location: 'fair-fox',
+          prompt: ''
+        }
+      ]
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const detachedLoopService = new LoopService(connection.db, processManager, {
+      resolveBinary: async () => binaryPath
+    })
+
+    const listed = await detachedLoopService.list(projectId)
+    expect(listed.find((loop) => loop.id === 'fair-fox')).toMatchObject({
+      id: 'fair-fox',
+      ralphLoopId: 'fair-fox',
+      state: 'orphan',
+      worktree: 'fair-fox'
+    })
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, 'fair-fox'))
+      .get()
+    expect(persisted).toMatchObject({
+      id: 'fair-fox',
+      ralphLoopId: 'fair-fox',
+      state: 'orphan',
+      worktree: 'fair-fox'
+    })
   })
 
   it('keeps throwing when CLI stop fails with non-stale errors', async () => {

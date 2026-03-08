@@ -117,7 +117,35 @@ describe('LoopCard runtime', () => {
     )
 
     expect(screen.getByText('loop id: ralph-loop-99')).toBeInTheDocument()
-    expect(screen.queryByText('ui id: ui-loop-1')).not.toBeInTheDocument()
+    expect(screen.getByText('ui id: ui-loop-1')).toBeInTheDocument()
+  })
+
+  it('shows a primary worktree label when the loop has no explicit worktree', () => {
+    render(
+      <LoopCard
+        loop={buildLoop({ worktree: null })}
+        isSelected={false}
+        onSelect={() => {}}
+        onStop={noop}
+        onRestart={noop}
+      />
+    )
+
+    expect(screen.getByText('primary worktree')).toBeInTheDocument()
+  })
+
+  it('shows the associated worktree name when present', () => {
+    render(
+      <LoopCard
+        loop={buildLoop({ worktree: 'feature/auth-flow' })}
+        isSelected={false}
+        onSelect={() => {}}
+        onStop={noop}
+        onRestart={noop}
+      />
+    )
+
+    expect(screen.getByText('worktree: feature/auth-flow')).toBeInTheDocument()
   })
 
   it('shows the process PID when available', () => {

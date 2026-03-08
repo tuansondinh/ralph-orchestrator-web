@@ -177,6 +177,65 @@ describe('TaskService', () => {
     ])
   })
 
+  it('maps loop ids from camelCase task payloads to persisted loop run ids', async () => {
+    const { connection, tempDir } = await setupServiceTest()
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await insertProject(connection, projectPath)
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: 'ui-loop-1',
+        projectId,
+        ralphLoopId: 'feature-loop-1',
+        state: 'completed',
+        config: null,
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: Date.now(),
+        endedAt: Date.now()
+      })
+      .run()
+
+    const service = new TaskService(connection.db, {
+      resolveBinary: vi.fn(async () => '/mock/ralph'),
+      execCommand: vi.fn(async () => ({
+        stdout: JSON.stringify([
+          {
+            id: 'task-1',
+            title: 'Task 1',
+            description: 'Do thing',
+            status: 'open',
+            priority: 2,
+            blocked_by: ['task-0'],
+            loopId: 'feature-loop-1',
+            created: '2026-02-24T00:00:00Z',
+            closed: null
+          }
+        ]),
+        stderr: ''
+      }))
+    })
+
+    await expect(service.list(projectId)).resolves.toEqual([
+      {
+        id: 'task-1',
+        title: 'Task 1',
+        description: 'Do thing',
+        status: 'open',
+        priority: 2,
+        blocked_by: ['task-0'],
+        loop_id: 'ui-loop-1',
+        created: '2026-02-24T00:00:00Z',
+        closed: null
+      }
+    ])
+  })
+
   it('maps primary loop ids from task payloads even when persisted loop id is a slug', async () => {
     const { connection, tempDir } = await setupServiceTest()
     const projectPath = join(tempDir, 'project')
@@ -236,6 +295,93 @@ describe('TaskService', () => {
         closed: null
       }
     ])
+  })
+
+  it('aggregates tasks across the project root and git worktrees', async () => {
+    const { connection, tempDir } = await setupServiceTest()
+    const projectPath = join(tempDir, 'project')
+    const worktreePath = join(tempDir, 'project-worktree')
+    await mkdir(projectPath, { recursive: true })
+    await mkdir(worktreePath, { recursive: true })
+    const projectId = await insertProject(connection, projectPath)
+
+    const execCommand = vi.fn(async (_file: string, _args: string[], options: { cwd: string }) => {
+      if (options.cwd === projectPath) {
+        return {
+          stdout: JSON.stringify([
+            {
+              id: 'task-root',
+              title: 'Root task',
+              description: 'From primary project root',
+              status: 'open',
+              priority: 1,
+              blocked_by: [],
+              loop_id: null,
+              created: '2026-02-24T00:00:00Z',
+              closed: null
+            }
+          ]),
+          stderr: ''
+        }
+      }
+
+      if (options.cwd === worktreePath) {
+        return {
+          stdout: JSON.stringify([
+            {
+              id: 'task-worktree',
+              title: 'Worktree task',
+              description: 'From parallel loop worktree',
+              status: 'in_progress',
+              priority: 2,
+              blocked_by: [],
+              loop_id: 'feature-loop-2',
+              created: '2026-02-24T01:00:00Z',
+              closed: null
+            }
+          ]),
+          stderr: ''
+        }
+      }
+
+      throw new Error(`Unexpected cwd: ${options.cwd}`)
+    })
+
+    const service = new TaskService(connection.db, {
+      resolveBinary: vi.fn(async () => '/mock/ralph'),
+      execCommand
+    })
+
+    const listTaskRootsSpy = vi.fn(async () => [projectPath, worktreePath])
+    ;(service as unknown as Record<string, unknown>).listTaskRoots = listTaskRootsSpy
+
+    await expect(service.list(projectId)).resolves.toEqual([
+      {
+        id: 'task-root',
+        title: 'Root task',
+        description: 'From primary project root',
+        status: 'open',
+        priority: 1,
+        blocked_by: [],
+        loop_id: null,
+        created: '2026-02-24T00:00:00Z',
+        closed: null
+      },
+      {
+        id: 'task-worktree',
+        title: 'Worktree task',
+        description: 'From parallel loop worktree',
+        status: 'in_progress',
+        priority: 2,
+        blocked_by: [],
+        loop_id: 'feature-loop-2',
+        created: '2026-02-24T01:00:00Z',
+        closed: null
+      }
+    ])
+
+    expect(listTaskRootsSpy).toHaveBeenCalledWith(projectPath)
+    expect(execCommand).toHaveBeenCalledTimes(2)
   })
 
   it('throws NOT_FOUND when the project does not exist', async () => {

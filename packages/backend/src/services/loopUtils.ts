@@ -50,6 +50,10 @@ export function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined
 }
 
+export function asLoopId(value: unknown): string | undefined {
+  return asString(value)
+}
+
 export function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return undefined
@@ -75,7 +79,7 @@ export function isPrimaryLoopId(value: string): boolean {
 }
 
 export function asPrimaryLoopId(value: unknown): string | undefined {
-  const normalized = asString(value)
+  const normalized = asLoopId(value)
   if (!normalized) {
     return undefined
   }

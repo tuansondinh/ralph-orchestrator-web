@@ -1,6 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process'
 import { constants } from 'node:fs'
 import { access, stat } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { desc, eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
@@ -13,6 +14,7 @@ const execFile = promisify(execFileCallback)
 const RALPH_BINARY_SETTING_KEY = 'ralph.binaryPath'
 const TASK_LIST_ARGS = ['tools', 'task', 'list', '--all', '--format', 'json']
 const PRIMARY_LOOP_ID_PATTERN = /^primary-\d{8}-\d{6}$/i
+const GIT_WORKTREE_LIST_ARGS = ['worktree', 'list', '--porcelain']
 
 export interface TaskRecord {
   id: string
@@ -186,7 +188,7 @@ function toTaskRecord(entry: unknown, index: number): TaskRecord {
     ),
     priority: asPriority(row.priority),
     blocked_by: asStringArray(row.blocked_by),
-    loop_id: asNullableString(row.loop_id),
+    loop_id: asNullableString(row.loop_id) ?? asNullableString(row.loopId),
     created: asNullableString(row.created),
     closed: asNullableString(row.closed)
   }
@@ -262,43 +264,72 @@ export class TaskService {
       )
     }
 
-    let stdout: string
-    try {
-      const output = await this.execCommand(binaryPath, [...TASK_LIST_ARGS], {
-        cwd: project.path
-      })
-      stdout = toText(output.stdout)
-    } catch (error) {
-      throw new TaskServiceError(
-        'BAD_REQUEST',
-        `Failed to list tasks: ${getErrorOutput(error)}`
-      )
+    const taskRoots = await this.listTaskRoots(project.path)
+    const tasksById = new Map<string, TaskRecord>()
+    for (const taskRoot of taskRoots) {
+      let stdout: string
+      try {
+        const output = await this.execCommand(binaryPath, [...TASK_LIST_ARGS], {
+          cwd: taskRoot
+        })
+        stdout = toText(output.stdout)
+      } catch (error) {
+        throw new TaskServiceError(
+          'BAD_REQUEST',
+          `Failed to list tasks: ${getErrorOutput(error)}`
+        )
+      }
+
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(stdout)
+      } catch {
+        throw new TaskServiceError(
+          'BAD_REQUEST',
+          'Invalid JSON from Ralph task list command'
+        )
+      }
+
+      if (!Array.isArray(parsed)) {
+        throw new TaskServiceError(
+          'BAD_REQUEST',
+          'Invalid JSON from Ralph task list command: expected an array'
+        )
+      }
+
+      for (const [index, entry] of parsed.entries()) {
+        const task = toTaskRecord(entry, index)
+        if (!tasksById.has(task.id)) {
+          tasksById.set(task.id, task)
+        }
+      }
     }
 
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(stdout)
-    } catch {
-      throw new TaskServiceError(
-        'BAD_REQUEST',
-        'Invalid JSON from Ralph task list command'
-      )
-    }
-
-    if (!Array.isArray(parsed)) {
-      throw new TaskServiceError(
-        'BAD_REQUEST',
-        'Invalid JSON from Ralph task list command: expected an array'
-      )
-    }
-
-    const tasks = parsed.map((entry, index) => toTaskRecord(entry, index))
+    const tasks = [...tasksById.values()]
     const loopIdMap = this.buildProjectLoopIdMap(projectId)
 
     return tasks.map((task) => ({
       ...task,
       loop_id: task.loop_id ? (loopIdMap.get(task.loop_id) ?? task.loop_id) : null
     }))
+  }
+
+  private async listTaskRoots(projectPath: string): Promise<string[]> {
+    const normalizedProjectPath = resolve(projectPath)
+    try {
+      const result = await execFile('git', ['-C', normalizedProjectPath, ...GIT_WORKTREE_LIST_ARGS], {
+        encoding: 'utf8'
+      })
+      const paths = result.stdout
+        .split(/\r?\n/g)
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('worktree '))
+        .map((line) => resolve(line.slice('worktree '.length)))
+
+      return [...new Set([normalizedProjectPath, ...paths])]
+    } catch {
+      return [normalizedProjectPath]
+    }
   }
 
   private buildProjectLoopIdMap(projectId: string) {

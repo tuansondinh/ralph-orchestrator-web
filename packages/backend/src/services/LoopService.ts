@@ -23,6 +23,7 @@ import {
 import { RalphEventParser, type RalphEvent } from '../runner/RalphEventParser.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 import {
+  asLoopId,
   asPrimaryLoopId,
   asNumber,
   asRecord,
@@ -124,6 +125,13 @@ interface StopLoopInput {
   binaryPath: string
   loopId: string
   cwd: string
+}
+
+interface RalphListedLoop {
+  id: string
+  state: LoopLifecycleState
+  location: string | null
+  prompt: string | null
 }
 
 const STOP_ATTEMPTS = 3
@@ -607,6 +615,7 @@ export class LoopService {
 
   async list(projectId: string): Promise<LoopSummary[]> {
     await this.reconcileProjectLoops(projectId)
+    await this.syncExternalProjectLoops(projectId)
 
     const rows = this.db
       .select()
@@ -615,6 +624,7 @@ export class LoopService {
       .all()
 
     return rows
+      .filter((row) => row.id !== '(primary)' && row.ralphLoopId !== '(primary)')
       .sort((a, b) => b.startedAt - a.startedAt)
       .map((row) => this.toSummary(row))
   }
@@ -762,9 +772,9 @@ export class LoopService {
     const runtime = this.runtimes.get(row.id)
     const persistedConfig = parsePersistedConfig(row.config)
     const canonicalRalphLoopId =
-      asPrimaryLoopId(runtime?.ralphLoopId) ??
-      asPrimaryLoopId(row.ralphLoopId) ??
-      asPrimaryLoopId(persistedConfig.ralphLoopId) ??
+      asLoopId(runtime?.ralphLoopId) ??
+      asLoopId(row.ralphLoopId) ??
+      asLoopId(persistedConfig.ralphLoopId) ??
       primaryLoopIdFromTimestamp(row.startedAt) ??
       null
     return {
@@ -1015,8 +1025,8 @@ export class LoopService {
         ? asNumber(payloadMetrics.errors) ?? asNumber(payloadMetrics.error_count)
         : undefined)
     const nextRalphLoopId =
-      asPrimaryLoopId(payload.loop_id) ??
-      asPrimaryLoopId(payload.loopId) ??
+      asLoopId(payload.loop_id) ??
+      asLoopId(payload.loopId) ??
       undefined
 
     if (nextIteration !== undefined) {
@@ -1130,8 +1140,8 @@ export class LoopService {
     for (const run of activeRunsWithoutRuntime) {
       const persistedConfig = parsePersistedConfig(run.config)
       const explicitRalphLoopId =
-        asPrimaryLoopId(run.ralphLoopId) ??
-        asPrimaryLoopId(persistedConfig.ralphLoopId) ??
+        asLoopId(run.ralphLoopId) ??
+        asLoopId(persistedConfig.ralphLoopId) ??
         null
       if (!explicitRalphLoopId) {
         continue
@@ -1157,10 +1167,145 @@ export class LoopService {
     return reconciled
   }
 
+  private async syncExternalProjectLoops(projectId: string): Promise<number> {
+    const project = this.db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .get()
+    if (!project) {
+      return 0
+    }
+
+    let binaryPath: string
+    try {
+      binaryPath = await this.resolveBinary()
+    } catch {
+      return 0
+    }
+
+    const listed = await this.listRalphLoopIdsWithStatus(binaryPath, project.path)
+    if (!listed.ok || listed.loops.length === 0) {
+      return 0
+    }
+
+    const existingRows = this.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.projectId, projectId))
+      .all()
+    const existingByAnyId = new Map<string, LoopRun>()
+    for (const row of existingRows) {
+      existingByAnyId.set(row.id, row)
+
+      if (row.ralphLoopId) {
+        existingByAnyId.set(row.ralphLoopId, row)
+      }
+
+      const persistedConfig = parsePersistedConfig(row.config)
+      if (persistedConfig.ralphLoopId) {
+        existingByAnyId.set(persistedConfig.ralphLoopId, row)
+      }
+    }
+
+    let synced = 0
+    for (const listedLoop of listed.loops) {
+      const existing = existingByAnyId.get(listedLoop.id)
+      const inferredWorktree = this.inferWorktreeFromLocation(project.path, listedLoop.location)
+
+      if (existing) {
+        const nextConfig = parseConfigRecord(existing.config)
+        const nextPersistedWorktree = asString(nextConfig.worktree)
+        const updates: Partial<typeof loopRuns.$inferInsert> = {}
+
+        if (existing.ralphLoopId !== listedLoop.id) {
+          updates.ralphLoopId = listedLoop.id
+        }
+        if (existing.state !== listedLoop.state) {
+          updates.state = listedLoop.state
+        }
+        if (!existing.worktree && inferredWorktree) {
+          updates.worktree = inferredWorktree
+        }
+        if (!existing.prompt && listedLoop.prompt) {
+          updates.prompt = listedLoop.prompt
+        }
+        if (
+          updates.ralphLoopId ||
+          updates.worktree ||
+          (!nextPersistedWorktree && inferredWorktree)
+        ) {
+          updates.config = JSON.stringify({
+            ...nextConfig,
+            ralphLoopId: listedLoop.id,
+            worktree: nextPersistedWorktree ?? inferredWorktree ?? null
+          })
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await this.db.update(loopRuns).set(updates).where(eq(loopRuns.id, existing.id)).run()
+          synced += 1
+        }
+        continue
+      }
+
+      await this.db
+        .insert(loopRuns)
+        .values({
+          id: listedLoop.id,
+          projectId,
+          ralphLoopId: listedLoop.id,
+          state: listedLoop.state,
+          config: JSON.stringify({
+            config: null,
+            prompt: null,
+            promptFile: null,
+            backend: null,
+            exclusive: false,
+            worktree: inferredWorktree,
+            ralphLoopId: listedLoop.id,
+            startCommit: null,
+            endCommit: null,
+            outputLogFile: null,
+            imported: true
+          }),
+          prompt: listedLoop.prompt,
+          worktree: inferredWorktree,
+          iterations: 0,
+          tokensUsed: 0,
+          errors: 0,
+          startedAt: this.now().getTime(),
+          endedAt: listedLoop.state === 'running' ? null : this.now().getTime()
+        })
+        .run()
+      synced += 1
+    }
+
+    return synced
+  }
+
+  private inferWorktreeFromLocation(projectPath: string, location: string | null): string | null {
+    const normalized = asString(location)
+    if (!normalized) {
+      return null
+    }
+
+    const trimmedProjectName = projectPath.split('/').pop()
+    if (
+      normalized === '.' ||
+      normalized === 'primary' ||
+      normalized === trimmedProjectName
+    ) {
+      return null
+    }
+
+    return normalized
+  }
+
   private async readCurrentLoopId(projectPath: string): Promise<string | null> {
     try {
       const marker = await readFile(join(projectPath, '.ralph', 'current-loop-id'), 'utf8')
-      const normalized = asPrimaryLoopId(marker.trim())
+      const normalized = asLoopId(marker.trim())
       return normalized ?? null
     } catch {
       return null
@@ -1180,7 +1325,7 @@ export class LoopService {
   private async listRalphLoopIdsWithStatus(
     binaryPath: string,
     cwd: string
-  ): Promise<{ ok: boolean; ids: Set<string> }> {
+  ): Promise<{ ok: boolean; ids: Set<string>; loops: RalphListedLoop[] }> {
     try {
       const result = await execFile(binaryPath, ['loops', 'list', '--json'], {
         cwd,
@@ -1188,27 +1333,48 @@ export class LoopService {
       })
       const parsed: unknown = JSON.parse(result.stdout)
       if (!Array.isArray(parsed)) {
-        return { ok: true, ids: new Set() }
+        return { ok: true, ids: new Set(), loops: [] }
       }
 
-      const ids = parsed
-        .flatMap((entry) => {
-          if (!entry || typeof entry !== 'object') {
-            return []
-          }
+      const loops = parsed.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return []
+        }
 
-          const row = entry as Record<string, unknown>
-          return [
-            asPrimaryLoopId(row.loop_id),
-            asPrimaryLoopId(row.loopId),
-            asPrimaryLoopId(row.id)
-          ]
-        })
-        .filter((id): id is string => typeof id === 'string')
+        const row = entry as Record<string, unknown>
+        const id =
+          asLoopId(row.loop_id) ??
+          asLoopId(row.loopId) ??
+          asLoopId(row.id)
+        if (!id || id === '(primary)') {
+          return []
+        }
 
-      return { ok: true, ids: new Set(ids) }
+        const rawState = asString(row.status) ?? asString(row.state) ?? 'running'
+        const state: LoopLifecycleState =
+          rawState === 'running' ||
+          rawState === 'queued' ||
+          rawState === 'merging' ||
+          rawState === 'merged' ||
+          rawState === 'needs-review' ||
+          rawState === 'orphan' ||
+          rawState === 'stopped' ||
+          rawState === 'completed'
+            ? rawState
+            : 'running'
+
+        return [{
+          id,
+          state,
+          location: asString(row.location) ?? null,
+          prompt: asString(row.prompt) ?? null
+        }]
+      })
+      const ids = loops.map((loop) => loop.id)
+
+      return { ok: true, ids: new Set(ids), loops }
     } catch {
-      return { ok: false, ids: new Set() }
+      return { ok: false, ids: new Set(), loops: [] }
     }
   }
 

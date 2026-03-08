@@ -49,6 +49,7 @@ export function LoopCard({
   const promptTooltip = loop.prompt ?? MISSING_PROMPT_SNAPSHOT_MESSAGE
   const ralphLoopId = loop.ralphLoopId
   const displayLoopId = ralphLoopId ?? loop.id
+  const worktreeLabel = loop.worktree ? `worktree: ${loop.worktree}` : 'primary worktree'
 
   return (
     <article
@@ -62,8 +63,23 @@ export function LoopCard({
         type="button"
         onClick={() => onSelect(loop.id)}
       >
-        <div className="flex items-center justify-between gap-2">
-          <p className="truncate font-medium text-zinc-100">loop id: {displayLoopId}</p>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 space-y-1">
+            <p className="truncate font-medium text-zinc-100">loop id: {displayLoopId}</p>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide">
+              <span
+                className={`rounded-full border px-2 py-0.5 ${loop.worktree
+                  ? 'border-sky-700/80 bg-sky-500/10 text-sky-200'
+                  : 'border-emerald-700/80 bg-emerald-500/10 text-emerald-200'
+                  }`}
+              >
+                {worktreeLabel}
+              </span>
+              {ralphLoopId && ralphLoopId !== loop.id ? (
+                <span className="truncate text-zinc-500">ui id: {loop.id}</span>
+              ) : null}
+            </div>
+          </div>
           <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300">
             {formatStateLabel(loop.state)}
           </span>

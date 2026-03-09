@@ -188,6 +188,13 @@ function isLoopUnavailableError(error: unknown): boolean {
   )
 }
 
+function isLoopOutputPersistenceUnavailableError(error: unknown): boolean {
+  return (
+    getErrorOutput(error).toLowerCase().replace(/\s+/g, ' ') ===
+    'loop output persistence is not available in local mode'
+  )
+}
+
 function buildRunArgs(options: LoopStartOptions): string[] {
   const args = ['run', '--verbose']
 
@@ -731,7 +738,10 @@ export class LoopService {
   async replayOutput(loopId: string): Promise<string[]> {
     const runtime = this.runtimes.get(loopId)
     if (runtime) {
-      return runtime.buffer.replay()
+      const liveLines = runtime.buffer.replay()
+      if (liveLines.length > 0) {
+        return liveLines
+      }
     }
 
     try {
@@ -740,7 +750,9 @@ export class LoopService {
         return chunks.map(chunk => chunk.data.replace(/\n$/, ''))
       }
     } catch (error) {
-      console.warn(`Failed to replay output from database for loop ${loopId}:`, error)
+      if (!isLoopOutputPersistenceUnavailableError(error)) {
+        console.warn(`Failed to replay output from database for loop ${loopId}:`, error)
+      }
     }
 
     const run = await this.loopRuns.findById(loopId)
@@ -869,7 +881,9 @@ export class LoopService {
       data: chunk.data,
       createdAt: Date.now()
     }).catch(err => {
-      console.warn(`Failed to persist output chunk for loop ${loopId}:`, err)
+      if (!isLoopOutputPersistenceUnavailableError(err)) {
+        console.warn(`Failed to persist output chunk for loop ${loopId}:`, err)
+      }
     })
 
     await this.applyOutputDerivedIteration(loopId, runtime, chunk.data)

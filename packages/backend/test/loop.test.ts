@@ -1339,7 +1339,7 @@ describe('loop tRPC routes', () => {
     expect(persistedLog.length).toBeGreaterThan(0)
 
     const replayService = new LoopService(connection.db, processManager)
-    const replayed = replayService.replayOutput(started.id)
+    const replayed = await replayService.replayOutput(started.id)
     expect(replayed.length).toBeGreaterThan(0)
     expect(replayed.join('\n')).toMatch(/(boot|tick|Event: loop:iteration)/)
   })

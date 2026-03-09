@@ -1,12 +1,9 @@
 import { isAbsolute, join } from 'node:path'
 import { readFile, readdir } from 'node:fs/promises'
-import { eq } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import { loopRuns, projects, schema, type LoopRun } from '../db/schema.js'
+import type { LoopRunRecord } from '../db/repositories/contracts.js'
 import {
   asNumber,
   asRecord,
-  asString,
   asStringArray,
   asPrimaryLoopId,
   eventsFileNameFromPrimaryLoopId,
@@ -20,8 +17,6 @@ import {
 } from './loopUtils.js'
 import { LoopDiffService } from './LoopDiffService.js'
 
-type Database = BetterSQLite3Database<typeof schema>
-
 export interface LoopMetrics {
   iterations: number
   runtime: number
@@ -34,15 +29,12 @@ export interface LoopMetrics {
 export class LoopMetricsService {
   private readonly diffService: LoopDiffService
 
-  constructor(
-    private readonly db: Database,
-    private readonly now: () => Date
-  ) {
-    this.diffService = new LoopDiffService(db)
+  constructor(private readonly now: () => Date) {
+    this.diffService = new LoopDiffService()
   }
 
   async getMetrics(
-    run: LoopRun,
+    run: LoopRunRecord,
     project: { id: string; path: string },
     runtimeData?: { active: boolean; iterations: number }
   ): Promise<LoopMetrics> {
@@ -139,7 +131,7 @@ export class LoopMetricsService {
 
   async readTokensFromLoopEvents(
     projectPath: string,
-    run: LoopRun
+    run: LoopRunRecord
   ): Promise<number | undefined> {
     const loopId = this.canonicalRalphLoopIdForRun(run)
     if (!loopId) {
@@ -166,7 +158,7 @@ export class LoopMetricsService {
   }
 
   private async readLiveMetrics(
-    run: LoopRun,
+    run: LoopRunRecord,
     projectPath: string
   ): Promise<Partial<LoopMetrics>> {
     const roots = await this.resolveLiveMetricRoots(projectPath, run)
@@ -209,7 +201,10 @@ export class LoopMetricsService {
     }
   }
 
-  private async resolveLiveMetricRoots(projectPath: string, run: LoopRun): Promise<string[]> {
+  private async resolveLiveMetricRoots(
+    projectPath: string,
+    run: LoopRunRecord
+  ): Promise<string[]> {
     const roots = new Set<string>([projectPath])
     const persistedConfig = parsePersistedConfig(run.config)
     const worktreeBranch = run.worktree ?? persistedConfig.worktree
@@ -258,7 +253,7 @@ export class LoopMetricsService {
     return maxIteration
   }
 
-  private canonicalRalphLoopIdForRun(run: LoopRun): string | null {
+  private canonicalRalphLoopIdForRun(run: LoopRunRecord): string | null {
     const persistedConfig = parsePersistedConfig(run.config)
     return (
       asPrimaryLoopId(run.ralphLoopId) ??

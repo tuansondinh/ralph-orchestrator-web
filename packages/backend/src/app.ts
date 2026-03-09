@@ -226,22 +226,16 @@ export function createApp(options: CreateAppOptions = {}) {
     }
 
   const loopService =
-    localDatabase
-      ? new LoopService(localDatabase.db, processManager, {
-          resolveBinary: resolveConfiguredBinary
-        })
-      : createUnavailableService<LoopService>('LoopService')
+    new LoopService(repositories, processManager, {
+      resolveBinary: resolveConfiguredBinary
+    })
   const chatService =
-    localDatabase
-      ? new ChatService(localDatabase.db, processManager, {
-          resolveBinary: resolveConfiguredBinary,
-          logger: app.log
-        })
-      : createUnavailableService<ChatService>('ChatService')
+    new ChatService(repositories, processManager, {
+      resolveBinary: resolveConfiguredBinary,
+      logger: app.log
+    })
   const monitoringService =
-    localDatabase
-      ? new MonitoringService(repositories, loopService)
-      : createUnavailableService<MonitoringService>('MonitoringService')
+    new MonitoringService(repositories, loopService)
   const rawPreviewPortStart =
     localDatabase
       ? parseSettingInteger(getSetting(localDatabase, 'preview.portStart'), 3001)

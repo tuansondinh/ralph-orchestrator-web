@@ -1,16 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { stripVTControlCharacters } from 'node:util'
-import { eq } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import type {
+  ChatMessageRecord,
+  ChatRepository,
+  ChatSessionRecord,
+  ProjectRecord,
+  ProjectRepository
+} from '../db/repositories/contracts.js'
 import {
-  chatMessages,
-  chatSessions,
-  projects,
-  type ChatMessage,
-  type ChatSession,
-  schema
-} from '../db/schema.js'
+  resolveRepositoryBundle,
+  type RepositoryBundleSource
+} from '../db/repositories/index.js'
 import { resolveRalphBinary } from '../lib/ralph.js'
 import { ProcessManager, type OutputChunk, type ProcessState } from '../runner/ProcessManager.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
@@ -69,10 +70,9 @@ interface ChatRuntime {
   unsubState: () => void
 }
 
-type Database = BetterSQLite3Database<typeof schema>
-
 const MESSAGE_EVENT_PREFIX = 'chat-message:'
 const STATE_EVENT_PREFIX = 'chat-state:'
+// eslint-disable-next-line no-control-regex
 const C0_CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g
 const C1_CONTROL_CHAR_PATTERN = /[\u0080-\u009F]/
 const UTF8_MOJIBAKE_TOKEN_PATTERN = /(?:Ã.|Â.|â.|ð[\u0080-\u00BF]|Ð.|Ñ.)/
@@ -260,6 +260,7 @@ function findTrailingEscapePrefix(input: string) {
     }
 
     if (second === ']') {
+      // eslint-disable-next-line no-control-regex
       return /\u0007$|\u001B\\$/.test(suffix) ? '' : suffix
     }
 
@@ -312,15 +313,20 @@ export class ChatService {
   private readonly resolveBinary: () => Promise<string>
   private readonly now: () => Date
   private readonly logger: ChatLogger
+  private readonly projects: ProjectRepository
+  private readonly chats: ChatRepository
   private readonly runtimes = new Map<string, ChatRuntime>()
   private readonly sessionBackends = new Map<string, ChatSessionBackend>()
   private readonly events = new EventEmitter()
 
   constructor(
-    private readonly db: Database,
+    source: RepositoryBundleSource,
     private readonly processManager: ProcessManager,
     options: ChatServiceOptions = {}
   ) {
+    const repositories = resolveRepositoryBundle(source)
+    this.projects = repositories.projects
+    this.chats = repositories.chats
     this.resolveBinary = options.resolveBinary ?? (() => resolveRalphBinary())
     this.now = options.now ?? (() => new Date())
     this.logger = options.logger ?? NOOP_LOGGER
@@ -332,7 +338,7 @@ export class ChatService {
     initialInput?: string,
     backend: ChatSessionBackend = DEFAULT_CHAT_BACKEND
   ): Promise<ChatSessionSummary> {
-    const project = this.requireProject(projectId)
+    const project = await this.requireProject(projectId)
 
     const activeSession = await this.getActiveSessionForProject(projectId)
     if (activeSession) {
@@ -350,17 +356,14 @@ export class ChatService {
     await this.startRuntime(sessionId, projectId, type, backend, project.path)
 
     const nowMs = this.now().getTime()
-    await this.db
-      .insert(chatSessions)
-      .values({
-        id: sessionId,
-        projectId,
-        type,
-        state: 'active',
-        createdAt: nowMs,
-        endedAt: null
-      })
-      .run()
+    await this.chats.createSession({
+      id: sessionId,
+      projectId,
+      type,
+      state: 'active',
+      createdAt: nowMs,
+      endedAt: null
+    })
 
     this.events.emit(`${STATE_EVENT_PREFIX}${sessionId}`, 'active')
     this.logger.info(
@@ -399,7 +402,7 @@ export class ChatService {
     let runtime = this.runtimes.get(sessionId)
     let startedRuntime = false
     if (!runtime?.active || !runtime.processId) {
-      const project = this.requireProject(session.projectId)
+      const project = await this.requireProject(session.projectId)
       runtime = await this.startRuntime(
         sessionId,
         session.projectId,
@@ -411,16 +414,13 @@ export class ChatService {
     }
 
     const timestamp = this.now().getTime()
-    await this.db
-      .insert(chatMessages)
-      .values({
-        id: randomUUID(),
-        sessionId,
-        role: 'user',
-        content,
-        timestamp
-      })
-      .run()
+    await this.chats.createMessage({
+      id: randomUUID(),
+      sessionId,
+      role: 'user',
+      content,
+      timestamp
+    })
 
     await this.setSessionState(sessionId, 'active')
 
@@ -505,7 +505,7 @@ export class ChatService {
   }
 
   async getProjectSession(projectId: string): Promise<ChatSessionSummary | null> {
-    this.requireProject(projectId)
+    await this.requireProject(projectId)
     const activeSession = await this.getActiveSessionForProject(projectId)
     if (!activeSession) {
       return null
@@ -522,20 +522,8 @@ export class ChatService {
   async getHistory(sessionId: string): Promise<ChatMessageSummary[]> {
     await this.requireSession(sessionId)
 
-    const rows = this.db
-      .select()
-      .from(chatMessages)
-      .where(eq(chatMessages.sessionId, sessionId))
-      .all()
-      .sort((a, b) => a.timestamp - b.timestamp)
-
-    return rows.map((row) => ({
-      id: row.id,
-      sessionId: row.sessionId,
-      role: row.role as ChatRole,
-      content: row.content,
-      timestamp: row.timestamp
-    }))
+    const rows = await this.chats.listMessagesBySessionId(sessionId)
+    return rows.map((row) => this.toMessageSummary(row))
   }
 
   subscribeMessages(sessionId: string, cb: (message: ChatMessageSummary) => void) {
@@ -554,7 +542,7 @@ export class ChatService {
     return this.getHistory(sessionId)
   }
 
-  private toSessionSummary(row: ChatSession): ChatSessionSummary {
+  private toSessionSummary(row: ChatSessionRecord): ChatSessionSummary {
     const runtime = this.runtimes.get(row.id)
     const backend = runtime?.backend ?? this.resolveSessionBackend(row.id)
     this.sessionBackends.set(row.id, backend)
@@ -572,11 +560,7 @@ export class ChatService {
   }
 
   private async requireSession(sessionId: string) {
-    const row = this.db
-      .select()
-      .from(chatSessions)
-      .where(eq(chatSessions.id, sessionId))
-      .get()
+    const row = await this.chats.findSessionById(sessionId)
 
     if (!row) {
       throw new ChatServiceError('NOT_FOUND', `Chat session not found: ${sessionId}`)
@@ -585,12 +569,8 @@ export class ChatService {
     return row
   }
 
-  private requireProject(projectId: string) {
-    const project = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .get()
+  private async requireProject(projectId: string): Promise<ProjectRecord> {
+    const project = await this.projects.findById(projectId)
 
     if (!project) {
       throw new ChatServiceError('NOT_FOUND', `Project not found: ${projectId}`)
@@ -600,20 +580,7 @@ export class ChatService {
   }
 
   private async getActiveSessionForProject(projectId: string) {
-    const rows = this.db
-      .select()
-      .from(chatSessions)
-      .where(eq(chatSessions.projectId, projectId))
-      .all()
-      .sort((a, b) => b.createdAt - a.createdAt)
-
-    for (const row of rows) {
-      if (row.state !== 'completed') {
-        return row
-      }
-    }
-
-    return null
+    return this.chats.findLatestActiveSessionByProjectId(projectId)
   }
 
   private async handleOutput(sessionId: string, chunk: OutputChunk) {
@@ -729,7 +696,7 @@ export class ChatService {
       return
     }
 
-    const message: ChatMessage = {
+    const message: ChatMessageRecord = {
       id: randomUUID(),
       sessionId,
       role: 'assistant',
@@ -737,15 +704,12 @@ export class ChatService {
       timestamp: timestamp.getTime()
     }
 
-    await this.db.insert(chatMessages).values(message).run()
+    await this.chats.createMessage(message)
 
-    this.events.emit(`${MESSAGE_EVENT_PREFIX}${sessionId}`, {
-      id: message.id,
-      sessionId,
-      role: 'assistant',
-      content: normalized,
-      timestamp: message.timestamp
-    } satisfies ChatMessageSummary)
+    this.events.emit(
+      `${MESSAGE_EVENT_PREFIX}${sessionId}`,
+      this.toMessageSummary(message)
+    )
   }
 
   private async setSessionState(sessionId: string, state: ChatState) {
@@ -754,16 +718,22 @@ export class ChatService {
       return
     }
 
-    await this.db
-      .update(chatSessions)
-      .set({
-        state,
-        endedAt: state === 'completed' ? this.now().getTime() : null
-      })
-      .where(eq(chatSessions.id, sessionId))
-      .run()
+    await this.chats.updateSession(sessionId, {
+      state,
+      endedAt: state === 'completed' ? this.now().getTime() : null
+    })
 
     this.events.emit(`${STATE_EVENT_PREFIX}${sessionId}`, state)
+  }
+
+  private toMessageSummary(row: ChatMessageRecord): ChatMessageSummary {
+    return {
+      id: row.id,
+      sessionId: row.sessionId,
+      role: row.role as ChatRole,
+      content: row.content,
+      timestamp: row.timestamp
+    }
   }
 
   private resolveSessionBackend(sessionId: string): ChatSessionBackend {

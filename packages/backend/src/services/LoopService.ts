@@ -5,14 +5,17 @@ import { readFileSync } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
-import { eq } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import type {
+  LoopRunRecord,
+  LoopRunUpdate,
+  ProjectRecord,
+  ProjectRepository,
+  LoopRunRepository
+} from '../db/repositories/contracts.js'
 import {
-  loopRuns,
-  projects,
-  type LoopRun,
-  schema
-} from '../db/schema.js'
+  resolveRepositoryBundle,
+  type RepositoryBundleSource
+} from '../db/repositories/index.js'
 import { resolveRalphBinary } from '../lib/ralph.js'
 import { OutputBuffer } from '../runner/OutputBuffer.js'
 import {
@@ -35,7 +38,6 @@ import {
   primaryLoopIdFromEventsPath,
   primaryLoopIdFromTimestamp,
   readIterationValue,
-  toMilliseconds,
   uniqueLoopIds,
   usesLiveRuntime,
   type LoopBackend
@@ -45,7 +47,7 @@ import {
   type LoopNotification,
   type NotificationType
 } from './LoopNotificationService.js'
-import { LoopDiffService, type LoopDiff, type LoopDiffStats } from './LoopDiffService.js'
+import { LoopDiffService, type LoopDiff } from './LoopDiffService.js'
 import { LoopMetricsService, type LoopMetrics } from './LoopMetricsService.js'
 
 type LoopLifecycleState =
@@ -120,7 +122,6 @@ interface LoopServiceOptions {
   bufferLines?: number
 }
 
-type Database = BetterSQLite3Database<typeof schema>
 interface StopLoopInput {
   binaryPath: string
   loopId: string
@@ -234,6 +235,8 @@ export class LoopService {
   private readonly stopLoopWithCli: (input: StopLoopInput) => Promise<void>
   private readonly now: () => Date
   private readonly bufferLines: number
+  private readonly projects: ProjectRepository
+  private readonly loopRuns: LoopRunRepository
   private readonly runtimes = new Map<string, LoopRuntime>()
   private readonly events = new EventEmitter()
   private readonly reconcileInFlightByProject = new Map<string, Promise<number>>()
@@ -243,29 +246,24 @@ export class LoopService {
   private readonly metricsService: LoopMetricsService
 
   constructor(
-    private readonly db: Database,
+    source: RepositoryBundleSource,
     private readonly processManager: ProcessManager,
     options: LoopServiceOptions = {}
   ) {
+    const repositories = resolveRepositoryBundle(source)
+    this.projects = repositories.projects
+    this.loopRuns = repositories.loopRuns
     this.resolveBinary = options.resolveBinary ?? (() => resolveRalphBinary())
     this.stopLoopWithCli = options.stopLoop ?? stopLoopWithCli
     this.now = options.now ?? (() => new Date())
     this.bufferLines = options.bufferLines ?? DEFAULT_OUTPUT_BUFFER_LINES
-    this.notificationService = new LoopNotificationService(db, this.events, this.now)
-    this.diffService = new LoopDiffService(db)
-    this.metricsService = new LoopMetricsService(db, this.now)
+    this.notificationService = new LoopNotificationService(repositories, this.events, this.now)
+    this.diffService = new LoopDiffService()
+    this.metricsService = new LoopMetricsService(this.now)
   }
 
   async start(projectId: string, options: LoopStartOptions = {}): Promise<LoopSummary> {
-    const project = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .get()
-
-    if (!project) {
-      throw new LoopServiceError('NOT_FOUND', `Project not found: ${projectId}`)
-    }
+    const project = await this.requireProject(projectId)
 
     let binaryPath: string
     try {
@@ -327,23 +325,20 @@ export class LoopService {
     })
 
     try {
-      await this.db
-        .insert(loopRuns)
-        .values({
-          id: loopId,
-          projectId,
-          ralphLoopId: initialRalphLoopId,
-          state: 'running',
-          config: configPayload,
-          prompt: promptSnapshot,
-          worktree: options.worktree ?? null,
-          iterations: 0,
-          tokensUsed: 0,
-          errors: 0,
-          startedAt: nowMs,
-          endedAt: null
-        })
-        .run()
+      await this.loopRuns.create({
+        id: loopId,
+        projectId,
+        ralphLoopId: initialRalphLoopId,
+        state: 'running',
+        config: configPayload,
+        prompt: promptSnapshot,
+        worktree: options.worktree ?? null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: nowMs,
+        endedAt: null
+      })
     } catch (error) {
       await this.processManager.kill(handle.id, 'SIGKILL')
       throw error
@@ -418,18 +413,7 @@ export class LoopService {
       return
     }
 
-    const project = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, run.projectId))
-      .get()
-
-    if (!project) {
-      throw new LoopServiceError(
-        'NOT_FOUND',
-        `Project not found for loop: ${loopId}`
-      )
-    }
+    const project = await this.requireProject(run.projectId, `Project not found for loop: ${loopId}`)
 
     if (runtime?.active && runtime.processId) {
       runtime.stopRequested = true
@@ -542,7 +526,7 @@ export class LoopService {
       }
     }
 
-    const updates: Partial<typeof loopRuns.$inferInsert> = {
+    const updates: LoopRunUpdate = {
       state: 'stopped',
       endedAt: this.now().getTime()
     }
@@ -551,7 +535,7 @@ export class LoopService {
       updates.config = endCommitConfig
     }
 
-    await this.db.update(loopRuns).set(updates).where(eq(loopRuns.id, resolvedLoopId)).run()
+    await this.loopRuns.update(resolvedLoopId, updates)
 
     this.events.emit(`${STATE_EVENT_PREFIX}${resolvedLoopId}`, 'stopped')
   }
@@ -617,11 +601,7 @@ export class LoopService {
     await this.reconcileProjectLoops(projectId)
     await this.syncExternalProjectLoops(projectId)
 
-    const rows = this.db
-      .select()
-      .from(loopRuns)
-      .where(eq(loopRuns.projectId, projectId))
-      .all()
+    const rows = await this.loopRuns.listByProjectId(projectId)
 
     return rows
       .filter((row) => row.id !== '(primary)' && row.ralphLoopId !== '(primary)')
@@ -667,7 +647,7 @@ export class LoopService {
   async getOutput(input: { loopId: string; limit?: number }): Promise<LoopOutputSnapshot> {
     const run = await this.requireLoop(input.loopId)
     const maxLines = Math.max(1, Math.min(input.limit ?? 50, 500))
-    const lines = this.replayOutput(input.loopId).slice(-maxLines)
+    const lines = (await this.replayOutput(input.loopId)).slice(-maxLines)
     const lineLabel = lines.length === 1 ? 'line' : 'lines'
 
     return {
@@ -679,30 +659,14 @@ export class LoopService {
 
   async getDiff(loopId: string): Promise<LoopDiff> {
     const run = await this.requireLoop(loopId)
-    const project = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, run.projectId))
-      .get()
-
-    if (!project) {
-      throw new LoopServiceError('NOT_FOUND', `Project not found for loop: ${loopId}`)
-    }
+    const project = await this.requireProject(run.projectId, `Project not found for loop: ${loopId}`)
 
     return this.diffService.getDiff(run, project)
   }
 
   async getMetrics(loopId: string): Promise<LoopMetrics> {
     const run = await this.requireLoop(loopId)
-    const project = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, run.projectId))
-      .get()
-
-    if (!project) {
-      throw new LoopServiceError('NOT_FOUND', `Project not found for loop: ${loopId}`)
-    }
+    const project = await this.requireProject(run.projectId, `Project not found for loop: ${loopId}`)
 
     const runtime = this.runtimes.get(loopId)
     const runtimeData = runtime
@@ -740,22 +704,17 @@ export class LoopService {
     return () => this.events.off(key, cb)
   }
 
-  replayOutput(loopId: string): string[] {
+  async replayOutput(loopId: string): Promise<string[]> {
     const runtime = this.runtimes.get(loopId)
     if (runtime) {
       return runtime.buffer.replay()
     }
 
-    const run = this.db.select().from(loopRuns).where(eq(loopRuns.id, loopId)).get()
+    const run = await this.loopRuns.findById(loopId)
     if (!run) {
       return []
     }
-
-    const project = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, run.projectId))
-      .get()
+    const project = await this.projects.findById(run.projectId)
     if (!project) {
       return []
     }
@@ -768,7 +727,7 @@ export class LoopService {
     return this.readOutputReplayFromDisk(outputLogPath)
   }
 
-  private toSummary(row: LoopRun): LoopSummary {
+  private toSummary(row: LoopRunRecord): LoopSummary {
     const runtime = this.runtimes.get(row.id)
     const persistedConfig = parsePersistedConfig(row.config)
     const canonicalRalphLoopId =
@@ -796,8 +755,8 @@ export class LoopService {
     }
   }
 
-  private async requireLoop(loopId: string): Promise<LoopRun> {
-    const row = this.db.select().from(loopRuns).where(eq(loopRuns.id, loopId)).get()
+  private async requireLoop(loopId: string): Promise<LoopRunRecord> {
+    const row = await this.loopRuns.findById(loopId)
     if (row) {
       return row
     }
@@ -807,11 +766,8 @@ export class LoopService {
       throw new LoopServiceError('NOT_FOUND', `Loop not found: ${loopId}`)
     }
 
-    const ralphLoopRows = this.db
-      .select()
-      .from(loopRuns)
-      .where(eq(loopRuns.ralphLoopId, primaryLoopId))
-      .all()
+    const ralphLoopRows = (await this.loopRuns.listAll())
+      .filter((candidate) => candidate.ralphLoopId === primaryLoopId)
       .sort((a, b) => {
         const stateScoreDiff =
           Number(isLikelyActiveLoopState(b.state)) - Number(isLikelyActiveLoopState(a.state))
@@ -823,11 +779,10 @@ export class LoopService {
       })
 
     if (ralphLoopRows.length > 0) {
-      return ralphLoopRows[0] as LoopRun
+      return ralphLoopRows[0]
     }
 
-    const candidates = this.db.select().from(loopRuns).all()
-    const inferred = candidates
+    const inferred = (await this.loopRuns.listAll())
       .filter((candidate) => {
         const persisted = parsePersistedConfig(candidate.config)
         return (
@@ -846,10 +801,22 @@ export class LoopService {
       })
 
     if (inferred.length > 0) {
-      return inferred[0] as LoopRun
+      return inferred[0]
     }
 
     throw new LoopServiceError('NOT_FOUND', `Loop not found: ${loopId}`)
+  }
+
+  private async requireProject(
+    projectId: string,
+    message = `Project not found: ${projectId}`
+  ): Promise<ProjectRecord> {
+    const project = await this.projects.findById(projectId)
+    if (!project) {
+      throw new LoopServiceError('NOT_FOUND', message)
+    }
+
+    return project
   }
 
   private async handleOutput(loopId: string, chunk: OutputChunk) {
@@ -891,11 +858,7 @@ export class LoopService {
     }
 
     runtime.iterations = nextIteration
-    await this.db
-      .update(loopRuns)
-      .set({ iterations: runtime.iterations })
-      .where(eq(loopRuns.id, loopId))
-      .run()
+    await this.loopRuns.update(loopId, { iterations: runtime.iterations })
 
     if (emitState) {
       this.events.emit(`${STATE_EVENT_PREFIX}${loopId}`, 'running')
@@ -907,12 +870,12 @@ export class LoopService {
     const nextState: ProcessState =
       runtime?.stopRequested && state !== 'running' ? 'stopped' : state
     const endedAt = nextState === 'running' ? null : this.now().getTime()
-    const updates: Partial<typeof loopRuns.$inferInsert> = {
+    const updates: LoopRunUpdate = {
       state: nextState,
       endedAt
     }
     if (nextState !== 'running') {
-      const run = this.db.select().from(loopRuns).where(eq(loopRuns.id, loopId)).get()
+      const run = await this.loopRuns.findById(loopId)
       if (run) {
         const endCommitConfig = await this.buildEndCommitConfig(run)
         if (endCommitConfig !== undefined) {
@@ -922,11 +885,7 @@ export class LoopService {
         // Snapshot the latest persisted/live metrics before terminalizing the run,
         // so loop cards keep the final token count after completion.
         try {
-          const project = this.db
-            .select()
-            .from(projects)
-            .where(eq(projects.id, run.projectId))
-            .get()
+          const project = await this.projects.findById(run.projectId)
 
           const runtimeData = runtime
             ? { active: runtime.active, iterations: runtime.iterations }
@@ -968,7 +927,7 @@ export class LoopService {
       }
     }
 
-    await this.db.update(loopRuns).set(updates).where(eq(loopRuns.id, loopId)).run()
+    await this.loopRuns.update(loopId, updates)
 
     this.events.emit(`${STATE_EVENT_PREFIX}${loopId}`, nextState)
     await this.notificationService.notifyForLoopState(loopId, nextState, runtime?.notified)
@@ -1040,7 +999,7 @@ export class LoopService {
       await this.persistRalphLoopId(loopId, nextRalphLoopId)
     }
 
-    const updates: Partial<typeof loopRuns.$inferInsert> = {}
+    const updates: LoopRunUpdate = {}
     if (nextIteration !== undefined) {
       updates.iterations = Math.max(0, runtime.iterations)
     }
@@ -1059,19 +1018,12 @@ export class LoopService {
     }
 
     if (Object.keys(updates).length > 0) {
-      await this.db.update(loopRuns).set(updates).where(eq(loopRuns.id, loopId)).run()
+      await this.loopRuns.update(loopId, updates)
     }
   }
 
   private async persistRalphLoopId(loopId: string, ralphLoopId: string) {
-    const run = this.db
-      .select({
-        config: loopRuns.config,
-        ralphLoopId: loopRuns.ralphLoopId
-      })
-      .from(loopRuns)
-      .where(eq(loopRuns.id, loopId))
-      .get()
+    const run = await this.loopRuns.findById(loopId)
     if (!run) {
       return
     }
@@ -1082,25 +1034,17 @@ export class LoopService {
       return
     }
 
-    await this.db
-      .update(loopRuns)
-      .set({
-        ralphLoopId,
-        config: JSON.stringify({
-          ...config,
-          ralphLoopId
-        })
+    await this.loopRuns.update(loopId, {
+      ralphLoopId,
+      config: JSON.stringify({
+        ...config,
+        ralphLoopId
       })
-      .where(eq(loopRuns.id, loopId))
-      .run()
+    })
   }
 
   private async reconcileProjectLoopsInternal(projectId: string): Promise<number> {
-    const runs = this.db
-      .select()
-      .from(loopRuns)
-      .where(eq(loopRuns.projectId, projectId))
-      .all()
+    const runs = await this.loopRuns.listByProjectId(projectId)
     const activeRuns = runs.filter((run) => usesLiveRuntime(run.state))
     if (activeRuns.length === 0) {
       return 0
@@ -1114,11 +1058,7 @@ export class LoopService {
       return 0
     }
 
-    const project = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .get()
+    const project = await this.projects.findById(projectId)
     if (!project) {
       return 0
     }
@@ -1151,14 +1091,10 @@ export class LoopService {
         continue
       }
 
-      await this.db
-        .update(loopRuns)
-        .set({
-          state: 'stopped',
-          endedAt: run.endedAt ?? nowMs
-        })
-        .where(eq(loopRuns.id, run.id))
-        .run()
+      await this.loopRuns.update(run.id, {
+        state: 'stopped',
+        endedAt: run.endedAt ?? nowMs
+      })
 
       this.events.emit(`${STATE_EVENT_PREFIX}${run.id}`, 'stopped')
       reconciled += 1
@@ -1168,11 +1104,7 @@ export class LoopService {
   }
 
   private async syncExternalProjectLoops(projectId: string): Promise<number> {
-    const project = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .get()
+    const project = await this.projects.findById(projectId)
     if (!project) {
       return 0
     }
@@ -1189,12 +1121,8 @@ export class LoopService {
       return 0
     }
 
-    const existingRows = this.db
-      .select()
-      .from(loopRuns)
-      .where(eq(loopRuns.projectId, projectId))
-      .all()
-    const existingByAnyId = new Map<string, LoopRun>()
+    const existingRows = await this.loopRuns.listByProjectId(projectId)
+    const existingByAnyId = new Map<string, LoopRunRecord>()
     for (const row of existingRows) {
       existingByAnyId.set(row.id, row)
 
@@ -1216,7 +1144,7 @@ export class LoopService {
       if (existing) {
         const nextConfig = parseConfigRecord(existing.config)
         const nextPersistedWorktree = asString(nextConfig.worktree)
-        const updates: Partial<typeof loopRuns.$inferInsert> = {}
+        const updates: LoopRunUpdate = {}
 
         if (existing.ralphLoopId !== listedLoop.id) {
           updates.ralphLoopId = listedLoop.id
@@ -1243,41 +1171,38 @@ export class LoopService {
         }
 
         if (Object.keys(updates).length > 0) {
-          await this.db.update(loopRuns).set(updates).where(eq(loopRuns.id, existing.id)).run()
+          await this.loopRuns.update(existing.id, updates)
           synced += 1
         }
         continue
       }
 
-      await this.db
-        .insert(loopRuns)
-        .values({
-          id: listedLoop.id,
-          projectId,
-          ralphLoopId: listedLoop.id,
-          state: listedLoop.state,
-          config: JSON.stringify({
-            config: null,
-            prompt: null,
-            promptFile: null,
-            backend: null,
-            exclusive: false,
-            worktree: inferredWorktree,
-            ralphLoopId: listedLoop.id,
-            startCommit: null,
-            endCommit: null,
-            outputLogFile: null,
-            imported: true
-          }),
-          prompt: listedLoop.prompt,
+      await this.loopRuns.create({
+        id: listedLoop.id,
+        projectId,
+        ralphLoopId: listedLoop.id,
+        state: listedLoop.state,
+        config: JSON.stringify({
+          config: null,
+          prompt: null,
+          promptFile: null,
+          backend: null,
+          exclusive: false,
           worktree: inferredWorktree,
-          iterations: 0,
-          tokensUsed: 0,
-          errors: 0,
-          startedAt: this.now().getTime(),
-          endedAt: listedLoop.state === 'running' ? null : this.now().getTime()
-        })
-        .run()
+          ralphLoopId: listedLoop.id,
+          startCommit: null,
+          endCommit: null,
+          outputLogFile: null,
+          imported: true
+        }),
+        prompt: listedLoop.prompt,
+        worktree: inferredWorktree,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: this.now().getTime(),
+        endedAt: listedLoop.state === 'running' ? null : this.now().getTime()
+      })
       synced += 1
     }
 
@@ -1428,17 +1353,13 @@ export class LoopService {
     }
   }
 
-  private async buildEndCommitConfig(run: LoopRun): Promise<string | undefined> {
+  private async buildEndCommitConfig(run: LoopRunRecord): Promise<string | undefined> {
     const persistedConfig = parsePersistedConfig(run.config)
     if (persistedConfig.endCommit) {
       return undefined
     }
 
-    const project = this.db
-      .select()
-      .from(projects)
-      .where(eq(projects.id, run.projectId))
-      .get()
+    const project = await this.projects.findById(run.projectId)
     if (!project) {
       return undefined
     }

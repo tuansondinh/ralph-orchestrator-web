@@ -1,13 +1,9 @@
 import { execFile as execFileCallback } from 'node:child_process'
 import { promisify } from 'node:util'
-import { eq } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import { projects, schema, type LoopRun } from '../db/schema.js'
+import type { LoopRunRecord } from '../db/repositories/contracts.js'
 import { parseDiff, type DiffFile } from '../lib/parseDiff.js'
 import { ServiceError } from '../lib/ServiceError.js'
 import { parsePersistedConfig } from './loopUtils.js'
-
-type Database = BetterSQLite3Database<typeof schema>
 
 const execFile = promisify(execFileCallback)
 
@@ -63,9 +59,7 @@ function summarizeDiff(files: DiffFile[]): LoopDiffStats {
 }
 
 export class LoopDiffService {
-  constructor(private readonly db: Database) {}
-
-  async getDiff(run: LoopRun, project: { id: string; path: string }): Promise<LoopDiff> {
+  async getDiff(run: LoopRunRecord, project: { id: string; path: string }): Promise<LoopDiff> {
     const persistedConfig = parsePersistedConfig(run.config)
 
     if (run.worktree) {

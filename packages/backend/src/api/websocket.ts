@@ -321,7 +321,7 @@ export async function registerWebsocket(app: FastifyInstance) {
       const outputMatch = /^loop:([^:]+):output$/.exec(channel)
       if (outputMatch) {
         const loopId = outputMatch[1]
-        const replayLines = app.loopService.replayOutput(loopId)
+        const replayLines = await app.loopService.replayOutput(loopId)
         for (const line of replayLines) {
           safeSend(
             app,

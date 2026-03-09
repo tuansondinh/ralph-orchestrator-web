@@ -10,6 +10,7 @@ class MockWebSocket {
   static CLOSED = 3
 
   readyState = MockWebSocket.CONNECTING
+  readonly url: string
   private listeners: Record<string, Array<(event: Event | MessageEvent) => void>> = {
     open: [],
     close: [],
@@ -17,7 +18,8 @@ class MockWebSocket {
     error: []
   }
 
-  constructor(_url: string) {
+  constructor(url: string) {
+    this.url = url
     MockWebSocket.instances.push(this)
   }
 
@@ -71,12 +73,19 @@ class MockWebSocket {
   }
 }
 
-function HookHarness({ connectTimeoutMs }: { connectTimeoutMs?: number }) {
+function HookHarness({
+  connectTimeoutMs,
+  accessToken
+}: {
+  connectTimeoutMs?: number
+  accessToken?: string
+}) {
   const { status, reconnectAttempt } = useWebSocket({
     channels: ['notifications'],
     onMessage: () => {},
     reconnectDelayMs: 100,
-    connectTimeoutMs
+    connectTimeoutMs,
+    accessToken
   })
 
   return (
@@ -193,6 +202,18 @@ describe('useWebSocket', () => {
     expect(MockWebSocket.instances).toHaveLength(2)
   })
 
+  it('passes an access token in the websocket connection URL when provided', () => {
+    render(<HookHarness accessToken="supabase-access-token" />)
+
+    act(() => {
+      vi.advanceTimersByTime(0)
+    })
+
+    expect(MockWebSocket.instances[0]?.url).toBe(
+      'ws://127.0.0.1:3003/ws?access_token=supabase-access-token'
+    )
+  })
+
   it('logs lifecycle transitions and received message types', () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {})
     render(<HookHarness />)
@@ -253,5 +274,21 @@ describe('resolveWebsocketUrl', () => {
         VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://127.0.0.1:3001'
       })
     ).toBe('ws://127.0.0.1:3001/ws')
+  })
+
+  it('appends the access_token query parameter when provided', () => {
+    expect(
+      resolveWebsocketUrl(
+        {
+          DEV: true,
+          VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'https://cloud.example.com'
+        },
+        {
+          protocol: 'https:',
+          host: 'cloud.example.com'
+        },
+        'token with spaces'
+      )
+    ).toBe('wss://cloud.example.com/ws?access_token=token+with+spaces')
   })
 })

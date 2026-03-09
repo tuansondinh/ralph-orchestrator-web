@@ -369,6 +369,7 @@ export function createApp(options: CreateAppOptions = {}) {
         if (
           pathname === '/health' ||
           pathname === '/trpc/capabilities' ||
+          pathname === '/ws' ||
           !API_ROUTE_PREFIXES.some(
             (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
           )

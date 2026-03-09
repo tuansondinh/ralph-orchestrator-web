@@ -8,6 +8,11 @@ export interface ProjectRecord {
   ralphConfig: string | null
   createdAt: number
   updatedAt: number
+  userId?: string | null
+  githubOwner?: string | null
+  githubRepo?: string | null
+  defaultBranch?: string | null
+  workspacePath?: string | null
 }
 
 export interface CreateProjectInput {

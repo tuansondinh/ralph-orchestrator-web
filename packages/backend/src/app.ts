@@ -402,6 +402,7 @@ export function createApp(options: CreateAppOptions = {}) {
 
     const workspaceManager = new LocalWorkspaceManager(WORKSPACE_BASE_DIR)
     app.decorate('workspaceManager', workspaceManager)
+    projectService.setWorkspaceManager(workspaceManager)
   }
 
   app.register(cookie)

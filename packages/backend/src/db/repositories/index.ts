@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import type { DatabaseConnection, DatabaseProvider } from '../connection.js'
@@ -136,6 +136,12 @@ function createSqliteProjectRepository(db: SqliteDb): ProjectRepository {
     },
     async delete(id) {
       db.delete(sqliteSchema.projects).where(eq(sqliteSchema.projects.id, id)).run()
+    },
+    async findByUserId(userId: string) {
+      return []
+    },
+    async findByGitHubRepo(userId: string, owner: string, repo: string) {
+      return null
     }
   }
 }
@@ -391,6 +397,25 @@ function createPostgresProjectRepository(db: PostgresDb): ProjectRepository {
     },
     async delete(id) {
       await db.delete(postgresSchema.projects).where(eq(postgresSchema.projects.id, id))
+    },
+    async findByUserId(userId: string) {
+      return await db
+        .select()
+        .from(postgresSchema.projects)
+        .where(eq(postgresSchema.projects.userId, userId))
+    },
+    async findByGitHubRepo(userId: string, owner: string, repo: string) {
+      const rows = await db
+        .select()
+        .from(postgresSchema.projects)
+        .where(
+          and(
+            eq(postgresSchema.projects.userId, userId),
+            eq(postgresSchema.projects.githubOwner, owner),
+            eq(postgresSchema.projects.githubRepo, repo)
+          )
+        )
+      return rows[0] ?? null
     }
   }
 }

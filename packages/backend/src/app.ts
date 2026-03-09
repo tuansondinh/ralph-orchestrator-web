@@ -38,6 +38,10 @@ import { RalphMcpServer } from './mcp/RalphMcpServer.js'
 import { resolveRalphBinary } from './lib/ralph.js'
 import { isOriginAllowed, parseAllowedOrigins } from './lib/origin.js'
 import { registerWebsocket } from './api/websocket.js'
+import {
+  initSupabaseAuth,
+  supabaseAuthHook
+} from './auth/supabaseAuth.js'
 
 const CHAT_STREAM_MESSAGE_SCHEMA = z
   .object({
@@ -337,6 +341,30 @@ export function createApp(options: CreateAppOptions = {}) {
   app.decorate('settingsService', settingsService)
   app.decorate('hatsPresetService', hatsPresetService)
   app.decorate('taskService', taskService)
+
+  // Cloud mode auth
+  if (runtime.mode === 'cloud' && runtime.cloud) {
+    const supabaseUrl = runtime.cloud.supabaseUrl
+    const supabaseAnonKey = runtime.cloud.supabaseAnonKey
+    if (supabaseUrl && supabaseAnonKey) {
+      initSupabaseAuth(supabaseUrl, supabaseAnonKey)
+      app.addHook('onRequest', async (request, reply) => {
+        const url = request.url
+        const pathname = url.split('?')[0] ?? '/'
+        // Skip auth for health check, capabilities, and static files
+        if (
+          pathname === '/health' ||
+          pathname === '/trpc/capabilities' ||
+          !API_ROUTE_PREFIXES.some(
+            (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+          )
+        ) {
+          return
+        }
+        await supabaseAuthHook(request, reply)
+      })
+    }
+  }
 
   app.register(cors, {
     origin: (origin, callback) => {

@@ -1,4 +1,5 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import type { User } from '@supabase/supabase-js'
 import type { ResolvedRuntimeMode } from '../config/runtimeMode.js'
 import type { DatabaseConnection, DatabaseProvider } from '../db/connection.js'
 import type { schema } from '../db/schema.js'
@@ -37,5 +38,10 @@ declare module 'fastify' {
     settingsService: SettingsService
     hatsPresetService: HatsPresetService
     taskService: TaskService
+  }
+
+  interface FastifyRequest {
+    userId?: string
+    supabaseUser?: User
   }
 }

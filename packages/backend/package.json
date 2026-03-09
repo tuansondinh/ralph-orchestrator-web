@@ -29,6 +29,7 @@
     "@fastify/static": "^9.0.0",
     "@fastify/websocket": "^11.2.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "@supabase/supabase-js": "^2.99.0",
     "@trpc/server": "^11.10.0",
     "ai": "^6.0.100",
     "better-sqlite3": "^12.6.2",

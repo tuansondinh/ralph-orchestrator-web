@@ -1,12 +1,29 @@
 import { randomUUID } from 'node:crypto'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { createApp } from '../src/app.js'
 import type { DatabaseProvider } from '../src/db/connection.js'
 import { createPostgresRepositoryBundle } from '../src/db/repositories/index.js'
 import { postgresSchema } from '../src/db/schema/postgres.js'
-import { initSupabaseAuth } from '../src/auth/supabaseAuth.js'
+import {
+  getSupabaseClient,
+  initSupabaseAuth
+} from '../src/auth/supabaseAuth.js'
+
+interface MockAuthClient {
+  auth: {
+    getUser: Mock
+  }
+}
+
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: vi.fn(() => ({
+    auth: {
+      getUser: vi.fn()
+    }
+  }))
+}))
 
 const DEFAULT_POSTGRES_TEST_URL =
   'postgresql://supabase_admin:postgres@127.0.0.1:55322/postgres'
@@ -112,6 +129,10 @@ async function createPostgresHarness() {
       await client.end()
     }
   }
+}
+
+function getMockAuthClient(): MockAuthClient {
+  return getSupabaseClient() as unknown as MockAuthClient
 }
 
 describe('Auth middleware integration', () => {
@@ -300,6 +321,78 @@ describe('Auth middleware integration', () => {
     expect(response.statusCode).toBe(401)
     expect(response.json()).toMatchObject({
       error: 'Missing authorization token'
+    })
+  })
+
+  it('cloud mode passes authenticated user identity to downstream handlers', async () => {
+    const harness = await createPostgresHarness()
+    cleanups.push(harness.cleanup)
+
+    const databaseProviderFactory = vi.fn<() => DatabaseProvider>(() => ({
+      mode: 'cloud',
+      dialect: 'postgres',
+      client: harness.client as never,
+      db: harness.db,
+      metadata: {
+        connectionString: 'postgresql://postgres:postgres@localhost:5432/ralph'
+      },
+      async close() {}
+    }))
+
+    initSupabaseAuth('https://test.supabase.co', 'test-anon-key')
+
+    const app = createApp({
+      runtime: {
+        mode: 'cloud',
+        capabilities: {
+          mode: 'cloud',
+          database: true,
+          auth: true,
+          localProjects: false,
+          githubProjects: true,
+          terminal: false,
+          preview: false,
+          localDirectoryPicker: false,
+          mcp: false
+        },
+        cloud: {
+          supabaseUrl: 'https://test.supabase.co',
+          supabaseAnonKey: 'test-anon-key',
+          databaseUrl: 'postgresql://postgres:postgres@localhost:5432/ralph'
+        }
+      },
+      databaseProviderFactory
+    })
+    apps.push(app)
+
+    app.get('/chat/auth-context', async (request) => ({
+      userId: request.userId,
+      email: request.supabaseUser?.email ?? null
+    }))
+
+    const client = getMockAuthClient()
+    client.auth.getUser.mockResolvedValue({
+      data: {
+        user: {
+          id: 'user-123',
+          email: 'user@example.com'
+        }
+      },
+      error: null
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/chat/auth-context',
+      headers: {
+        authorization: 'Bearer valid-token'
+      }
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      userId: 'user-123',
+      email: 'user@example.com'
     })
   })
 })

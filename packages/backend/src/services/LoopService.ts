@@ -10,7 +10,8 @@ import type {
   LoopRunUpdate,
   ProjectRecord,
   ProjectRepository,
-  LoopRunRepository
+  LoopRunRepository,
+  LoopOutputRepository
 } from '../db/repositories/contracts.js'
 import {
   resolveRepositoryBundle,
@@ -113,6 +114,7 @@ interface LoopRuntime {
   notified: Set<NotificationType>
   unsubOutput: () => void
   unsubState: () => void
+  outputSequenceCounter: number
 }
 
 interface LoopServiceOptions {
@@ -237,6 +239,7 @@ export class LoopService {
   private readonly bufferLines: number
   private readonly projects: ProjectRepository
   private readonly loopRuns: LoopRunRepository
+  private readonly loopOutput: LoopOutputRepository
   private readonly runtimes = new Map<string, LoopRuntime>()
   private readonly events = new EventEmitter()
   private readonly reconcileInFlightByProject = new Map<string, Promise<number>>()
@@ -253,6 +256,7 @@ export class LoopService {
     const repositories = resolveRepositoryBundle(source)
     this.projects = repositories.projects
     this.loopRuns = repositories.loopRuns
+    this.loopOutput = repositories.loopOutput
     this.resolveBinary = options.resolveBinary ?? (() => resolveRalphBinary())
     this.stopLoopWithCli = options.stopLoop ?? stopLoopWithCli
     this.now = options.now ?? (() => new Date())
@@ -357,7 +361,8 @@ export class LoopService {
       iterations: 0,
       notified: new Set<NotificationType>(),
       unsubOutput: () => {},
-      unsubState: () => {}
+      unsubState: () => {},
+      outputSequenceCounter: 0
     }
 
     this.runtimes.set(loopId, runtime)
@@ -710,6 +715,15 @@ export class LoopService {
       return runtime.buffer.replay()
     }
 
+    try {
+      const chunks = await this.loopOutput.getByLoopRunId(loopId)
+      if (chunks.length > 0) {
+        return chunks.map(chunk => chunk.data.replace(/\n$/, ''))
+      }
+    } catch (error) {
+      console.warn(`Failed to replay output from database for loop ${loopId}:`, error)
+    }
+
     const run = await this.loopRuns.findById(loopId)
     if (!run) {
       return []
@@ -827,6 +841,18 @@ export class LoopService {
 
     runtime.buffer.append(chunk.data)
     this.events.emit(`${OUTPUT_EVENT_PREFIX}${loopId}`, chunk)
+    
+    this.loopOutput.append({
+      id: randomUUID(),
+      loopRunId: loopId,
+      sequence: runtime.outputSequenceCounter++,
+      stream: chunk.stream,
+      data: chunk.data,
+      createdAt: Date.now()
+    }).catch(err => {
+      console.warn(`Failed to persist output chunk for loop ${loopId}:`, err)
+    })
+
     await this.applyOutputDerivedIteration(loopId, runtime, chunk.data)
 
     const events = runtime.parser.parseChunk(chunk.data)

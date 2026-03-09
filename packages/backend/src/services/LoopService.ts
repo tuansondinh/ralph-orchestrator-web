@@ -1240,7 +1240,7 @@ export class LoopService {
       }
 
       await this.loopRuns.create({
-        id: listedLoop.id,
+        id: randomUUID(),
         projectId,
         ralphLoopId: listedLoop.id,
         state: listedLoop.state,

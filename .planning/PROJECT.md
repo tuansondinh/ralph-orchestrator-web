@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A unified AI orchestration platform that works locally and in the cloud. Currently a local-first desktop tool (Fastify + SQLite + React) for managing AI loops, chat sessions, and terminals. The goal is to port ralph-cloud's SaaS control plane features into this app — multi-tenant orgs/projects, remote ECS runtimes, preview deployments, credentials management, usage tracking, and realtime collaboration — achieving full parity with ralph-cloud while keeping local mode as the default experience.
+A unified AI orchestration platform that works locally and in the cloud. Currently a local-first desktop tool (Fastify + SQLite + React) for managing AI loops, chat sessions, and terminals. The goal is to port ralph-cloud's SaaS control plane features into this app — multi-tenant orgs/projects, remote ECS runtimes, preview deployments, credentials management, usage tracking, and realtime collaboration — achieving scoped parity for those capabilities while keeping local mode as the default experience.
 
 ## Core Value
 
@@ -43,6 +43,8 @@ Users can seamlessly scale from local AI loop execution to cloud-based ECS runti
 - [ ] AWS CDK infrastructure-as-code (VPC, ECS, SQS stacks)
 - [ ] Cloud UI pages (rebuilt from scratch using existing component patterns)
 
+Implementation note: cloud pages are delivered incrementally with their backend phases, with shared shell/polish completed in the final phase.
+
 ### Out of Scope
 
 - Mobile app — web-first
@@ -62,7 +64,9 @@ Users can seamlessly scale from local AI loop execution to cloud-based ECS runti
 ## Constraints
 
 - **Dual-mode DB**: Must support SQLite (local default) and Supabase Postgres (cloud opt-in) — requires abstraction layer
+- **Mode activation**: Supabase configuration enables cloud mode; AWS configuration enables only AWS-dependent capabilities inside cloud mode
 - **Backward compatibility**: Local mode must continue working exactly as-is with no cloud dependencies
+- **Data coexistence**: Existing local SQLite data remains intact when cloud mode is enabled; v1 does not require automatic migration between local and cloud stores
 - **Tech stack**: Keep existing stack (Fastify, tRPC, React, Zustand, Drizzle) — extend rather than replace
 - **Auth boundary**: No auth in local mode (current loopback safety); Supabase Auth required in cloud mode
 - **AWS dependency**: Cloud features require AWS account (ECS, SQS) — local mode has zero AWS dependency

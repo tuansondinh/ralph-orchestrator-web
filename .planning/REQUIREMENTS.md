@@ -5,7 +5,7 @@
 
 ## v1 Requirements
 
-Full parity with ralph-cloud, integrated into the existing local-first app.
+Scoped parity with ralph-cloud for the control-plane capabilities listed below, integrated into the existing local-first app.
 
 ### Database
 
@@ -14,6 +14,7 @@ Full parity with ralph-cloud, integrated into the existing local-first app.
 - [ ] **DB-03**: Drizzle ORM schemas for both SQLite and Postgres dialects sharing TypeScript interfaces
 - [ ] **DB-04**: Mode resolver determines local vs cloud at startup based on environment config
 - [ ] **DB-05**: Database migrations work for both SQLite (Drizzle Kit) and Postgres (Supabase migrations)
+- [ ] **DB-06**: Switching between local and cloud modes does not delete or mutate existing local SQLite data; no automatic cross-mode migration is required in v1
 
 ### Authentication
 
@@ -96,19 +97,19 @@ Full parity with ralph-cloud, integrated into the existing local-first app.
 ### Frontend
 
 - [ ] **UI-01**: Cloud UI pages rebuilt from scratch using existing component patterns
-- [ ] **UI-02**: Login/signup page
-- [ ] **UI-03**: Organization and project management pages
-- [ ] **UI-04**: Credential settings page
-- [ ] **UI-05**: Usage dashboard page
-- [ ] **UI-06**: Remote loop monitoring with live output
-- [ ] **UI-07**: Preview deployment management page
-- [ ] **UI-08**: Collaborators management page
+- [ ] **UI-02**: Login/signup page delivered with Authentication
+- [ ] **UI-03**: Organization and project management pages delivered with Multi-Tenancy
+- [ ] **UI-04**: Credential settings page delivered with Credentials
+- [ ] **UI-05**: Usage dashboard page delivered with Usage tracking
+- [ ] **UI-06**: Remote loop monitoring with live output delivered with Remote Runtimes
+- [ ] **UI-07**: Preview deployment management page delivered with Preview Deployments
+- [ ] **UI-08**: Collaborators management page delivered with Interactive Sessions / Multi-Tenancy
 - [ ] **UI-09**: Mode indicator showing local vs cloud
 
 ### Mode Switching
 
 - [ ] **MODE-01**: Local mode works exactly as today with zero cloud dependencies
-- [ ] **MODE-02**: Cloud mode activates when Supabase/AWS env vars are configured
+- [ ] **MODE-02**: Cloud mode activates when Supabase env vars are configured; AWS-dependent capabilities remain disabled until AWS env vars are also configured
 - [ ] **MODE-03**: Feature detection determines available capabilities per mode
 
 ## v2 Requirements
@@ -137,6 +138,7 @@ Full parity with ralph-cloud, integrated into the existing local-first app.
 | DB-03 | Phase 1 | Pending |
 | DB-04 | Phase 1 | Pending |
 | DB-05 | Phase 1 | Pending |
+| DB-06 | Phase 1 | Pending |
 | MODE-01 | Phase 1 | Pending |
 | MODE-02 | Phase 1 | Pending |
 | MODE-03 | Phase 1 | Pending |
@@ -145,6 +147,7 @@ Full parity with ralph-cloud, integrated into the existing local-first app.
 | AUTH-03 | Phase 2 | Pending |
 | AUTH-04 | Phase 2 | Pending |
 | AUTH-05 | Phase 2 | Pending |
+| UI-02 | Phase 2 | Pending |
 | ORG-01 | Phase 3 | Pending |
 | ORG-02 | Phase 3 | Pending |
 | ORG-03 | Phase 3 | Pending |
@@ -154,6 +157,8 @@ Full parity with ralph-cloud, integrated into the existing local-first app.
 | PROJ-02 | Phase 3 | Pending |
 | PROJ-03 | Phase 3 | Pending |
 | PROJ-04 | Phase 3 | Pending |
+| UI-03 | Phase 3 | Pending |
+| UI-08 | Phase 3 | Pending |
 | RUN-01 | Phase 4 | Pending |
 | RUN-02 | Phase 4 | Pending |
 | RUN-03 | Phase 4 | Pending |
@@ -164,6 +169,7 @@ Full parity with ralph-cloud, integrated into the existing local-first app.
 | SESS-02 | Phase 4 | Pending |
 | SESS-03 | Phase 4 | Pending |
 | SESS-04 | Phase 4 | Pending |
+| UI-06 | Phase 4 | Pending |
 | CRED-01 | Phase 5 | Pending |
 | CRED-02 | Phase 5 | Pending |
 | CRED-03 | Phase 5 | Pending |
@@ -172,6 +178,8 @@ Full parity with ralph-cloud, integrated into the existing local-first app.
 | USE-02 | Phase 5 | Pending |
 | USE-03 | Phase 5 | Pending |
 | AUD-01 | Phase 5 | Pending |
+| UI-04 | Phase 5 | Pending |
+| UI-05 | Phase 5 | Pending |
 | PREV-01 | Phase 6 | Pending |
 | PREV-02 | Phase 6 | Pending |
 | PREV-03 | Phase 6 | Pending |
@@ -182,22 +190,16 @@ Full parity with ralph-cloud, integrated into the existing local-first app.
 | RT-01 | Phase 6 | Pending |
 | RT-02 | Phase 6 | Pending |
 | RT-03 | Phase 6 | Pending |
+| UI-07 | Phase 6 | Pending |
 | UI-01 | Phase 7 | Pending |
-| UI-02 | Phase 7 | Pending |
-| UI-03 | Phase 7 | Pending |
-| UI-04 | Phase 7 | Pending |
-| UI-05 | Phase 7 | Pending |
-| UI-06 | Phase 7 | Pending |
-| UI-07 | Phase 7 | Pending |
-| UI-08 | Phase 7 | Pending |
 | UI-09 | Phase 7 | Pending |
 | INFRA-01 | Phase 7 | Pending |
 | INFRA-02 | Phase 7 | Pending |
 | INFRA-03 | Phase 7 | Pending |
 
 **Coverage:**
-- v1 requirements: 62 total
-- Mapped to phases: 62
+- v1 requirements: 63 total
+- Mapped to phases: 63
 - Unmapped: 0
 
 ---

@@ -2,13 +2,13 @@ event_loop:
    prompt_file: "PROMPT.md"
    completion_promise: "LOOP_COMPLETE"
    starting_event: "build.start" # Ralph publishes this after coordination
-   max_iterations: 50 # Generous for multi-task implementation
-   max_runtime_seconds: 5000 
+   max_iterations: 100 # Generous for multi-task implementation
+   max_runtime_seconds: 50000
    checkpoint_interval: 5
 
 cli:
-   backend: "claude"
-   args: ["--model", "sonnet"]
+   backend: "codex"
+   #args: ["--model", "sonnet"]
 
 core:
    specs_dir: ".ralph/specs/"
@@ -18,7 +18,6 @@ core:
       - "YAGNI ruthlessly — no speculative features"
       - "KISS always — simplest solution that works"
       - "Confidence protocol: score decisions 0-100. >80 proceed autonomously; 50-80 proceed + document in .ralph/agent/decisions.md; <50 choose safe default + document."
-
 
 hats:
    planner:
@@ -139,7 +138,9 @@ hats:
             - Clean up code while keeping tests green
             - Apply patterns from codebase context
             - Run tests again — still green
-         6. GIT COMMIT
+         6. **VERIFY** — Acceptance criteria
+            - Use mcp playwright (for web) to verify the acceptance criteria
+         7. GIT COMMIT your implementation
 
          ### If Triggered by validation.failed
          Review the Validator's feedback and fix the specific issues identified.

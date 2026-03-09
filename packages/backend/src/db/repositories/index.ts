@@ -166,6 +166,13 @@ function createSqliteLoopRunRepository(db: SqliteDb): LoopRunRepository {
         throw new Error(`Loop run not found after update: ${id}`)
       }
       return updated
+    },
+    async findByState(states) {
+      if (states.length === 0) {
+        return []
+      }
+      const all = await db.select().from(sqliteSchema.loopRuns).all()
+      return all.filter(run => states.includes(run.state))
     }
   }
 }
@@ -415,6 +422,13 @@ function createPostgresLoopRunRepository(db: PostgresDb): LoopRunRepository {
         throw new Error(`Loop run not found after update: ${id}`)
       }
       return updated
+    },
+    async findByState(states) {
+      if (states.length === 0) {
+        return []
+      }
+      const all = await db.select().from(postgresSchema.loopRuns)
+      return all.filter(run => states.includes(run.state))
     }
   }
 }

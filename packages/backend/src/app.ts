@@ -233,6 +233,14 @@ export function createApp(options: CreateAppOptions = {}) {
     new LoopService(repositories, processManager, {
       resolveBinary: resolveConfiguredBinary
     })
+  
+  // Recover stale loop state in the background - don't block app startup
+  setImmediate(() => {
+    loopService.recoverState().catch((error) => {
+      app.log.warn({ error }, 'Failed to recover loop state on startup (non-fatal)')
+    })
+  })
+  
   const chatService =
     new ChatService(repositories, processManager, {
       resolveBinary: resolveConfiguredBinary,

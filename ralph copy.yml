@@ -7,8 +7,8 @@ event_loop:
    checkpoint_interval: 5
 
 cli:
-   backend: "opencode"
-   args: ["--model", "zai-coding-plan/glm-5"]
+   backend: "codex"
+   #args: ["--model", "sonnet"]
 
 core:
    specs_dir: ".ralph/specs/"
@@ -21,8 +21,8 @@ core:
 
 hats:
    planner:
-      name: "📋 Task Planner"
-      description: "Detects input type, bootstraps implementation context, and ensures a detailed implementation plan exists for each task."
+      name: "📋 Planner"
+      description: "Detects input type and bootstraps implementation context from PDD output, code tasks, or descriptions."
       triggers: ["build.start"]
       publishes: ["tasks.ready"]
       default_publishes: "tasks.ready"
@@ -55,19 +55,16 @@ hats:
          1. Verify directory exists and has `tasks/` subdirectory
          2. List all `.code-task.md` files in `tasks/`
          3. Derive `task_name` from directory name (e.g., `specs/my-feature` → `my-feature`)
-         4. For each task, check if a detailed implementation plan exists. If NOT, create a detailed, step-by-step implementation plan tailored for a junior developer to follow, and append it to the task file.
-         5. Publish `tasks.ready` with context about task queue
+         4. Publish `tasks.ready` with context about task queue
 
          **For Single Code Task:**
          1. Verify file exists and is readable
          2. Derive `task_name` from filename (e.g., `add-verbose-flag`)
-         3. Check if the task file contains a detailed implementation plan. If NOT, create a detailed, step-by-step implementation plan tailored for a junior developer to follow, and append it to the task file.
-         4. Publish `tasks.ready`
+         3. Publish `tasks.ready`
 
          **For Rough Description:**
          1. Derive `task_name` from description (kebab-case, e.g., "Add verbose flag" → `add-verbose-flag`)
-         2. Create a detailed, step-by-step implementation plan tailored for a junior developer to follow.
-         3. Publish `tasks.ready`
+         2. Publish `tasks.ready`
 
          ### Constraints
          - You MUST NOT start implementing because implementation belongs to the Builder

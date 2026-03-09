@@ -33,7 +33,8 @@ function createMockRepos(mockLoopOutput: ReturnType<typeof createMockRepo> = cre
       listByProjectId: vi.fn(),
       findById: vi.fn(),
       create: vi.fn(),
-      update: vi.fn()
+      update: vi.fn(),
+      findByState: vi.fn()
     },
     chats: {} as RepositoryBundle['chats'],
     notifications: {} as RepositoryBundle['notifications'],

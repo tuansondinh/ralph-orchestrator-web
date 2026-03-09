@@ -54,7 +54,8 @@ function createLoopRunRepositoryStub(): LoopRunRepository {
       errors: updates.errors ?? 0,
       startedAt: updates.startedAt ?? 1,
       endedAt: updates.endedAt ?? null
-    }))
+    })),
+    findByState: vi.fn(async () => [])
   }
 }
 

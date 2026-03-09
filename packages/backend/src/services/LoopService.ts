@@ -266,6 +266,25 @@ export class LoopService {
     this.metricsService = new LoopMetricsService(this.now)
   }
 
+  async recoverState(): Promise<void> {
+    const staleRuns = await this.loopRuns.findByState(['running', 'queued'])
+    
+    for (const run of staleRuns) {
+      const nowMs = this.now().getTime()
+      const parsedConfig = parseConfigRecord(run.config)
+      const updatedConfig = JSON.stringify({
+        ...parsedConfig,
+        _recoveryError: 'App process restarted — loop stopped'
+      })
+      
+      await this.loopRuns.update(run.id, {
+        state: 'failed',
+        config: updatedConfig,
+        endedAt: nowMs
+      })
+    }
+  }
+
   async start(projectId: string, options: LoopStartOptions = {}): Promise<LoopSummary> {
     const project = await this.requireProject(projectId)
 
@@ -1039,12 +1058,15 @@ export class LoopService {
     const nextState = asString(payload.state)
     if (nextState) {
       updates.state = nextState
-      this.events.emit(`${STATE_EVENT_PREFIX}${loopId}`, nextState)
-      await this.notificationService.notifyForLoopState(loopId, nextState, runtime.notified)
     }
 
     if (Object.keys(updates).length > 0) {
       await this.loopRuns.update(loopId, updates)
+    }
+
+    if (nextState) {
+      this.events.emit(`${STATE_EVENT_PREFIX}${loopId}`, nextState)
+      await this.notificationService.notifyForLoopState(loopId, nextState, runtime.notified)
     }
   }
 

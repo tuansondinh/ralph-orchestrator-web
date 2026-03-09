@@ -135,6 +135,7 @@ export interface LoopRunRepository {
   findById(id: string): Promise<LoopRunRecord | null>
   create(run: LoopRunRecord): Promise<LoopRunRecord>
   update(id: string, updates: LoopRunUpdate): Promise<LoopRunRecord>
+  findByState(states: string[]): Promise<LoopRunRecord[]>
 }
 
 export interface ChatRepository {

@@ -1,7 +1,9 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
+import crypto from 'crypto'
 import type { ModelMessage } from 'ai'
 import cors from '@fastify/cors'
 import fastifyStatic from '@fastify/static'
+import cookie from '@fastify/cookie'
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -38,10 +40,12 @@ import { RalphMcpServer } from './mcp/RalphMcpServer.js'
 import { resolveRalphBinary } from './lib/ralph.js'
 import { isOriginAllowed, parseAllowedOrigins } from './lib/origin.js'
 import { registerWebsocket } from './api/websocket.js'
+import { registerGitHubAuthRoutes } from './api/githubAuth.js'
 import {
   initSupabaseAuth,
   supabaseAuthHook
 } from './auth/supabaseAuth.js'
+import { GitHubService } from './services/GitHubService.js'
 
 const CHAT_STREAM_MESSAGE_SCHEMA = z
   .object({
@@ -372,7 +376,30 @@ export function createApp(options: CreateAppOptions = {}) {
         await supabaseAuthHook(request, reply)
       })
     }
+
+    const githubClientId = runtime.cloud.githubClientId
+    const githubClientSecret = runtime.cloud.githubClientSecret
+    const githubCallbackUrl = runtime.cloud.githubCallbackUrl
+    
+    if (githubClientId && githubClientSecret && githubCallbackUrl) {
+      const encryptionKey = crypto.createHash('sha256')
+        .update(githubClientSecret)
+        .digest()
+      
+      const githubService = new GitHubService(
+        repositories.githubConnections,
+        githubClientId,
+        githubClientSecret,
+        githubCallbackUrl,
+        encryptionKey
+      )
+      app.decorate('githubService', githubService)
+      
+      registerGitHubAuthRoutes(app)
+    }
   }
+
+  app.register(cookie)
 
   app.register(cors, {
     origin: (origin, callback) => {

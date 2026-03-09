@@ -16,6 +16,9 @@ export interface CloudRuntimeConfig {
   supabaseUrl: string
   supabaseAnonKey: string
   databaseUrl: string
+  githubClientId?: string
+  githubClientSecret?: string
+  githubCallbackUrl?: string
 }
 
 export interface ResolvedRuntimeMode {
@@ -113,7 +116,10 @@ export function resolveRuntimeMode(
     cloud: {
       supabaseUrl: values.SUPABASE_URL!,
       supabaseAnonKey: values.SUPABASE_ANON_KEY!,
-      databaseUrl: values.SUPABASE_DB_URL!
+      databaseUrl: values.SUPABASE_DB_URL!,
+      githubClientId: (env as any).GITHUB_CLIENT_ID,
+      githubClientSecret: (env as any).GITHUB_CLIENT_SECRET,
+      githubCallbackUrl: (env as any).GITHUB_CALLBACK_URL
     }
   }
 }

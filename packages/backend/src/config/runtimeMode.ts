@@ -1,4 +1,9 @@
+import path from 'path';
+import os from 'os';
+
 export type RuntimeMode = 'local' | 'cloud'
+
+export const WORKSPACE_BASE_DIR = process.env.RALPH_UI_WORKSPACE_DIR || path.join(os.homedir(), '.ralph-ui', 'workspaces');
 
 export interface RuntimeCapabilities {
   mode: RuntimeMode

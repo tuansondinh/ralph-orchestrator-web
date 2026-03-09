@@ -46,6 +46,8 @@ import {
   supabaseAuthHook
 } from './auth/supabaseAuth.js'
 import { GitHubService } from './services/GitHubService.js'
+import { LocalWorkspaceManager } from './services/WorkspaceManager.js'
+import { WORKSPACE_BASE_DIR } from './config/runtimeMode.js'
 
 const CHAT_STREAM_MESSAGE_SCHEMA = z
   .object({
@@ -397,6 +399,9 @@ export function createApp(options: CreateAppOptions = {}) {
       
       registerGitHubAuthRoutes(app)
     }
+
+    const workspaceManager = new LocalWorkspaceManager(WORKSPACE_BASE_DIR)
+    app.decorate('workspaceManager', workspaceManager)
   }
 
   app.register(cookie)

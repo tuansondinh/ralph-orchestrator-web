@@ -17,6 +17,8 @@ import type { PresetService } from '../services/PresetService.js'
 import type { SettingsService } from '../services/SettingsService.js'
 import type { HatsPresetService } from '../services/HatsPresetService.js'
 import type { TaskService } from '../services/TaskService.js'
+import type { GitHubService } from '../services/GitHubService.js'
+import type { WorkspaceManager } from '../services/WorkspaceManager.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -38,6 +40,8 @@ declare module 'fastify' {
     settingsService: SettingsService
     hatsPresetService: HatsPresetService
     taskService: TaskService
+    githubService?: GitHubService
+    workspaceManager?: WorkspaceManager
   }
 
   interface FastifyRequest {

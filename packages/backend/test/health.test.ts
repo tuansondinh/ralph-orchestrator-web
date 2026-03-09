@@ -20,8 +20,12 @@ describe('GET /health', () => {
           mode: 'local',
           database: true,
           auth: false,
-          remoteExecution: false,
-          realtime: false
+          localProjects: true,
+          githubProjects: false,
+          terminal: true,
+          preview: true,
+          localDirectoryPicker: true,
+          mcp: true
         }
       }
     })
@@ -51,9 +55,13 @@ describe('GET /health', () => {
           capabilities: {
             mode: 'cloud',
             database: true,
-            auth: false,
-            remoteExecution: false,
-            realtime: false
+            auth: true,
+            localProjects: false,
+            githubProjects: true,
+            terminal: false,
+            preview: false,
+            localDirectoryPicker: false,
+            mcp: false
           }
         }
       })

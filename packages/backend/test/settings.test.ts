@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appRouter } from '../src/trpc/router.js'
+import { createTestRuntime } from './test-helpers.js'
 import {
   chatMessages,
   chatSessions,
@@ -138,6 +139,7 @@ describe('settings tRPC routes', () => {
     const previewService = new DevPreviewManager(connection.db, processManager)
 
     const caller = appRouter.createCaller({
+      runtime: createTestRuntime(),
       db: connection.db,
       processManager,
       loopService,
@@ -371,6 +373,7 @@ describe('app integration: configured binary path', () => {
       .run()
 
     const caller = appRouter.createCaller({
+      runtime: createTestRuntime(),
       db: app.db,
       processManager: app.processManager,
       loopService: app.loopService,

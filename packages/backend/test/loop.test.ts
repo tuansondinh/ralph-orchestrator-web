@@ -28,6 +28,7 @@ import { LoopService } from '../src/services/LoopService.js'
 import { ChatService } from '../src/services/ChatService.js'
 import { MonitoringService } from '../src/services/MonitoringService.js'
 import { DevPreviewManager } from '../src/services/DevPreviewManager.js'
+import { createTestRuntime } from './test-helpers.js'
 import { ProjectService } from '../src/services/ProjectService.js'
 import { PresetService } from '../src/services/PresetService.js'
 import { SettingsService } from '../src/services/SettingsService.js'
@@ -332,6 +333,7 @@ describe('loop tRPC routes', () => {
     const previewService = new DevPreviewManager(connection.db, processManager)
 
     const caller = appRouter.createCaller({
+      runtime: createTestRuntime(),
       db: connection.db,
       processManager,
       loopService,

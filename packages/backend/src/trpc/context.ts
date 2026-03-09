@@ -1,6 +1,7 @@
 /// <reference path="../types/fastify.d.ts" />
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import type { ResolvedRuntimeMode } from '../config/runtimeMode.js'
 import type { schema } from '../db/schema.js'
 import type { ProcessManager } from '../runner/ProcessManager.js'
 import type { LoopService } from '../services/LoopService.js'
@@ -16,6 +17,7 @@ import type { HatsPresetService } from '../services/HatsPresetService.js'
 import type { TaskService } from '../services/TaskService.js'
 
 export interface Context {
+  runtime: ResolvedRuntimeMode
   db: BetterSQLite3Database<typeof schema>
   processManager: ProcessManager
   loopService: LoopService
@@ -33,6 +35,7 @@ export interface Context {
 
 export function createContext(opts: CreateFastifyContextOptions): Context {
   return {
+    runtime: opts.req.server.runtimeConfig,
     db: opts.req.server.db,
     processManager: opts.req.server.processManager,
     loopService: opts.req.server.loopService,

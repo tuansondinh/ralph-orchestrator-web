@@ -3,9 +3,13 @@ export type RuntimeMode = 'local' | 'cloud'
 export interface RuntimeCapabilities {
   mode: RuntimeMode
   database: true
-  auth: false
-  remoteExecution: false
-  realtime: false
+  auth: boolean
+  localProjects: boolean
+  githubProjects: boolean
+  terminal: boolean
+  preview: boolean
+  localDirectoryPicker: boolean
+  mcp: boolean
 }
 
 export interface CloudRuntimeConfig {
@@ -54,12 +58,30 @@ function readEnvValue(env: RuntimeEnv, key: (typeof CLOUD_ENV_KEYS)[number]) {
 }
 
 export function getRuntimeCapabilities(mode: RuntimeMode): RuntimeCapabilities {
+  if (mode === 'cloud') {
+    return {
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    }
+  }
+  
   return {
-    mode,
+    mode: 'local',
     database: true,
     auth: false,
-    remoteExecution: false,
-    realtime: false
+    localProjects: true,
+    githubProjects: false,
+    terminal: true,
+    preview: true,
+    localDirectoryPicker: true,
+    mcp: true
   }
 }
 

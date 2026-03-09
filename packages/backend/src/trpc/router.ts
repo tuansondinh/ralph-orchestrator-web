@@ -820,6 +820,9 @@ const taskRouter = t.router({
 
 export const appRouter = t.router({
   healthcheck: t.procedure.query(() => ({ status: 'ok' })),
+  capabilities: t.procedure.query(({ ctx }) => {
+    return ctx.runtime.capabilities
+  }),
   project: projectRouter,
   loop: loopRouter,
   task: taskRouter,

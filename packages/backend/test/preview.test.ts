@@ -25,6 +25,7 @@ import { TaskService } from '../src/services/TaskService.js'
 import { LoopService } from '../src/services/LoopService.js'
 import { MonitoringService } from '../src/services/MonitoringService.js'
 import { appRouter } from '../src/trpc/router.js'
+import { createTestRuntime } from './test-helpers.js'
 
 async function waitFor(
   predicate: () => boolean | Promise<boolean>,
@@ -202,6 +203,7 @@ describe('preview tRPC routes', () => {
     })
 
     const caller = appRouter.createCaller({
+      runtime: createTestRuntime(),
       db: connection.db,
       processManager,
       loopService,

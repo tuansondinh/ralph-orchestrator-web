@@ -36,9 +36,13 @@ describe('createApp database provider wiring', () => {
         capabilities: {
           mode: 'cloud',
           database: true,
-          auth: false,
-          remoteExecution: false,
-          realtime: false
+          auth: true,
+          localProjects: false,
+          githubProjects: true,
+          terminal: false,
+          preview: false,
+          localDirectoryPicker: false,
+          mcp: false
         },
         cloud: {
           supabaseUrl: 'https://example.supabase.co',

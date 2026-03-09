@@ -23,6 +23,7 @@ import { SettingsService } from '../src/services/SettingsService.js'
 import { HatsPresetService } from '../src/services/HatsPresetService.js'
 import { TaskService } from '../src/services/TaskService.js'
 import { appRouter } from '../src/trpc/router.js'
+import { createTestRuntime } from './test-helpers.js'
 
 const execFile = promisify(execFileCallback)
 
@@ -112,6 +113,7 @@ describe('monitoring service', () => {
     const previewService = new DevPreviewManager(connection.db, processManager)
 
     const caller = appRouter.createCaller({
+      runtime: createTestRuntime(),
       db: connection.db,
       processManager,
       loopService,

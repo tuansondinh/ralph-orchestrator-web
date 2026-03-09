@@ -15,8 +15,12 @@ describe('runtime mode resolution', () => {
         mode: 'local',
         database: true,
         auth: false,
-        remoteExecution: false,
-        realtime: false
+        localProjects: true,
+        githubProjects: false,
+        terminal: true,
+        preview: true,
+        localDirectoryPicker: true,
+        mcp: true
       }
     })
   })
@@ -33,9 +37,13 @@ describe('runtime mode resolution', () => {
       capabilities: {
         mode: 'cloud',
         database: true,
-        auth: false,
-        remoteExecution: false,
-        realtime: false
+        auth: true,
+        localProjects: false,
+        githubProjects: true,
+        terminal: false,
+        preview: false,
+        localDirectoryPicker: false,
+        mcp: false
       },
       cloud: {
         supabaseUrl: 'https://example.supabase.co',
@@ -61,21 +69,29 @@ describe('runtime mode resolution', () => {
     )
   })
 
-  it('returns phase 1 capability flags for both supported modes', () => {
+  it('returns capability flags for both supported modes', () => {
     expect(getRuntimeCapabilities('local')).toEqual({
       mode: 'local',
       database: true,
       auth: false,
-      remoteExecution: false,
-      realtime: false
+      localProjects: true,
+      githubProjects: false,
+      terminal: true,
+      preview: true,
+      localDirectoryPicker: true,
+      mcp: true
     })
 
     expect(getRuntimeCapabilities('cloud')).toEqual({
       mode: 'cloud',
       database: true,
-      auth: false,
-      remoteExecution: false,
-      realtime: false
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
     })
   })
 })

@@ -11,6 +11,7 @@ import {
 } from '../src/db/connection.js'
 import { projects } from '../src/db/schema.js'
 import { appRouter } from '../src/trpc/router.js'
+import { createTestRuntime } from './test-helpers.js'
 import { ProcessManager } from '../src/runner/ProcessManager.js'
 import { ChatService } from '../src/services/ChatService.js'
 import { DevPreviewManager } from '../src/services/DevPreviewManager.js'
@@ -124,6 +125,7 @@ describe('preset features', () => {
     const previewService = new DevPreviewManager(connection.db, processManager)
 
     const caller = appRouter.createCaller({
+      runtime: createTestRuntime(),
       db: connection.db,
       processManager,
       loopService,

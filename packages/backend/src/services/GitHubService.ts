@@ -2,6 +2,13 @@ import crypto from 'crypto';
 import type { GitHubConnectionRepository, GitHubConnectionRecord } from '../db/repositories/contracts.js';
 
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+const OAUTH_SESSION_TTL_MS = 10 * 60 * 1000;
+
+interface GitHubOauthSessionPayload {
+  userId: string;
+  state: string;
+  expiresAt: number;
+}
 
 export class GitHubService {
   constructor(
@@ -11,6 +18,62 @@ export class GitHubService {
     private callbackUrl: string,
     private encryptionKey: Buffer,
   ) {}
+
+  createOauthSession(userId: string): {
+    state: string;
+    cookieValue: string;
+    maxAgeSeconds: number;
+  } {
+    const state = crypto.randomBytes(16).toString('hex');
+    const payload = Buffer.from(
+      JSON.stringify({
+        userId,
+        state,
+        expiresAt: Date.now() + OAUTH_SESSION_TTL_MS,
+      } satisfies GitHubOauthSessionPayload)
+    ).toString('base64url');
+    const signature = this.signValue(payload);
+
+    return {
+      state,
+      cookieValue: `${payload}.${signature}`,
+      maxAgeSeconds: Math.floor(OAUTH_SESSION_TTL_MS / 1000),
+    };
+  }
+
+  readOauthSession(cookieValue?: string): GitHubOauthSessionPayload | null {
+    if (!cookieValue) {
+      return null;
+    }
+
+    const [payload, signature] = cookieValue.split('.', 2);
+    if (!payload || !signature || this.signValue(payload) !== signature) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(
+        Buffer.from(payload, 'base64url').toString('utf8')
+      ) as Partial<GitHubOauthSessionPayload>;
+
+      if (
+        typeof parsed.userId !== 'string' ||
+        typeof parsed.state !== 'string' ||
+        typeof parsed.expiresAt !== 'number' ||
+        parsed.expiresAt < Date.now()
+      ) {
+        return null;
+      }
+
+      return {
+        userId: parsed.userId,
+        state: parsed.state,
+        expiresAt: parsed.expiresAt,
+      };
+    } catch {
+      return null;
+    }
+  }
 
   getAuthorizationUrl(state: string): string {
     const params = new URLSearchParams({
@@ -121,7 +184,32 @@ export class GitHubService {
     return this.decrypt(conn.accessToken);
   }
 
+  async listConnectedRepos(
+    userId: string,
+    page = 1,
+    perPage = 30
+  ): Promise<{
+    repos: Array<{
+      id: number;
+      fullName: string;
+      private: boolean;
+      defaultBranch: string;
+      htmlUrl: string;
+    }>;
+    hasMore: boolean;
+  }> {
+    const token = await this.getDecryptedToken(userId);
+    return this.listRepos(token, page, perPage);
+  }
+
   async disconnect(userId: string): Promise<void> {
     await this.githubConnectionRepo.delete(userId);
+  }
+
+  private signValue(value: string): string {
+    return crypto
+      .createHmac('sha256', this.clientSecret)
+      .update(value)
+      .digest('base64url');
   }
 }

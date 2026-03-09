@@ -109,4 +109,39 @@ describe('dual-dialect schema bundles', () => {
     expect(sqliteChatMessageForeignKeys[0]?.onDelete).toBe('cascade')
     expect(postgresChatMessageForeignKeys[0]?.onDelete).toBe('cascade')
   })
+
+  it('keeps cloud-only tables and project metadata isolated to postgres', () => {
+    const sqliteProjectColumns = getTableColumns(sqliteSchema.projects)
+    const postgresProjectColumns = getTableColumns(postgresSchema.projects)
+    const githubConnectionColumns = getTableColumns(postgresSchema.githubConnections)
+    const loopOutputChunkColumns = getTableColumns(postgresSchema.loopOutputChunks)
+    const loopOutputChunkForeignKeys = getInlineForeignKeys(postgresSchema.loopOutputChunks)
+
+    expect(sqliteSchema).not.toHaveProperty('githubConnections')
+    expect(sqliteSchema).not.toHaveProperty('loopOutputChunks')
+
+    expect(postgresSchema).toHaveProperty('githubConnections')
+    expect(postgresSchema).toHaveProperty('loopOutputChunks')
+
+    expect(sqliteProjectColumns).not.toHaveProperty('userId')
+    expect(sqliteProjectColumns).not.toHaveProperty('githubOwner')
+    expect(sqliteProjectColumns).not.toHaveProperty('githubRepo')
+    expect(sqliteProjectColumns).not.toHaveProperty('defaultBranch')
+    expect(sqliteProjectColumns).not.toHaveProperty('workspacePath')
+
+    expect(postgresProjectColumns).toHaveProperty('userId')
+    expect(postgresProjectColumns).toHaveProperty('githubOwner')
+    expect(postgresProjectColumns).toHaveProperty('githubRepo')
+    expect(postgresProjectColumns).toHaveProperty('defaultBranch')
+    expect(postgresProjectColumns).toHaveProperty('workspacePath')
+
+    expect(githubConnectionColumns).toHaveProperty('accessToken')
+    expect(githubConnectionColumns).toHaveProperty('connectedAt')
+    expect(loopOutputChunkColumns).toHaveProperty('loopRunId')
+    expect(loopOutputChunkColumns).toHaveProperty('sequence')
+    expect(loopOutputChunkColumns).toHaveProperty('stream')
+    expect(loopOutputChunkColumns).toHaveProperty('data')
+    expect(loopOutputChunkForeignKeys).toHaveLength(1)
+    expect(loopOutputChunkForeignKeys[0]?.onDelete).toBe('cascade')
+  })
 })

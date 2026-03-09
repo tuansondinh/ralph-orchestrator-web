@@ -12,6 +12,10 @@ import {
   type ChatSessionRecord,
   type ChatSessionState,
   type ChatSessionType,
+  type GitHubConnectionRecord,
+  type GitHubConnectionRepository,
+  type LoopOutputChunkRecord,
+  type LoopOutputRepository,
   type LoopRunRepository,
   type NotificationListOptions,
   type NotificationRecord,
@@ -313,13 +317,43 @@ function createSqliteSettingsRepository(db: SqliteDb): SettingsRepository {
   }
 }
 
+function createSqliteGitHubConnectionRepository(): GitHubConnectionRepository {
+  return {
+    async findByUserId() {
+      throw new Error('GitHub connections are not available in local mode')
+    },
+    async create() {
+      throw new Error('GitHub connections are not available in local mode')
+    },
+    async delete() {
+      throw new Error('GitHub connections are not available in local mode')
+    }
+  }
+}
+
+function createSqliteLoopOutputRepository(): LoopOutputRepository {
+  return {
+    async append() {
+      throw new Error('Loop output persistence is not available in local mode')
+    },
+    async getByLoopRunId() {
+      throw new Error('Loop output persistence is not available in local mode')
+    },
+    async deleteByLoopRunId() {
+      throw new Error('Loop output persistence is not available in local mode')
+    }
+  }
+}
+
 export function createSqliteRepositoryBundle(db: SqliteDb): RepositoryBundle {
   return defineRepositoryBundle({
     projects: createSqliteProjectRepository(db),
     loopRuns: createSqliteLoopRunRepository(db),
     chats: createSqliteChatRepository(db),
     notifications: createSqliteNotificationRepository(db),
-    settings: createSqliteSettingsRepository(db)
+    settings: createSqliteSettingsRepository(db),
+    githubConnections: createSqliteGitHubConnectionRepository(),
+    loopOutput: createSqliteLoopOutputRepository()
   })
 }
 
@@ -512,13 +546,72 @@ function createPostgresSettingsRepository(db: PostgresDb): SettingsRepository {
   }
 }
 
+function createPostgresGitHubConnectionRepository(db: PostgresDb): GitHubConnectionRepository {
+  return {
+    async findByUserId(userId) {
+      const rows = await db
+        .select()
+        .from(postgresSchema.githubConnections)
+        .where(eq(postgresSchema.githubConnections.userId, userId))
+      return rows[0] ?? null
+    },
+    async create(record) {
+      await db.insert(postgresSchema.githubConnections).values(record)
+    },
+    async delete(userId) {
+      await db
+        .delete(postgresSchema.githubConnections)
+        .where(eq(postgresSchema.githubConnections.userId, userId))
+    }
+  }
+}
+
+function createPostgresLoopOutputRepository(db: PostgresDb): LoopOutputRepository {
+  return {
+    async append(chunk) {
+      await db.insert(postgresSchema.loopOutputChunks).values(chunk)
+    },
+    async getByLoopRunId(loopRunId, afterSequence) {
+      if (afterSequence !== undefined) {
+        const rows = await db
+          .select()
+          .from(postgresSchema.loopOutputChunks)
+          .where(eq(postgresSchema.loopOutputChunks.loopRunId, loopRunId))
+        return rows
+          .filter((row) => row.sequence > afterSequence)
+          .sort((a, b) => a.sequence - b.sequence)
+          .map((row) => ({
+            ...row,
+            stream: row.stream as 'stdout' | 'stderr'
+          }))
+      }
+
+      const rows = await db
+        .select()
+        .from(postgresSchema.loopOutputChunks)
+        .where(eq(postgresSchema.loopOutputChunks.loopRunId, loopRunId))
+      return rows.sort((a, b) => a.sequence - b.sequence).map((row) => ({
+        ...row,
+        stream: row.stream as 'stdout' | 'stderr'
+      }))
+    },
+    async deleteByLoopRunId(loopRunId) {
+      await db
+        .delete(postgresSchema.loopOutputChunks)
+        .where(eq(postgresSchema.loopOutputChunks.loopRunId, loopRunId))
+    }
+  }
+}
+
 export function createPostgresRepositoryBundle(db: PostgresDb): RepositoryBundle {
   return defineRepositoryBundle({
     projects: createPostgresProjectRepository(db),
     loopRuns: createPostgresLoopRunRepository(db),
     chats: createPostgresChatRepository(db),
     notifications: createPostgresNotificationRepository(db),
-    settings: createPostgresSettingsRepository(db)
+    settings: createPostgresSettingsRepository(db),
+    githubConnections: createPostgresGitHubConnectionRepository(db),
+    loopOutput: createPostgresLoopOutputRepository(db)
   })
 }
 

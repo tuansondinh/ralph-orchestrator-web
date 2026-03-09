@@ -4,6 +4,8 @@ import {
   type ChatMessageRecord,
   type ChatRepository,
   type ChatSessionRecord,
+  type GitHubConnectionRepository,
+  type LoopOutputRepository,
   type LoopRunRecord,
   type LoopRunRepository,
   type NotificationRecord,
@@ -101,6 +103,22 @@ function createSettingsRepositoryStub(): SettingsRepository {
   }
 }
 
+function createGitHubConnectionRepositoryStub(): GitHubConnectionRepository {
+  return {
+    findByUserId: vi.fn(async () => null),
+    create: vi.fn(async () => {}),
+    delete: vi.fn(async () => {})
+  }
+}
+
+function createLoopOutputRepositoryStub(): LoopOutputRepository {
+  return {
+    append: vi.fn(async () => {}),
+    getByLoopRunId: vi.fn(async () => []),
+    deleteByLoopRunId: vi.fn(async () => {})
+  }
+}
+
 function exerciseRepositoryBundle(bundle: RepositoryBundle) {
   void bundle.projects.list()
   void bundle.projects.findById('project-1')
@@ -194,7 +212,9 @@ describe('repository contracts', () => {
       loopRuns: createLoopRunRepositoryStub(),
       chats: createChatRepositoryStub(),
       notifications: createNotificationRepositoryStub(),
-      settings: createSettingsRepositoryStub()
+      settings: createSettingsRepositoryStub(),
+      githubConnections: createGitHubConnectionRepositoryStub(),
+      loopOutput: createLoopOutputRepositoryStub()
     })
 
     expect(() => exerciseRepositoryBundle(bundle)).not.toThrow()

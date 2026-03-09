@@ -24,8 +24,18 @@ interface Harness {
   cleanup: Cleanup
 }
 
-async function verifyRepositoryContract(bundle: RepositoryBundle) {
+async function verifyRepositoryContract(bundle: RepositoryBundle, mode: 'local' | 'cloud') {
   const now = Date.now()
+  const cloudFields =
+    mode === 'cloud'
+      ? {
+          userId: null,
+          githubOwner: null,
+          githubRepo: null,
+          defaultBranch: null,
+          workspacePath: null
+        }
+      : {}
 
   expect(await bundle.projects.list()).toEqual([])
   expect(await bundle.settings.list()).toEqual([])
@@ -60,14 +70,15 @@ async function verifyRepositoryContract(bundle: RepositoryBundle) {
     updatedAt: now
   })
 
-  expect(project).toEqual({
+  expect(project).toMatchObject({
     id: 'project-1',
     name: 'Project One',
     path: '/tmp/project-one',
     type: null,
     ralphConfig: null,
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    ...cloudFields
   })
   expect(await bundle.projects.findById(project.id)).toEqual(project)
 
@@ -78,14 +89,15 @@ async function verifyRepositoryContract(bundle: RepositoryBundle) {
     updatedAt: now + 1
   })
 
-  expect(updatedProject).toEqual({
+  expect(updatedProject).toMatchObject({
     id: 'project-1',
     name: 'Project Prime',
     path: '/tmp/project-one',
     type: 'node',
     ralphConfig: 'ralph.yml',
     createdAt: now,
-    updatedAt: now + 1
+    updatedAt: now + 1,
+    ...cloudFields
   })
 
   const loopRun = await bundle.loopRuns.create({
@@ -292,7 +304,12 @@ async function createPostgresHarness(): Promise<Harness> {
       type text,
       ralph_config text,
       created_at bigint not null,
-      updated_at bigint not null
+      updated_at bigint not null,
+      user_id text,
+      github_owner text,
+      github_repo text,
+      default_branch text,
+      workspace_path text
     );
     create table loop_runs (
       id text primary key,
@@ -336,6 +353,24 @@ async function createPostgresHarness(): Promise<Harness> {
       key text primary key,
       value text not null
     );
+    create table github_connections (
+      id text primary key,
+      user_id text not null,
+      github_user_id integer not null,
+      github_username text not null,
+      access_token text not null,
+      scope text not null,
+      connected_at bigint not null
+    );
+    create table loop_output_chunks (
+      id text primary key,
+      loop_run_id text not null references loop_runs(id) on delete cascade,
+      sequence integer not null,
+      stream text not null,
+      data text not null,
+      created_at bigint not null
+    );
+    create index loop_output_chunks_loop_run_id_sequence_idx on loop_output_chunks(loop_run_id, sequence);
   `)
 
   return {
@@ -364,13 +399,13 @@ describe('repository contract parity', () => {
     const harness = await createSqliteHarness()
     cleanups.push(harness.cleanup)
 
-    await verifyRepositoryContract(harness.bundle)
+    await verifyRepositoryContract(harness.bundle, 'local')
   })
 
   it('preserves the documented repository contract in postgres cloud mode', async () => {
     const harness = await createPostgresHarness()
     cleanups.push(harness.cleanup)
 
-    await verifyRepositoryContract(harness.bundle)
+    await verifyRepositoryContract(harness.bundle, 'cloud')
   })
 })

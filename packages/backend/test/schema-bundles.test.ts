@@ -27,11 +27,23 @@ function getInlineForeignKeys(table: object) {
 }
 
 describe('dual-dialect schema bundles', () => {
-  it('exposes the same logical tables for sqlite and postgres', () => {
-    expect(Object.keys(sqliteSchema).sort()).toEqual(Object.keys(postgresSchema).sort())
+  const CLOUD_ONLY_TABLES = ['githubConnections', 'loopOutputChunks']
 
-    expect(Object.values(sqliteSchema).map(getTableName).sort()).toEqual(
-      Object.values(postgresSchema).map(getTableName).sort()
+  it('exposes the same logical tables for sqlite and postgres (excluding cloud-only tables)', () => {
+    const sqliteTables = Object.keys(sqliteSchema).filter((k) => !CLOUD_ONLY_TABLES.includes(k)).sort()
+    const postgresTables = Object.keys(postgresSchema).filter((k) => !CLOUD_ONLY_TABLES.includes(k)).sort()
+    expect(sqliteTables).toEqual(postgresTables)
+
+    expect(
+      Object.values(sqliteSchema)
+        .filter((_, i) => !CLOUD_ONLY_TABLES.includes(Object.keys(sqliteSchema)[i]))
+        .map(getTableName)
+        .sort()
+    ).toEqual(
+      Object.values(postgresSchema)
+        .filter((_, i) => !CLOUD_ONLY_TABLES.includes(Object.keys(postgresSchema)[i]))
+        .map(getTableName)
+        .sort()
     )
   })
 

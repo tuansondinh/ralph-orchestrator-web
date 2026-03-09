@@ -1,5 +1,5 @@
 import { type InferInsertModel, type InferSelectModel } from 'drizzle-orm'
-import { bigint, boolean, pgTable, text } from 'drizzle-orm/pg-core'
+import { bigint, boolean, integer, pgTable, text, index } from 'drizzle-orm/pg-core'
 
 const epoch = (name: string) => bigint(name, { mode: 'number' })
 
@@ -10,7 +10,12 @@ export const projects = pgTable('projects', {
   type: text('type'),
   ralphConfig: text('ralph_config'),
   createdAt: epoch('created_at').notNull(),
-  updatedAt: epoch('updated_at').notNull()
+  updatedAt: epoch('updated_at').notNull(),
+  userId: text('user_id'),
+  githubOwner: text('github_owner'),
+  githubRepo: text('github_repo'),
+  defaultBranch: text('default_branch'),
+  workspacePath: text('workspace_path')
 })
 
 export const loopRuns = pgTable('loop_runs', {
@@ -66,13 +71,45 @@ export const settings = pgTable('settings', {
   value: text('value').notNull()
 })
 
+export const githubConnections = pgTable('github_connections', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  githubUserId: integer('github_user_id').notNull(),
+  githubUsername: text('github_username').notNull(),
+  accessToken: text('access_token').notNull(),
+  scope: text('scope').notNull(),
+  connectedAt: epoch('connected_at').notNull()
+})
+
+export const loopOutputChunks = pgTable(
+  'loop_output_chunks',
+  {
+    id: text('id').primaryKey(),
+    loopRunId: text('loop_run_id')
+      .notNull()
+      .references(() => loopRuns.id, { onDelete: 'cascade' }),
+    sequence: integer('sequence').notNull(),
+    stream: text('stream').notNull(),
+    data: text('data').notNull(),
+    createdAt: epoch('created_at').notNull()
+  },
+  (table) => ({
+    loopRunSequenceIdx: index('loop_output_chunks_loop_run_id_sequence_idx').on(
+      table.loopRunId,
+      table.sequence
+    )
+  })
+)
+
 export const postgresSchema = {
   projects,
   loopRuns,
   chatSessions,
   chatMessages,
   notifications,
-  settings
+  settings,
+  githubConnections,
+  loopOutputChunks
 }
 
 export type PgProject = InferSelectModel<typeof projects>
@@ -87,3 +124,7 @@ export type PgNotification = InferSelectModel<typeof notifications>
 export type NewPgNotification = InferInsertModel<typeof notifications>
 export type PgSetting = InferSelectModel<typeof settings>
 export type NewPgSetting = InferInsertModel<typeof settings>
+export type PgGitHubConnection = InferSelectModel<typeof githubConnections>
+export type NewPgGitHubConnection = InferInsertModel<typeof githubConnections>
+export type PgLoopOutputChunk = InferSelectModel<typeof loopOutputChunks>
+export type NewPgLoopOutputChunk = InferInsertModel<typeof loopOutputChunks>

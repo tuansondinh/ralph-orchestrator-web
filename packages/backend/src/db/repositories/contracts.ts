@@ -6,6 +6,11 @@ export interface ProjectRecord {
   ralphConfig: string | null
   createdAt: number
   updatedAt: number
+  userId?: string | null
+  githubOwner?: string | null
+  githubRepo?: string | null
+  defaultBranch?: string | null
+  workspacePath?: string | null
 }
 
 export interface ProjectUpdate {
@@ -14,6 +19,11 @@ export interface ProjectUpdate {
   type?: string | null
   ralphConfig?: string | null
   updatedAt: number
+  userId?: string | null
+  githubOwner?: string | null
+  githubRepo?: string | null
+  defaultBranch?: string | null
+  workspacePath?: string | null
 }
 
 export interface LoopRunRecord {
@@ -151,12 +161,45 @@ export interface SettingsRepository {
   delete(key: string): Promise<void>
 }
 
+export interface GitHubConnectionRecord {
+  id: string
+  userId: string
+  githubUserId: number
+  githubUsername: string
+  accessToken: string
+  scope: string
+  connectedAt: number
+}
+
+export interface LoopOutputChunkRecord {
+  id: string
+  loopRunId: string
+  sequence: number
+  stream: 'stdout' | 'stderr'
+  data: string
+  createdAt: number
+}
+
+export interface GitHubConnectionRepository {
+  findByUserId(userId: string): Promise<GitHubConnectionRecord | null>
+  create(record: GitHubConnectionRecord): Promise<void>
+  delete(userId: string): Promise<void>
+}
+
+export interface LoopOutputRepository {
+  append(chunk: LoopOutputChunkRecord): Promise<void>
+  getByLoopRunId(loopRunId: string, afterSequence?: number): Promise<LoopOutputChunkRecord[]>
+  deleteByLoopRunId(loopRunId: string): Promise<void>
+}
+
 export interface RepositoryBundle {
   projects: ProjectRepository
   loopRuns: LoopRunRepository
   chats: ChatRepository
   notifications: NotificationRepository
   settings: SettingsRepository
+  githubConnections: GitHubConnectionRepository
+  loopOutput: LoopOutputRepository
 }
 
 export function defineRepositoryBundle(bundle: RepositoryBundle): RepositoryBundle {

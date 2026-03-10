@@ -36,9 +36,14 @@ export function MessageList({
       {messages.length === 0 ? (
         <p className="text-sm text-zinc-500">No messages yet</p>
       ) : (
-        messages.map((message) => (
-          <ChatMessage key={message.id} message={message} onLinkClick={onMessageLinkClick} />
-        ))
+        messages
+          .filter(
+            (message) =>
+              message.role !== 'tool' && message.content.trim().length > 0
+          )
+          .map((message) => (
+            <ChatMessage key={message.id} message={message} onLinkClick={onMessageLinkClick} />
+          ))
       )}
       {footer ? <div className="pt-2">{footer}</div> : null}
       {isThinking ? (

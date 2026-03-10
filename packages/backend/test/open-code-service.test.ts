@@ -486,7 +486,6 @@ describe('OpenCodeService', () => {
     await flushPromises()
 
     expect(seen.map((event) => event.type)).toEqual([
-      'chat:message',
       'chat:status',
       'chat:delta',
       'chat:tool-call',

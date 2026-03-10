@@ -99,6 +99,7 @@ export class OpenCodeService {
   private currentProvider: ChatProvider = DEFAULT_CHAT_PROVIDER
   private currentModel = DEFAULT_OPENCODE_MODEL
   private startPromise: Promise<void> | null = null
+  private readonly knownUserMessageIds = new Set<string>()
 
   constructor(options: OpenCodeServiceOptions) {
     this.mcpEndpointUrl = options.mcpEndpointUrl
@@ -130,6 +131,7 @@ export class OpenCodeService {
     this.sessionId = null
     this.pendingConfirmation = null
     this.status = 'idle'
+    this.knownUserMessageIds.clear()
     this.server?.close()
     this.server = null
     this.client = null
@@ -175,10 +177,6 @@ export class OpenCodeService {
       createdAt: this.now()
     }
     this.messages.push(message)
-    this.emit({
-      type: 'chat:message',
-      message
-    })
     this.setStatus('busy')
     await this.client!.session.promptAsync({
       path: { id: sessionId },
@@ -265,6 +263,12 @@ export class OpenCodeService {
 
     return {
       model: getModelIdentifier(this.currentProvider, this.currentModel),
+      agent: {
+        general: {
+          prompt:
+            'You are Ralph Assistant, an AI assistant built into the Ralph Orchestrator. You help users manage projects, plan features, and orchestrate AI loop runs. You are NOT Claude Code or any other CLI tool.'
+        }
+      },
       provider: {
         [this.currentProvider]: {
           options: apiKey
@@ -333,6 +337,9 @@ export class OpenCodeService {
 
   private handleMessagePartUpdated(event: EventMessagePartUpdated) {
     const part = event.properties.part
+    if (this.knownUserMessageIds.has(part.messageID)) {
+      return
+    }
     if (part.type === 'text') {
       const assistantMessage = this.getOrCreateAssistantMessage(part.messageID)
       const delta = event.properties.delta ?? part.text
@@ -370,6 +377,13 @@ export class OpenCodeService {
   private handleMessageUpdated(event: EventMessageUpdated) {
     const { info } = event.properties
     if (info.role !== 'assistant') {
+      if (info.role === 'user') {
+        this.knownUserMessageIds.add(info.id)
+        // Clean up any false assistant message created before we knew this was a user message
+        this.messages = this.messages.filter(
+          (msg) => !(msg.id === info.id && msg.role === 'assistant')
+        )
+      }
       return
     }
 
@@ -380,10 +394,12 @@ export class OpenCodeService {
     if (content.length > 0) {
       assistantMessage.content = content
     }
-    this.emit({
-      type: 'chat:message',
-      message: assistantMessage
-    })
+    if (assistantMessage.content.trim().length > 0) {
+      this.emit({
+        type: 'chat:message',
+        message: assistantMessage
+      })
+    }
     this.setStatus('idle')
   }
 

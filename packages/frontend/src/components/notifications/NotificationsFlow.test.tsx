@@ -36,9 +36,47 @@ vi.mock('@/lib/notificationApi', () => ({
 
 vi.mock('@/lib/settingsApi', () => ({
   settingsApi: {
-    get: vi.fn()
+    get: vi.fn(),
+    getDefaultPreset: vi.fn(),
+    setDefaultPreset: vi.fn()
   }
 }))
+
+const baseSettings = {
+  chatModel: 'gemini' as const,
+  chatProvider: 'anthropic' as const,
+  opencodeModel: 'claude-sonnet-4-20250514',
+  providerEnvVarMap: {
+    anthropic: 'ANTHROPIC_API_KEY',
+    openai: 'OPENAI_API_KEY',
+    google: 'GOOGLE_API_KEY'
+  },
+  apiKeyStatus: {
+    anthropic: true,
+    openai: true,
+    google: true
+  },
+  storedApiKeyStatus: {
+    anthropic: false,
+    openai: false,
+    google: false
+  },
+  ralphBinaryPath: null,
+  notifications: {
+    loopComplete: true,
+    loopFailed: true,
+    needsInput: true
+  },
+  preview: {
+    portStart: 3001,
+    portEnd: 3010,
+    baseUrl: 'http://localhost',
+    command: null
+  },
+  data: {
+    dbPath: '/tmp/ralph-ui/data.db'
+  }
+}
 
 class MockWebSocket {
   static instances: MockWebSocket[] = []
@@ -115,6 +153,25 @@ const seedProject: ProjectRecord = {
 }
 
 describe('notifications flow', () => {
+  async function findSocketForChannel(channel: string) {
+    await waitFor(() => {
+      expect(
+        MockWebSocket.instances.some((socket) =>
+          socket.sent.some((payload) => payload.includes(`"${channel}"`))
+        )
+      ).toBe(true)
+    })
+
+    const socket = MockWebSocket.instances.find((candidate) =>
+      candidate.sent.some((payload) => payload.includes(`"${channel}"`))
+    )
+    if (!socket) {
+      throw new Error(`Missing websocket subscription for ${channel}`)
+    }
+
+    return socket
+  }
+
   beforeEach(() => {
     resetProjectStore()
     resetLoopStore()
@@ -151,24 +208,9 @@ describe('notifications flow', () => {
       read: 1,
       createdAt: Date.now()
     }))
-    vi.mocked(settingsApi.get).mockResolvedValue({
-      chatModel: 'gemini',
-      ralphBinaryPath: null,
-      notifications: {
-        loopComplete: true,
-        loopFailed: true,
-        needsInput: true
-      },
-      preview: {
-        portStart: 3001,
-        portEnd: 3010,
-        baseUrl: 'http://localhost',
-        command: null
-      },
-      data: {
-        dbPath: '/tmp/ralph-ui/data.db'
-      }
-    })
+    vi.mocked(settingsApi.get).mockResolvedValue(baseSettings)
+    vi.mocked(settingsApi.getDefaultPreset).mockResolvedValue('hatless-baseline.yml')
+    vi.mocked(settingsApi.setDefaultPreset).mockResolvedValue('hatless-baseline.yml')
   })
 
   afterEach(() => {
@@ -184,8 +226,7 @@ describe('notifications flow', () => {
       expect(vi.mocked(settingsApi.get).mock.calls.length).toBeGreaterThanOrEqual(2)
     })
 
-    const socket = MockWebSocket.instances[0]
-    expect(socket).toBeDefined()
+    const socket = await findSocketForChannel('notifications')
     socket?.emitMessage({
       type: 'notification',
       channel: 'notifications',
@@ -223,7 +264,7 @@ describe('notifications flow', () => {
       expect(vi.mocked(settingsApi.get).mock.calls.length).toBeGreaterThanOrEqual(2)
     })
 
-    const socket = MockWebSocket.instances[0]
+    const socket = await findSocketForChannel('notifications')
     socket?.emitMessage({
       type: 'notification',
       channel: 'notifications',
@@ -244,21 +285,11 @@ describe('notifications flow', () => {
 
   it('suppresses loop complete toasts when disabled in settings', async () => {
     vi.mocked(settingsApi.get).mockResolvedValue({
-      chatModel: 'gemini',
-      ralphBinaryPath: null,
+      ...baseSettings,
       notifications: {
         loopComplete: false,
         loopFailed: true,
         needsInput: true
-      },
-      preview: {
-        portStart: 3001,
-        portEnd: 3010,
-        baseUrl: 'http://localhost',
-        command: null
-      },
-      data: {
-        dbPath: '/tmp/ralph-ui/data.db'
       }
     })
 

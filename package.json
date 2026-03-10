@@ -23,7 +23,7 @@
     "quality:quick": "npm run lint && npm run typecheck && npm run test",
     "quality": "npm run quality:quick && npm run test:coverage && npm run complexity && npm run duplication",
     "test:e2e": "npm run test:e2e -w @ralph-ui/frontend",
-    "deploy": "bash deploy/deploy.sh 63.176.97.255 ~/.ssh/ralph-cloud-key.pem"
+    "deploy": "bash deploy/deploy.sh 18.159.34.250 ~/.ssh/ralph-cloud-key.pem"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

@@ -1,9 +1,11 @@
 import ReactMarkdown from 'react-markdown'
 import { Link } from 'react-router-dom'
-import type { ChatMessageRecord } from '@/lib/chatApi'
+import type { ChatMessage } from '@/types/chat'
 
 interface ChatMessageProps {
-  message: ChatMessageRecord
+  message: ChatMessage & {
+    link?: string
+  }
   onLinkClick?: () => void
 }
 

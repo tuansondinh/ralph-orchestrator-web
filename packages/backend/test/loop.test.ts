@@ -62,6 +62,7 @@ async function createMockRalphBinary(
   options: {
     stopNoop?: boolean
     decreasingIterations?: boolean
+    requireTty?: boolean
     markerLoopId?: string
     currentEventsLoopId?: string
     eventLoopId?: string
@@ -76,6 +77,7 @@ async function createMockRalphBinary(
   const filePath = join(directory, 'mock-ralph.mjs')
   const stopNoop = options.stopNoop === true
   const decreasingIterations = options.decreasingIterations === true
+  const requireTty = options.requireTty === true
   const markerLoopId = options.markerLoopId ?? ''
   const currentEventsLoopId = options.currentEventsLoopId ?? ''
   const eventLoopId = options.eventLoopId ?? ''
@@ -103,6 +105,7 @@ const currentEventsLoopId = ${JSON.stringify(currentEventsLoopId)}
 const eventLoopId = ${JSON.stringify(eventLoopId)}
 const eventLoopIdSnake = ${JSON.stringify(eventLoopIdSnake)}
 const outputTokenCount = ${outputTokenCount}
+const requireTty = ${requireTty ? 'true' : 'false'}
 const listedLoopIds = ${JSON.stringify(listedLoopIds)}
 const listedLoopEntries = ${JSON.stringify(listedLoopEntries)}
 const scriptDir = dirname(fileURLToPath(import.meta.url))
@@ -160,43 +163,51 @@ const clearPid = () => {
   } catch {}
 }
 
-process.stdout.write('boot\\n')
-const timer = setInterval(() => {
-  iteration += 1
-  const eventIteration = decreasingIterations
-    ? (iteration === 1 ? 5 : iteration === 2 ? 1 : iteration)
-    : iteration
-  process.stdout.write(\`tick-\${iteration}\\n\`)
-  if (outputIterationHeader) {
-    process.stdout.write(\` ITERATION \${iteration} | ? ralph | \${iteration}s elapsed | \${iteration}/100\\n\`)
-  }
-  if (outputTokenCount > 0) {
-    process.stdout.write(\`Total tokens: \${outputTokenCount}\\n\`)
-  }
-  if (emitIterationEvents) {
-    const payload = {"iteration":eventIteration,"sourceHat":"builder"}
-    if (eventLoopId) {
-      payload.loopId = eventLoopId
+if (requireTty && !process.stdout.isTTY) {
+  process.stdout.write('tty-required\\n')
+  process.on('SIGTERM', () => {
+    clearPid()
+    process.exit(0)
+  })
+} else {
+  process.stdout.write('boot\\n')
+  const timer = setInterval(() => {
+    iteration += 1
+    const eventIteration = decreasingIterations
+      ? (iteration === 1 ? 5 : iteration === 2 ? 1 : iteration)
+      : iteration
+    process.stdout.write(\`tick-\${iteration}\\n\`)
+    if (outputIterationHeader) {
+      process.stdout.write(\` ITERATION \${iteration} | ? ralph | \${iteration}s elapsed | \${iteration}/100\\n\`)
     }
-    if (eventLoopIdSnake) {
-      payload.loop_id = eventLoopIdSnake
+    if (outputTokenCount > 0) {
+      process.stdout.write(\`Total tokens: \${outputTokenCount}\\n\`)
     }
-    process.stdout.write(\`Event: loop:iteration - \${JSON.stringify(payload)}\\n\`)
-  }
+    if (emitIterationEvents) {
+      const payload = {"iteration":eventIteration,"sourceHat":"builder"}
+      if (eventLoopId) {
+        payload.loopId = eventLoopId
+      }
+      if (eventLoopIdSnake) {
+        payload.loop_id = eventLoopIdSnake
+      }
+      process.stdout.write(\`Event: loop:iteration - \${JSON.stringify(payload)}\\n\`)
+    }
 
-  if (shouldExitFast && iteration >= 2) {
+    if (shouldExitFast && iteration >= 2) {
+      clearInterval(timer)
+      clearPid()
+      process.exit(0)
+    }
+  }, 30)
+
+  process.on('SIGTERM', () => {
+    process.stdout.write('stopping\\n')
     clearInterval(timer)
     clearPid()
     process.exit(0)
-  }
-}, 30)
-
-process.on('SIGTERM', () => {
-  process.stdout.write('stopping\\n')
-  clearInterval(timer)
-  clearPid()
-  process.exit(0)
-})
+  })
+}
 `
 
   await writeFile(filePath, script, 'utf8')
@@ -288,6 +299,7 @@ describe('loop tRPC routes', () => {
     options: {
       stopNoop?: boolean
       decreasingIterations?: boolean
+      requireTty?: boolean
       markerLoopId?: string
       currentEventsLoopId?: string
       eventLoopId?: string
@@ -310,6 +322,7 @@ describe('loop tRPC routes', () => {
     const binaryPath = await createMockRalphBinary(tempDir, {
       stopNoop: options.stopNoop,
       decreasingIterations: options.decreasingIterations,
+      requireTty: options.requireTty,
       markerLoopId: options.markerLoopId,
       currentEventsLoopId: options.currentEventsLoopId,
       eventLoopId: options.eventLoopId,
@@ -399,6 +412,36 @@ describe('loop tRPC routes', () => {
       await readFile(join(tempDir, 'mock-ralph-stop-args.log'), 'utf8')
     )
     expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', started.id])
+  })
+
+  it('starts loops under a PTY so TTY-dependent backends can complete', async () => {
+    const { caller, connection, processManager, loopService, tempDir } = await setupCaller({
+      requireTty: true
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'exit-fast',
+      backend: 'opencode'
+    })
+
+    const handle = processManager.list().find((proc) => proc.id === started.processId)
+    expect(handle?.tty).toBe(true)
+
+    await waitFor(() => {
+      const row = connection.db
+        .select()
+        .from(loopRuns)
+        .where(eq(loopRuns.id, started.id))
+        .get()
+      return row?.state === 'completed'
+    })
+
+    const output = await loopService.getOutput({ loopId: started.id })
+    expect(output.lines.join('\n')).toContain('tick-1')
   })
 
   it('captures the Ralph loop id from current-loop-id marker during start', async () => {

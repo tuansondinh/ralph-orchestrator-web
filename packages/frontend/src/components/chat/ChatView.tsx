@@ -1,438 +1,184 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { NavLink } from 'react-router-dom'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { MessageList } from '@/components/chat/MessageList'
-import { useWebSocket } from '@/hooks/useWebSocket'
-import {
-  chatApi,
-  type ChatSessionBackend,
-  type ChatMessageRecord,
-  type ChatSessionRecord,
-  type ChatSessionState,
-  type ChatSessionType
-} from '@/lib/chatApi'
-import { RALPH_BACKENDS } from '@/lib/backends'
-import { useChatStore } from '@/stores/chatStore'
+import { ToolConfirmationCard } from '@/components/chat/ToolConfirmationCard'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { useChatSession } from '@/hooks/useChatSession'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { getVisibleProjectTabs } from '@/lib/projectTabs'
+import { useProjectStore } from '@/stores/projectStore'
 
 interface ChatViewProps {
   projectId: string
 }
 
-const EMPTY_MESSAGES: ChatMessageRecord[] = []
-const EMPTY_CHANNELS: string[] = []
-
-function getSessionStateLabel(state: ChatSessionState | undefined) {
-  if (state === 'active') {
-    return 'Ralph is thinking...'
+function getKeyboardOffset() {
+  if (typeof window === 'undefined' || !window.visualViewport) {
+    return 0
   }
 
-  if (state === 'waiting') {
-    return 'Waiting for input'
-  }
-
-  if (state === 'completed') {
-    return 'Session completed'
-  }
-
-  return 'No active session'
-}
-
-function normalizeSessionState(input: unknown): ChatSessionState {
-  if (input === 'active' || input === 'waiting' || input === 'completed') {
-    return input
-  }
-
-  return 'unknown'
+  return Math.max(
+    0,
+    window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop
+  )
 }
 
 export function ChatView({ projectId }: ChatViewProps) {
   const [inputValue, setInputValue] = useState('')
-  const [isStartingSession, setIsStartingSession] = useState(false)
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
-  const [isSending, setIsSending] = useState(false)
-  const [awaitingAssistant, setAwaitingAssistant] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const sessionsByProject = useChatStore((state) => state.sessionsByProject)
-  const messagesBySession = useChatStore((state) => state.messagesBySession)
-  const historyLoadedBySession = useChatStore((state) => state.historyLoadedBySession)
-  const sessionTypeByProject = useChatStore((state) => state.sessionTypeByProject)
-  const sessionBackendByProject = useChatStore((state) => state.sessionBackendByProject)
-  const setSessionType = useChatStore((state) => state.setSessionType)
-  const setSessionBackend = useChatStore((state) => state.setSessionBackend)
-  const setSession = useChatStore((state) => state.setSession)
-  const setMessages = useChatStore((state) => state.setMessages)
-  const upsertMessage = useChatStore((state) => state.upsertMessage)
-  const markHistoryLoaded = useChatStore((state) => state.markHistoryLoaded)
-  const updateSessionState = useChatStore((state) => state.updateSessionState)
-
-  const session = sessionsByProject[projectId] ?? null
-  const sessionType: ChatSessionType = sessionTypeByProject[projectId] ?? 'plan'
-  const sessionBackend: ChatSessionBackend = session?.backend ?? sessionBackendByProject[projectId] ?? 'codex'
-  const messages = session ? messagesBySession[session.id] ?? EMPTY_MESSAGES : EMPTY_MESSAGES
-  const sessionId = session?.id ?? null
-  const isHistoryLoaded = Boolean(sessionId && historyLoadedBySession[sessionId])
-  const canSend = Boolean(session && session.state !== 'completed')
-  const isThinking =
-    session?.state === 'active' &&
-    (awaitingAssistant || messages.length === 0)
-
-  const applySession = useCallback(
-    (nextSession: ChatSessionRecord) => {
-      setSession(projectId, nextSession)
-      markHistoryLoaded(nextSession.id, false)
-      setMessages(nextSession.id, [])
-      setAwaitingAssistant(nextSession.state === 'active')
-    },
-    [markHistoryLoaded, projectId, setMessages, setSession]
+  const [isNavOpen, setIsNavOpen] = useState(false)
+  const [keyboardOffset, setKeyboardOffset] = useState(0)
+  const isMobile = useMediaQuery('(max-width: 767px)')
+  const project = useProjectStore((state) =>
+    state.projects.find((candidate) => candidate.id === projectId) ?? null
   )
+  const { capabilities } = useCapabilities()
+  const {
+    messages,
+    isStreaming,
+    pendingConfirmation,
+    sendMessage,
+    confirmAction
+  } = useChatSession()
 
-  const websocketChannels = useMemo(
-    () => (sessionId ? [`chat:${sessionId}:message`] : EMPTY_CHANNELS),
-    [sessionId]
-  )
-
-  const handleWebsocketMessage = useCallback(
-    (message: Record<string, unknown>) => {
-      if (
-        message.type === 'chat.message' &&
-        typeof message.sessionId === 'string' &&
-        typeof message.id === 'string' &&
-        typeof message.role === 'string' &&
-        typeof message.content === 'string'
-      ) {
-        if (sessionId && message.sessionId !== sessionId) {
-          return
-        }
-
-        if (message.role !== 'user' && message.role !== 'assistant') {
-          return
-        }
-
-        const rawTimestamp = message.timestamp
-        const parsedTimestamp =
-          typeof rawTimestamp === 'number'
-            ? rawTimestamp
-            : Date.parse(typeof rawTimestamp === 'string' ? rawTimestamp : '')
-        const timestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now()
-
-        upsertMessage({
-          id: message.id,
-          sessionId: message.sessionId,
-          role: message.role,
-          content: message.content,
-          timestamp
-        })
-
-        if (message.role === 'assistant') {
-          setAwaitingAssistant(false)
-        }
-        return
-      }
-
-      if (
-        message.type === 'chat.state' &&
-        typeof message.sessionId === 'string'
-      ) {
-        if (sessionId && message.sessionId !== sessionId) {
-          return
-        }
-
-        const endedAt = typeof message.endedAt === 'number' ? message.endedAt : null
-        updateSessionState(
-          message.sessionId,
-          normalizeSessionState(message.state),
-          endedAt
-        )
-
-        if (message.state === 'waiting' || message.state === 'completed') {
-          setAwaitingAssistant(false)
-        }
-      }
-    },
-    [sessionId, updateSessionState, upsertMessage]
-  )
-
-  const { isConnected } = useWebSocket({
-    channels: websocketChannels,
-    onMessage: handleWebsocketMessage
-  })
+  const visibleTabs = getVisibleProjectTabs(capabilities)
 
   useEffect(() => {
-    if (sessionId) {
-      return
+    if (!isMobile) {
+      setIsNavOpen(false)
     }
-
-    let cancelled = false
-    setError(null)
-    setAwaitingAssistant(false)
-
-    chatApi
-      .getProjectSession({ projectId })
-      .then((existingSession) => {
-        if (cancelled || !existingSession) {
-          return
-        }
-
-        applySession(existingSession)
-      })
-      .catch((nextError) => {
-        if (!cancelled) {
-          setError(
-            nextError instanceof Error
-              ? nextError.message
-              : 'Failed to load existing chat session'
-          )
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [applySession, projectId, sessionId])
+  }, [isMobile])
 
   useEffect(() => {
-    if (!sessionId) {
-      setIsLoadingHistory(false)
+    if (typeof window === 'undefined' || !window.visualViewport) {
       return
     }
 
-    if (isHistoryLoaded) {
-      setIsLoadingHistory(false)
-      return
+    const updateKeyboardOffset = () => {
+      setKeyboardOffset(getKeyboardOffset())
     }
 
-    let cancelled = false
-    setIsLoadingHistory(true)
-    setError(null)
-
-    chatApi
-      .getHistory({ sessionId })
-      .then((history) => {
-        if (cancelled) {
-          return
-        }
-
-        setMessages(sessionId, history)
-        markHistoryLoaded(sessionId, true)
-        if (history.some((entry) => entry.role === 'assistant')) {
-          setAwaitingAssistant(false)
-        }
-      })
-      .catch((nextError) => {
-        if (!cancelled) {
-          setError(nextError instanceof Error ? nextError.message : 'Failed to load chat history')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingHistory(false)
-        }
-      })
+    updateKeyboardOffset()
+    window.visualViewport.addEventListener('resize', updateKeyboardOffset)
+    window.visualViewport.addEventListener('scroll', updateKeyboardOffset)
 
     return () => {
-      cancelled = true
+      window.visualViewport?.removeEventListener('resize', updateKeyboardOffset)
+      window.visualViewport?.removeEventListener('scroll', updateKeyboardOffset)
     }
-  }, [isHistoryLoaded, markHistoryLoaded, sessionId, setMessages])
+  }, [])
 
-  const startSession = useCallback(async () => {
-    setIsStartingSession(true)
-    setError(null)
-
-    try {
-      const started = await chatApi.startSession({
-        projectId,
-        type: sessionType,
-        backend: sessionBackend
-      })
-
-      applySession(started)
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Failed to start session')
-    } finally {
-      setIsStartingSession(false)
-    }
-  }, [applySession, projectId, sessionBackend, sessionType])
-
-  const restartSession = useCallback(async () => {
-    if (!session) {
+  const handleSend = () => {
+    const next = inputValue.trim()
+    if (next.length === 0 || isStreaming || pendingConfirmation) {
       return
     }
 
-    setIsStartingSession(true)
-    setError(null)
-
-    try {
-      const restarted = await chatApi.restartSession({
-        projectId,
-        type: session.type,
-        backend: session.backend
-      })
-
-      applySession(restarted)
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Failed to restart session')
-    } finally {
-      setIsStartingSession(false)
-    }
-  }, [applySession, projectId, session])
-
-  const endSession = useCallback(async () => {
-    if (!sessionId) {
-      return
-    }
-
-    setError(null)
-    try {
-      await chatApi.endSession({ sessionId })
-      updateSessionState(sessionId, 'completed', Date.now())
-      setAwaitingAssistant(false)
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Failed to end session')
-    }
-  }, [sessionId, updateSessionState])
-
-  const sendMessage = useCallback(async () => {
-    if (!sessionId || !canSend) {
-      return
-    }
-
-    const message = inputValue.trim()
-    if (!message) {
-      return
-    }
-
-    const optimisticMessage: ChatMessageRecord = {
-      id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      sessionId,
-      role: 'user',
-      content: message,
-      timestamp: Date.now()
-    }
-
-    upsertMessage(optimisticMessage)
+    sendMessage(next)
     setInputValue('')
-    setError(null)
-    updateSessionState(sessionId, 'active')
-    setAwaitingAssistant(true)
-    setIsSending(true)
-
-    try {
-      await chatApi.sendMessage({
-        sessionId,
-        message
-      })
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Failed to send message')
-      setAwaitingAssistant(false)
-    } finally {
-      setIsSending(false)
-    }
-  }, [canSend, inputValue, sessionId, updateSessionState, upsertMessage])
+  }
 
   return (
-    <section className="min-w-0 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">Chat</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-sm text-zinc-400" htmlFor="session-type">
-            Mode
-          </label>
-          <select
-            aria-label="Session type"
-            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-            disabled={Boolean(session && session.state !== 'completed')}
-            id="session-type"
-            onChange={(event) =>
-              setSessionType(projectId, event.target.value as ChatSessionType)
-            }
-            value={sessionType}
-          >
-            <option value="plan">ralph plan</option>
-            <option value="task">ralph task</option>
-          </select>
-          <label className="text-sm text-zinc-400" htmlFor="session-backend">
-            Backend
-          </label>
-          <select
-            aria-label="Session backend"
-            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-            disabled={Boolean(session && session.state !== 'completed')}
-            id="session-backend"
-            onChange={(event) =>
-              setSessionBackend(projectId, event.target.value as ChatSessionBackend)
-            }
-            value={sessionBackend}
-          >
-            {RALPH_BACKENDS.map((backend) => (
-              <option key={backend} value={backend}>
-                {backend}
-              </option>
-            ))}
-          </select>
+    <section className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/40">
+      {isMobile ? (
+        <div className="flex min-h-11 items-center px-3 pt-3">
           <button
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-medium text-zinc-100 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={Boolean(session && session.state !== 'completed') || isStartingSession}
-            onClick={startSession}
+            aria-label="Open project navigation"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900/80 text-zinc-100 transition hover:bg-zinc-800"
+            onClick={() => setIsNavOpen(true)}
             type="button"
           >
-            {isStartingSession ? 'Starting...' : 'Start Session'}
+            <span aria-hidden="true" className="text-lg leading-none">
+              ≡
+            </span>
           </button>
-          {session && session.state !== 'completed' ? (
-            <>
-              <button
-                className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isStartingSession}
-                onClick={restartSession}
-                type="button"
-              >
-                Restart Session
-              </button>
-              <button
-                className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isStartingSession}
-                onClick={endSession}
-                type="button"
-              >
-                End Session
-              </button>
-            </>
-          ) : null}
+        </div>
+      ) : (
+        <header className="flex min-h-11 items-center border-b border-zinc-800 px-4 py-3">
+          <h2 className="text-sm font-semibold text-zinc-100">Chat</h2>
+        </header>
+      )}
+
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3">
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <MessageList
+            isThinking={isStreaming}
+            messages={messages}
+            footer={
+              pendingConfirmation ? (
+                <ToolConfirmationCard
+                  confirmation={pendingConfirmation}
+                  onCancel={() => confirmAction(pendingConfirmation.permissionId, false)}
+                  onConfirm={() => confirmAction(pendingConfirmation.permissionId, true)}
+                />
+              ) : null
+            }
+          />
+        </div>
+
+        <div
+          className="sticky bottom-0 mt-3 shrink-0 rounded-xl border border-zinc-800 bg-zinc-950/95 p-3 pb-[env(safe-area-inset-bottom)]"
+          style={{
+            bottom: `${keyboardOffset}px`
+          }}
+        >
+          <ChatInput
+            disabled={isStreaming || Boolean(pendingConfirmation)}
+            isSending={isStreaming}
+            onChange={setInputValue}
+            onSend={handleSend}
+            value={inputValue}
+          />
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400">
-        <span>{getSessionStateLabel(session?.state)}</span>
-        <span>{isConnected ? 'Live connected' : 'Connecting...'}</span>
-      </div>
-
-      {error ? <p className="text-sm text-red-400">{error}</p> : null}
-      {isLoadingHistory ? (
-        <section className="space-y-2" data-testid="chat-history-skeleton">
-          <p className="text-sm text-zinc-500">Loading chat history...</p>
-          <div className="h-12 animate-pulse rounded-lg bg-zinc-900/60" />
-          <div className="h-12 animate-pulse rounded-lg bg-zinc-900/50" />
-        </section>
-      ) : null}
-
-      {session ? (
+      {isMobile && isNavOpen ? (
         <>
-          <MessageList
-            isThinking={isThinking}
-            messages={messages}
+          <button
+            aria-label="Close project navigation"
+            className="absolute inset-0 z-10 bg-black/50"
+            onClick={() => setIsNavOpen(false)}
+            type="button"
           />
-          <ChatInput
-            disabled={!canSend}
-            isSending={isSending}
-            onChange={setInputValue}
-            onSend={sendMessage}
-            value={inputValue}
-          />
+          <aside className="absolute inset-y-0 left-0 z-20 flex w-[min(20rem,85vw)] flex-col border-r border-zinc-800 bg-zinc-950 p-4 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Project</p>
+                <h2 className="mt-1 text-lg font-semibold text-zinc-100">
+                  {project?.name ?? 'Project'}
+                </h2>
+              </div>
+              <button
+                aria-label="Close project navigation"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-100 transition hover:bg-zinc-800"
+                onClick={() => setIsNavOpen(false)}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+
+            <nav aria-label="Project chat navigation" className="flex flex-col gap-2">
+              {visibleTabs.map((tab) => (
+                <NavLink
+                  key={tab.id}
+                  className={({ isActive }) =>
+                    `flex min-h-11 items-center rounded-lg px-3 text-sm transition ${
+                      isActive
+                        ? 'bg-zinc-100 text-zinc-900'
+                        : 'border border-zinc-800 text-zinc-200 hover:bg-zinc-900'
+                    }`
+                  }
+                  onClick={() => setIsNavOpen(false)}
+                  to={`/project/${projectId}/${tab.id}`}
+                >
+                  {tab.label}
+                </NavLink>
+              ))}
+            </nav>
+          </aside>
         </>
-      ) : (
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
-          Start a plan or task session to talk with Ralph.
-        </section>
-      )}
+      ) : null}
     </section>
   )
 }

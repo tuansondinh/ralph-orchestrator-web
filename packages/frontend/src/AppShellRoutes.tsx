@@ -12,6 +12,7 @@ import { AppErrorBoundary } from '@/components/errors/AppErrorBoundary'
 import { AppShell } from '@/components/layout/AppShell'
 import { NotificationCenter } from '@/components/notifications/NotificationCenter'
 import { NotificationToast } from '@/components/notifications/NotificationToast'
+import { ChatOverlay } from '@/components/chat/ChatOverlay'
 import { EmptyState } from '@/components/project/EmptyState'
 import { ProjectHomeState } from '@/components/project/ProjectHomeState'
 import { ProjectSwitcherDialog } from '@/components/project/ProjectSwitcherDialog'
@@ -27,6 +28,7 @@ import {
 import type { ProjectRecord } from '@/lib/projectApi'
 import { ProjectPage } from '@/pages/ProjectPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { ChatSessionProvider } from '@/providers/ChatSessionProvider'
 import { useProjectStore } from '@/stores/projectStore'
 import { Sidebar } from '@/components/layout/Sidebar'
 
@@ -280,7 +282,8 @@ export function AppShellRoutes({
   }
 
   return (
-    <AppShell
+    <ChatSessionProvider>
+      <AppShell
       headerActions={
         <div className="flex flex-wrap items-center justify-end gap-3">
           <NotificationCenter
@@ -316,25 +319,25 @@ export function AppShellRoutes({
           reconnectAttempt={reconnectAttempt}
         />
       }
-    >
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3">
-          {notificationPermission === 'default' ? (
-            <button
-              className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
-              onClick={() => {
-                void requestPermission()
-              }}
-              type="button"
-            >
-              Enable notifications
-            </button>
-          ) : null}
-        </div>
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
+          <div className="flex flex-wrap items-center gap-3">
+            {notificationPermission === 'default' ? (
+              <button
+                className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
+                onClick={() => {
+                  void requestPermission()
+                }}
+                type="button"
+              >
+                Enable notifications
+              </button>
+            ) : null}
+          </div>
 
-        <AppErrorBoundary resetKey={location.pathname}>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <Routes>
+          <AppErrorBoundary resetKey={location.pathname}>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <Routes>
               <Route
                 element={
                   <HomePage
@@ -355,7 +358,6 @@ export function AppShellRoutes({
                   }
                   index
                 />
-                <Route element={<Navigate replace to="../loops" />} path="chat" />
                 <Route element={<ProjectPage />} path=":tab" />
               </Route>
               <Route element={<SettingsPage />} path="/settings" />
@@ -373,19 +375,23 @@ export function AppShellRoutes({
                 }
                 path="*"
               />
-            </Routes>
-          </div>
-        </AppErrorBoundary>
-      </div>
+              </Routes>
+            </div>
+          </AppErrorBoundary>
+        </div>
 
-      <ProjectSwitcherDialog
-        activeProjectId={activeProjectId}
-        onClose={() => setIsQuickSwitcherOpen(false)}
-        onSelect={handleProjectSelect}
-        open={isQuickSwitcherOpen}
-        projects={projects}
-      />
-      <NotificationToast onDismiss={dismissToast} toasts={toasts} />
-    </AppShell>
+        <ProjectSwitcherDialog
+          activeProjectId={activeProjectId}
+          onClose={() => setIsQuickSwitcherOpen(false)}
+          onSelect={handleProjectSelect}
+          open={isQuickSwitcherOpen}
+          projects={projects}
+        />
+        <NotificationToast onDismiss={dismissToast} toasts={toasts} />
+        <div className="hidden md:block">
+          <ChatOverlay />
+        </div>
+      </AppShell>
+    </ChatSessionProvider>
   )
 }

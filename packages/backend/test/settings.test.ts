@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmod, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appRouter } from '../src/trpc/router.js'
 import { createTestRuntime } from './test-helpers.js'
 import {
@@ -30,6 +30,7 @@ import { SettingsService } from '../src/services/SettingsService.js'
 import { HatsPresetService } from '../src/services/HatsPresetService.js'
 import { TaskService } from '../src/services/TaskService.js'
 import { createApp } from '../src/app.js'
+import type { OpenCodeService } from '../src/services/OpenCodeService.js'
 
 async function createTempDir(prefix: string) {
   return mkdtemp(join(tmpdir(), `ralph-ui-${prefix}-`))
@@ -138,6 +139,10 @@ describe('settings tRPC routes', () => {
     const monitoringService = new MonitoringService(connection.db, loopService)
     const previewService = new DevPreviewManager(connection.db, processManager)
 
+    const openCodeService = {
+      updateModel: vi.fn(async () => undefined)
+    } as Pick<OpenCodeService, 'updateModel'>
+
     const caller = appRouter.createCaller({
       runtime: createTestRuntime(),
       db: connection.db,
@@ -150,10 +155,11 @@ describe('settings tRPC routes', () => {
       presetService: new PresetService(),
       settingsService: new SettingsService(connection.db),
       hatsPresetService: new HatsPresetService(),
-      taskService: new TaskService(connection.db)
+      taskService: new TaskService(connection.db),
+      openCodeService
     })
 
-    return { caller, connection, tempDir, binaryPath }
+    return { caller, connection, tempDir, binaryPath, openCodeService }
   }
 
   it('returns defaults, persists updates, and validates binary versions', async () => {
@@ -161,6 +167,18 @@ describe('settings tRPC routes', () => {
 
     const initial = await caller.settings.get()
     expect(initial.chatModel).toBe('gemini')
+    expect(initial.chatProvider).toBe('anthropic')
+    expect(initial.opencodeModel).toBe('claude-sonnet-4-20250514')
+    expect(initial.apiKeyStatus).toEqual({
+      anthropic: false,
+      openai: false,
+      google: false
+    })
+    expect(initial.storedApiKeyStatus).toEqual({
+      anthropic: false,
+      openai: false,
+      google: false
+    })
     expect(initial.ralphBinaryPath).toBeNull()
     expect(initial.notifications).toEqual({
       loopComplete: true,
@@ -177,6 +195,11 @@ describe('settings tRPC routes', () => {
 
     const updated = await caller.settings.update({
       chatModel: 'openai',
+      chatProvider: 'openai',
+      opencodeModel: 'gpt-4o',
+      providerApiKeys: {
+        openai: 'openai-key'
+      },
       ralphBinaryPath: binaryPath,
       notifications: {
         loopComplete: false,
@@ -192,6 +215,10 @@ describe('settings tRPC routes', () => {
     })
 
     expect(updated.chatModel).toBe('openai')
+    expect(updated.chatProvider).toBe('openai')
+    expect(updated.opencodeModel).toBe('gpt-4o')
+    expect(updated.apiKeyStatus.openai).toBe(true)
+    expect(updated.storedApiKeyStatus.openai).toBe(true)
     expect(updated.ralphBinaryPath).toBe(binaryPath)
     expect(updated.notifications.loopComplete).toBe(false)
     expect(updated.notifications.needsInput).toBe(false)
@@ -204,6 +231,8 @@ describe('settings tRPC routes', () => {
 
     const reloaded = await caller.settings.get()
     expect(reloaded.chatModel).toBe('openai')
+    expect(reloaded.chatProvider).toBe('openai')
+    expect(reloaded.opencodeModel).toBe('gpt-4o')
     expect(reloaded).toEqual(updated)
 
     const versionResult = await caller.settings.testBinary({ path: binaryPath })
@@ -213,6 +242,69 @@ describe('settings tRPC routes', () => {
     await expect(
       caller.settings.testBinary({ path: join(tempDir, 'missing-ralph') })
     ).rejects.toThrow(/binary/i)
+  })
+
+  it('keeps legacy chatModel settings while exposing opencode provider env requirements', async () => {
+    const { caller } = await setupCaller()
+
+    const updated = await caller.settings.update({
+      chatModel: 'claude',
+      chatProvider: 'google',
+      opencodeModel: 'gemini-2.5-pro'
+    })
+
+    expect(updated.chatModel).toBe('claude')
+    expect(updated.chatProvider).toBe('google')
+    expect(updated.opencodeModel).toBe('gemini-2.5-pro')
+    expect(updated.providerEnvVarMap).toEqual({
+      anthropic: 'ANTHROPIC_API_KEY',
+      openai: 'OPENAI_API_KEY',
+      google: 'GOOGLE_API_KEY'
+    })
+    expect(updated.apiKeyStatus).toEqual({
+      anthropic: false,
+      openai: false,
+      google: false
+    })
+    expect(updated.storedApiKeyStatus).toEqual({
+      anthropic: false,
+      openai: false,
+      google: false
+    })
+
+    const reloaded = await caller.settings.get()
+    expect(reloaded.chatModel).toBe('claude')
+    expect(reloaded.chatProvider).toBe('google')
+    expect(reloaded.opencodeModel).toBe('gemini-2.5-pro')
+  })
+
+  it('updates the opencode model immediately after settings save', async () => {
+    const { caller, openCodeService } = await setupCaller()
+
+    await caller.settings.update({
+      chatProvider: 'openai',
+      opencodeModel: 'gpt-4o'
+    })
+
+    expect(openCodeService.updateModel).toHaveBeenCalledWith('openai', 'gpt-4o')
+  })
+
+  it('clears a stored provider API key when requested', async () => {
+    const { caller } = await setupCaller()
+
+    const updated = await caller.settings.update({
+      providerApiKeys: {
+        anthropic: 'anthropic-key'
+      }
+    })
+    expect(updated.storedApiKeyStatus.anthropic).toBe(true)
+
+    const cleared = await caller.settings.update({
+      providerApiKeys: {
+        anthropic: null
+      }
+    })
+    expect(cleared.storedApiKeyStatus.anthropic).toBe(false)
   })
 
   it('requires confirmation before clearing project/chat/loop/notification data', async () => {

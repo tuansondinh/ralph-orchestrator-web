@@ -3,6 +3,12 @@ import type { RepositoryBundle, SettingsRepository } from '../db/repositories/co
 import { resolveRepositoryBundle, type RepositoryBundleSource } from '../db/repositories/index.js'
 import { resolveRalphBinary } from '../lib/ralph.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
+import {
+  CHAT_PROVIDER_ENV_VAR_MAP,
+  DEFAULT_CHAT_PROVIDER,
+  DEFAULT_OPENCODE_MODEL,
+  type ChatProvider
+} from '../lib/chatProviderConfig.js'
 
 const DEFAULT_PORT_START = 3001
 const DEFAULT_PORT_END = 3010
@@ -10,7 +16,12 @@ const DEFAULT_PREVIEW_BASE_URL = 'http://localhost'
 const DEFAULT_PRESET_FILENAME = 'hatless-baseline.yml'
 
 const SETTING_KEYS = {
+  chatProvider: 'opencode.provider',
+  opencodeModel: 'opencode.model',
   chatModel: 'chat.model',
+  anthropicApiKey: 'opencode.apiKey.anthropic',
+  openaiApiKey: 'opencode.apiKey.openai',
+  googleApiKey: 'opencode.apiKey.google',
   ralphBinaryPath: 'ralph.binaryPath',
   notifyLoopComplete: 'notifications.loopComplete.enabled',
   notifyLoopFailed: 'notifications.loopFailed.enabled',
@@ -33,6 +44,11 @@ export interface PreviewSettingsSnapshot {
 
 export interface SettingsSnapshot {
   chatModel: ChatModel
+  chatProvider: ChatProvider
+  opencodeModel: string
+  providerEnvVarMap: typeof CHAT_PROVIDER_ENV_VAR_MAP
+  apiKeyStatus: Record<ChatProvider, boolean>
+  storedApiKeyStatus: Record<ChatProvider, boolean>
   ralphBinaryPath: string | null
   notifications: {
     loopComplete: boolean
@@ -52,6 +68,9 @@ export interface SettingsSnapshot {
 
 export interface SettingsUpdateInput {
   chatModel?: ChatModel
+  chatProvider?: ChatProvider
+  opencodeModel?: string
+  providerApiKeys?: Partial<Record<ChatProvider, string | null>>
   ralphBinaryPath?: string | null
   notifications?: {
     loopComplete?: boolean
@@ -131,6 +150,54 @@ function normalizeChatModel(value: string | undefined): ChatModel {
   }
 
   return 'gemini'
+}
+
+function normalizeChatProvider(value: string | undefined): ChatProvider {
+  if (!value) {
+    return DEFAULT_CHAT_PROVIDER
+  }
+
+  if (value in CHAT_PROVIDER_ENV_VAR_MAP) {
+    return value as ChatProvider
+  }
+
+  return DEFAULT_CHAT_PROVIDER
+}
+
+function normalizeModelName(value: string | undefined, fallback: string) {
+  const normalized = value?.trim()
+  return normalized && normalized.length > 0 ? normalized : fallback
+}
+
+function settingKeyForProviderApiKey(provider: ChatProvider) {
+  switch (provider) {
+    case 'anthropic':
+      return SETTING_KEYS.anthropicApiKey
+    case 'openai':
+      return SETTING_KEYS.openaiApiKey
+    case 'google':
+      return SETTING_KEYS.googleApiKey
+  }
+}
+
+function getStoredApiKeyStatus(map: Map<string, string>) {
+  return {
+    anthropic: Boolean(normalizePath(map.get(SETTING_KEYS.anthropicApiKey))),
+    openai: Boolean(normalizePath(map.get(SETTING_KEYS.openaiApiKey))),
+    google: Boolean(normalizePath(map.get(SETTING_KEYS.googleApiKey)))
+  } satisfies Record<ChatProvider, boolean>
+}
+
+function getApiKeyStatus(storedApiKeyStatus: Record<ChatProvider, boolean>) {
+  return {
+    anthropic:
+      storedApiKeyStatus.anthropic ||
+      Boolean(process.env[CHAT_PROVIDER_ENV_VAR_MAP.anthropic]),
+    openai:
+      storedApiKeyStatus.openai || Boolean(process.env[CHAT_PROVIDER_ENV_VAR_MAP.openai]),
+    google:
+      storedApiKeyStatus.google || Boolean(process.env[CHAT_PROVIDER_ENV_VAR_MAP.google])
+  } satisfies Record<ChatProvider, boolean>
 }
 
 function normalizePreviewBaseUrl(raw: string, fallback = DEFAULT_PREVIEW_BASE_URL) {
@@ -234,6 +301,7 @@ export class SettingsService {
 
   async get(): Promise<SettingsSnapshot> {
     const map = await this.readMap()
+    const storedApiKeyStatus = getStoredApiKeyStatus(map)
     const configuredPreviewStart = parseInteger(
       map.get(SETTING_KEYS.previewPortStart),
       DEFAULT_PORT_START
@@ -252,6 +320,14 @@ export class SettingsService {
 
     return {
       chatModel: normalizeChatModel(map.get(SETTING_KEYS.chatModel)),
+      chatProvider: normalizeChatProvider(map.get(SETTING_KEYS.chatProvider)),
+      opencodeModel: normalizeModelName(
+        map.get(SETTING_KEYS.opencodeModel),
+        DEFAULT_OPENCODE_MODEL
+      ),
+      providerEnvVarMap: CHAT_PROVIDER_ENV_VAR_MAP,
+      apiKeyStatus: getApiKeyStatus(storedApiKeyStatus),
+      storedApiKeyStatus,
       ralphBinaryPath: normalizePath(map.get(SETTING_KEYS.ralphBinaryPath)),
       notifications: {
         loopComplete: parseBoolean(map.get(SETTING_KEYS.notifyLoopComplete), true),
@@ -273,6 +349,30 @@ export class SettingsService {
   async update(input: SettingsUpdateInput): Promise<SettingsSnapshot> {
     if (input.chatModel !== undefined) {
       await this.upsert(SETTING_KEYS.chatModel, input.chatModel)
+    }
+
+    if (input.chatProvider !== undefined) {
+      await this.upsert(SETTING_KEYS.chatProvider, input.chatProvider)
+    }
+
+    if (input.opencodeModel !== undefined) {
+      await this.upsert(
+        SETTING_KEYS.opencodeModel,
+        normalizeModelName(input.opencodeModel, DEFAULT_OPENCODE_MODEL)
+      )
+    }
+
+    if (input.providerApiKeys) {
+      for (const provider of Object.keys(input.providerApiKeys) as ChatProvider[]) {
+        const apiKey = input.providerApiKeys[provider]
+        const settingKey = settingKeyForProviderApiKey(provider)
+        const normalized = normalizePath(apiKey)
+        if (normalized) {
+          await this.upsert(settingKey, normalized)
+        } else if (apiKey !== undefined) {
+          await this.remove(settingKey)
+        }
+      }
     }
 
     if (input.preview?.portStart !== undefined) {
@@ -466,6 +566,17 @@ export class SettingsService {
     }
 
     return { cleared: true as const }
+  }
+
+  async getProviderApiKey(provider: ChatProvider): Promise<string | null> {
+    const map = await this.readMap()
+    const stored = normalizePath(map.get(settingKeyForProviderApiKey(provider)))
+    if (stored) {
+      return stored
+    }
+
+    const envVar = CHAT_PROVIDER_ENV_VAR_MAP[provider]
+    return normalizePath(process.env[envVar])
   }
 
   private async readMap() {

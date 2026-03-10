@@ -39,7 +39,28 @@ interface TerminalResizeRequest {
   rows: number
 }
 
-type ClientMessage = SubscribeRequest | TerminalInputRequest | TerminalResizeRequest
+interface ChatSendRequest {
+  type: 'chat:send'
+  message: string
+}
+
+interface ChatConfirmRequest {
+  type: 'chat:confirm'
+  permissionId: string
+  confirmed: boolean
+}
+
+interface ChatSyncRequest {
+  type: 'chat:sync'
+}
+
+type ClientMessage =
+  | SubscribeRequest
+  | TerminalInputRequest
+  | TerminalResizeRequest
+  | ChatSendRequest
+  | ChatConfirmRequest
+  | ChatSyncRequest
 
 class WebSocketChannelAccessError extends Error {
   constructor(message = 'You do not have access to this channel.') {
@@ -127,6 +148,31 @@ function parseClientMessage(raw: RawData): ClientMessage | null {
     }
   }
 
+  if (type === 'chat:send' && typeof body.message === 'string') {
+    return {
+      type: 'chat:send',
+      message: body.message
+    }
+  }
+
+  if (
+    type === 'chat:confirm' &&
+    typeof body.permissionId === 'string' &&
+    typeof body.confirmed === 'boolean'
+  ) {
+    return {
+      type: 'chat:confirm',
+      permissionId: body.permissionId,
+      confirmed: body.confirmed
+    }
+  }
+
+  if (type === 'chat:sync') {
+    return {
+      type: 'chat:sync'
+    }
+  }
+
   return null
 }
 
@@ -182,6 +228,10 @@ async function resolveChannelProjectId(app: FastifyInstance, channel: string) {
   if (chatMatch) {
     const session = await app.chatService.getSession(chatMatch[1]).catch(() => null)
     return session?.projectId ?? null
+  }
+
+  if (channel === 'opencode-chat') {
+    return null
   }
 
   const previewMatch = /^preview:([^:]+):state$/.exec(channel)
@@ -442,6 +492,10 @@ export async function registerWebsocket(app: FastifyInstance) {
         return await getOwnedProjectIds()
       }
 
+      if (channel === 'opencode-chat') {
+        return null
+      }
+
       const projectId = await resolveChannelProjectId(app, channel)
       if (!projectId || !(await hasProjectAccess(projectId))) {
         throw new WebSocketChannelAccessError()
@@ -572,6 +626,15 @@ export async function registerWebsocket(app: FastifyInstance) {
           unsubMessage()
           unsubState()
         })
+        return
+      }
+
+      if (channel === 'opencode-chat') {
+        const unsubscribe = app.openCodeService.onEvent((event) => {
+          safeSend(app, socket, event)
+        })
+
+        unsubscribers.set(channel, unsubscribe)
         return
       }
 
@@ -706,7 +769,7 @@ export async function registerWebsocket(app: FastifyInstance) {
         safeSend(app, socket, {
           type: 'error',
           message:
-            'Expected {"type":"subscribe","channels":[...]} or terminal.input/terminal.resize payload'
+            'Expected {"type":"subscribe","channels":[...]}, terminal.input/terminal.resize, or chat payload'
         })
         return
       }
@@ -771,6 +834,49 @@ export async function registerWebsocket(app: FastifyInstance) {
             message: `Terminal session not active: ${message.sessionId}`
           })
         }
+        return
+      }
+
+      if (message.type === 'chat:send') {
+        try {
+          await app.openCodeService.sendMessage(message.message)
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : 'Unable to send chat message.'
+          safeSend(app, socket, {
+            type: 'chat:error',
+            error: errorMessage
+          })
+        }
+        return
+      }
+
+      if (message.type === 'chat:confirm') {
+        try {
+          await app.openCodeService.confirmPermission(
+            message.permissionId,
+            message.confirmed
+          )
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : 'Unable to confirm chat action.'
+          safeSend(app, socket, {
+            type: 'chat:error',
+            error: errorMessage
+          })
+        }
+        return
+      }
+
+      if (message.type === 'chat:sync') {
+        safeSend(app, socket, {
+          type: 'chat:snapshot',
+          ...app.openCodeService.getSnapshot()
+        })
       }
     }
 

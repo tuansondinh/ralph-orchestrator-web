@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { execFile as execFileCallback } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { mkdir, readFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import type {
@@ -115,6 +115,9 @@ interface LoopRuntime {
   unsubOutput: () => void
   unsubState: () => void
   outputSequenceCounter: number
+  debugLogPath: string
+  outputLogPath: string
+  pendingLogWrite: Promise<void>
 }
 
 interface LoopServiceOptions {
@@ -226,12 +229,11 @@ function quoteShellArg(value: string): string {
 
 function buildRunCommand(
   binaryPath: string,
-  options: LoopStartOptions,
-  outputLogFile: string
+  options: LoopStartOptions
 ): string {
   const runArgs = buildRunArgs(options)
   const command = [binaryPath, ...runArgs].map(quoteShellArg).join(' ')
-  return `set -o pipefail; ${command} 2>&1 | tee debug.log ${quoteShellArg(outputLogFile)}`
+  return `${command} 2>&1`
 }
 
 function delay(ms: number): Promise<void> {
@@ -325,10 +327,17 @@ export class LoopService {
     const promptSnapshot = await this.resolvePromptSnapshot(runCwd, options)
     const outputLogFile = join('.ralph-ui', 'loop-logs', `${loopId}.log`)
     await mkdir(join(project.path, '.ralph-ui', 'loop-logs'), { recursive: true })
+    const debugLogPath = join(runCwd, 'debug.log')
     const outputLogPath = join(project.path, outputLogFile)
-    const shellCommand = buildRunCommand(binaryPath, options, outputLogPath)
+    await Promise.all([
+      writeFile(debugLogPath, '', 'utf8'),
+      writeFile(outputLogPath, '', 'utf8')
+    ])
+    const shellCommand = buildRunCommand(binaryPath, options)
     const handle = await this.processManager.spawn(projectId, 'bash', ['-lc', shellCommand], {
-      cwd: runCwd
+      cwd: runCwd,
+      // Provider CLIs like Gemini/OpenCode make forward progress only when Ralph runs under a PTY.
+      tty: true
     })
 
     const markerAfter = await this.readCurrentLoopId(runCwd)
@@ -387,7 +396,10 @@ export class LoopService {
       notified: new Set<NotificationType>(),
       unsubOutput: () => {},
       unsubState: () => {},
-      outputSequenceCounter: 0
+      outputSequenceCounter: 0,
+      debugLogPath,
+      outputLogPath,
+      pendingLogWrite: Promise.resolve()
     }
 
     this.runtimes.set(loopId, runtime)
@@ -875,6 +887,16 @@ export class LoopService {
 
     runtime.buffer.append(chunk.data)
     this.events.emit(`${OUTPUT_EVENT_PREFIX}${loopId}`, chunk)
+    runtime.pendingLogWrite = runtime.pendingLogWrite
+      .then(() =>
+        Promise.all([
+          appendFile(runtime.debugLogPath, chunk.data, 'utf8'),
+          appendFile(runtime.outputLogPath, chunk.data, 'utf8')
+        ]).then(() => undefined)
+      )
+      .catch((error) => {
+        console.warn(`Failed to persist output log files for loop ${loopId}:`, error)
+      })
     
     this.loopOutput.append({
       id: randomUUID(),
@@ -997,6 +1019,8 @@ export class LoopService {
     if (!runtime) {
       return
     }
+
+    await runtime.pendingLogWrite
 
     if (nextState !== 'running' && runtime.outputRemainder.trim().length > 0) {
       await this.applyOutputDerivedIteration(loopId, runtime, '\n', false)
@@ -1214,7 +1238,8 @@ export class LoopService {
         if (existing.ralphLoopId !== listedLoop.id) {
           updates.ralphLoopId = listedLoop.id
         }
-        if (existing.state !== listedLoop.state) {
+        const existingIsTerminal = existing.state === 'stopped' || existing.state === 'completed'
+        if (!existingIsTerminal && existing.state !== listedLoop.state) {
           updates.state = listedLoop.state
         }
         if (!existing.worktree && inferredWorktree) {

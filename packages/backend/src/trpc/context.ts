@@ -17,6 +17,7 @@ import type { SettingsService } from '../services/SettingsService.js'
 import type { HatsPresetService } from '../services/HatsPresetService.js'
 import type { TaskService } from '../services/TaskService.js'
 import type { GitHubService } from '../services/GitHubService.js'
+import type { OpenCodeService } from '../services/OpenCodeService.js'
 
 export interface Context {
   runtime: ResolvedRuntimeMode
@@ -36,6 +37,7 @@ export interface Context {
   hatsPresetService: HatsPresetService
   taskService: TaskService
   githubService?: GitHubService
+  openCodeService?: Pick<OpenCodeService, 'updateModel'>
 }
 
 export function createContext(opts: CreateFastifyContextOptions): Context {
@@ -56,6 +58,7 @@ export function createContext(opts: CreateFastifyContextOptions): Context {
     settingsService: opts.req.server.settingsService,
     hatsPresetService: opts.req.server.hatsPresetService,
     taskService: opts.req.server.taskService,
-    githubService: opts.req.server.githubService
+    githubService: opts.req.server.githubService,
+    openCodeService: opts.req.server.openCodeService
   }
 }

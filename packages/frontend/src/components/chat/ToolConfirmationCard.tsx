@@ -1,7 +1,15 @@
-import type { ToolConfirmation } from '@/stores/chatOverlayStore'
+type ConfirmationCardState = {
+  permissionId?: string
+  toolName: string
+  description: string
+  args: Record<string, unknown>
+  id?: string
+  isSubmitting?: boolean
+  status?: 'pending' | 'confirmed' | 'cancelled'
+}
 
 interface ToolConfirmationCardProps {
-  confirmation: ToolConfirmation
+  confirmation: ConfirmationCardState
   onConfirm: () => void
   onCancel: () => void
 }
@@ -11,7 +19,9 @@ export function ToolConfirmationCard({
   onConfirm,
   onCancel
 }: ToolConfirmationCardProps) {
-  const isActionDisabled = confirmation.isSubmitting || confirmation.status !== 'pending'
+  const isActionDisabled =
+    confirmation.isSubmitting === true ||
+    (confirmation.status !== undefined && confirmation.status !== 'pending')
   const statusLabel =
     confirmation.status === 'confirmed'
       ? 'Confirmed'
@@ -30,7 +40,7 @@ export function ToolConfirmationCard({
       </pre>
       <div className="mt-3 flex items-center gap-2">
         <button
-          className="rounded border border-emerald-600 px-2 py-1 text-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+          className="min-h-11 rounded border border-emerald-600 px-3 py-2 text-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={isActionDisabled}
           onClick={onConfirm}
           type="button"
@@ -38,7 +48,7 @@ export function ToolConfirmationCard({
           Confirm
         </button>
         <button
-          className="rounded border border-zinc-600 px-2 py-1 text-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+          className="min-h-11 rounded border border-zinc-600 px-3 py-2 text-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={isActionDisabled}
           onClick={onCancel}
           type="button"

@@ -358,12 +358,12 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Create Project' })).toBeInTheDocument()
   })
 
-  it('does not render a floating chat assistant button', async () => {
+  it('renders a floating chat assistant button', async () => {
     render(<App />)
 
     await screen.findByRole('heading', { name: 'No projects yet' })
 
-    expect(screen.queryByRole('button', { name: 'Open chat assistant' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open chat assistant' })).toBeInTheDocument()
   })
 
   it('renders developer-focused empty homepage content', async () => {
@@ -526,7 +526,8 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: 'Beta App' })).toBeInTheDocument()
     const projectSections = screen.getByRole('navigation', { name: 'Project sections' })
-    expect(within(projectSections).queryByRole('link', { name: 'Chat' })).not.toBeInTheDocument()
+    const chatLink = within(projectSections).getByRole('link', { name: 'Chat' })
+    expect(chatLink).toHaveAttribute('href', '/project/beta/chat')
     expect(within(projectSections).getByRole('link', { name: 'Terminal' })).toBeInTheDocument()
     expect(within(projectSections).getByRole('link', { name: 'Loops' })).toBeInTheDocument()
     expect(within(projectSections).getByRole('link', { name: 'Monitor' })).toBeInTheDocument()
@@ -534,6 +535,10 @@ describe('App', () => {
     expect(within(projectSections).getByRole('link', { name: 'Hats presets' })).toBeInTheDocument()
     expect(within(projectSections).getByRole('link', { name: 'Settings' })).toBeInTheDocument()
     expect(screen.getAllByRole('link', { name: 'Global settings' }).length).toBeGreaterThan(0)
+
+    fireEvent.click(chatLink)
+
+    expect(await screen.findByRole('heading', { name: 'Chat' })).toBeInTheDocument()
   })
 
   it('keeps terminal available in cloud mode while hiding preview', async () => {

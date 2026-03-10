@@ -4,7 +4,8 @@
 
 - Repo: `ralph-orchestrator-web`
 - Branch used for cloud work: `ralph-cloud`
-- Server: `app@63.176.97.255`
+- Server: `app@18.159.34.250`
+- Live EC2 instance: `i-0e394eae69bc1b841` (`t3.large`, `eu-central-1a`, tag `ralph-cloud`)
 - App directory on server: `/opt/ralph-orchestrator-web`
 - Service name: `ralph-orchestrator`
 - Backend health endpoint on box: `http://127.0.0.1:3003/health`
@@ -134,19 +135,19 @@ git log --oneline --decorate -n 10
 Server health:
 
 ```bash
-ssh -i ~/.ssh/ralph-cloud-key.pem app@63.176.97.255 'curl -s http://127.0.0.1:3003/health'
+ssh -i ~/.ssh/ralph-cloud-key.pem app@18.159.34.250 'curl -s http://127.0.0.1:3003/health'
 ```
 
 Recent service logs:
 
 ```bash
-ssh -i ~/.ssh/ralph-cloud-key.pem app@63.176.97.255 'journalctl -u ralph-orchestrator -n 200 --no-pager'
+ssh -i ~/.ssh/ralph-cloud-key.pem app@18.159.34.250 'journalctl -u ralph-orchestrator -n 200 --no-pager'
 ```
 
 Restart service:
 
 ```bash
-ssh -i ~/.ssh/ralph-cloud-key.pem app@63.176.97.255 'sudo systemctl restart ralph-orchestrator'
+ssh -i ~/.ssh/ralph-cloud-key.pem app@18.159.34.250 'sudo systemctl restart ralph-orchestrator'
 ```
 
 Standard deploy:

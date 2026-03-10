@@ -1,4 +1,8 @@
-import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
+import Fastify, {
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest
+} from 'fastify'
 import crypto from 'crypto'
 import type { ModelMessage } from 'ai'
 import cors from '@fastify/cors'
@@ -40,12 +44,6 @@ import { RalphMcpServer } from './mcp/RalphMcpServer.js'
 import { resolveRalphBinary } from './lib/ralph.js'
 import { isOriginAllowed, parseAllowedOrigins } from './lib/origin.js'
 import { registerWebsocket } from './api/websocket.js'
-import { registerGitHubAuthRoutes } from './api/githubAuth.js'
-import {
-  initSupabaseAuth,
-  supabaseAuthHook
-} from './auth/supabaseAuth.js'
-import { GitHubService } from './services/GitHubService.js'
 import { LocalWorkspaceManager } from './services/WorkspaceManager.js'
 import { WORKSPACE_BASE_DIR } from './config/runtimeMode.js'
 
@@ -202,6 +200,72 @@ function createUnavailableService<T>(name: string): T {
   ) as T
 }
 
+type CloudRuntimeConfig = NonNullable<ResolvedRuntimeMode['cloud']>
+
+async function cloudStartupPlugin(
+  app: FastifyInstance,
+  options: {
+    cloud: CloudRuntimeConfig
+    projectService: ProjectService
+    repositories: ReturnType<typeof createRepositoryBundle>
+  }
+): Promise<void> {
+  const { cloud, projectService, repositories } = options
+  const workspaceManager = new LocalWorkspaceManager(WORKSPACE_BASE_DIR)
+  app.decorate('workspaceManager', workspaceManager)
+  projectService.setWorkspaceManager(workspaceManager)
+
+  if (cloud.supabaseUrl && cloud.supabaseAnonKey) {
+    const { initSupabaseAuth, supabaseAuthHook } = await import(
+      './auth/supabaseAuth.js'
+    )
+
+    initSupabaseAuth(cloud.supabaseUrl, cloud.supabaseAnonKey)
+    app.addHook('onRequest', async (request, reply) => {
+      const url = request.url
+      const pathname = url.split('?')[0] ?? '/'
+      // Skip auth for health check, capabilities, and static files
+      if (
+        pathname === '/health' ||
+        pathname === '/trpc/capabilities' ||
+        pathname === '/ws' ||
+        !API_ROUTE_PREFIXES.some(
+          (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+        )
+      ) {
+        return
+      }
+
+      await supabaseAuthHook(request, reply)
+    })
+  }
+
+  if (cloud.githubClientId && cloud.githubClientSecret && cloud.githubCallbackUrl) {
+    const [{ registerGitHubAuthRoutes }, { GitHubService }] = await Promise.all([
+      import('./api/githubAuth.js'),
+      import('./services/GitHubService.js')
+    ])
+    const encryptionKey = crypto
+      .createHash('sha256')
+      .update(cloud.githubClientSecret)
+      .digest()
+    const githubService = new GitHubService(
+      repositories.githubConnections,
+      cloud.githubClientId,
+      cloud.githubClientSecret,
+      cloud.githubCallbackUrl,
+      encryptionKey
+    )
+
+    app.decorate('githubService', githubService)
+    registerGitHubAuthRoutes(app)
+  }
+}
+
+;(cloudStartupPlugin as typeof cloudStartupPlugin & Record<symbol, boolean>)[
+  Symbol.for('skip-override')
+] = true
+
 export interface CreateAppOptions {
   runtime?: ResolvedRuntimeMode
   databaseProviderFactory?: () => DatabaseProvider
@@ -356,56 +420,15 @@ export function createApp(options: CreateAppOptions = {}) {
   app.decorate('hatsPresetService', hatsPresetService)
   app.decorate('taskService', taskService)
 
-  // Cloud mode auth
-  if (runtime.mode === 'cloud' && runtime.cloud) {
-    const supabaseUrl = runtime.cloud.supabaseUrl
-    const supabaseAnonKey = runtime.cloud.supabaseAnonKey
-    if (supabaseUrl && supabaseAnonKey) {
-      initSupabaseAuth(supabaseUrl, supabaseAnonKey)
-      app.addHook('onRequest', async (request, reply) => {
-        const url = request.url
-        const pathname = url.split('?')[0] ?? '/'
-        // Skip auth for health check, capabilities, and static files
-        if (
-          pathname === '/health' ||
-          pathname === '/trpc/capabilities' ||
-          !API_ROUTE_PREFIXES.some(
-            (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-          )
-        ) {
-          return
-        }
-        await supabaseAuthHook(request, reply)
-      })
-    }
-
-    const githubClientId = runtime.cloud.githubClientId
-    const githubClientSecret = runtime.cloud.githubClientSecret
-    const githubCallbackUrl = runtime.cloud.githubCallbackUrl
-    
-    if (githubClientId && githubClientSecret && githubCallbackUrl) {
-      const encryptionKey = crypto.createHash('sha256')
-        .update(githubClientSecret)
-        .digest()
-      
-      const githubService = new GitHubService(
-        repositories.githubConnections,
-        githubClientId,
-        githubClientSecret,
-        githubCallbackUrl,
-        encryptionKey
-      )
-      app.decorate('githubService', githubService)
-      
-      registerGitHubAuthRoutes(app)
-    }
-
-    const workspaceManager = new LocalWorkspaceManager(WORKSPACE_BASE_DIR)
-    app.decorate('workspaceManager', workspaceManager)
-    projectService.setWorkspaceManager(workspaceManager)
-  }
-
   app.register(cookie)
+
+  if (runtime.mode === 'cloud' && runtime.cloud) {
+    app.register(cloudStartupPlugin, {
+      cloud: runtime.cloud,
+      projectService,
+      repositories
+    })
+  }
 
   app.register(cors, {
     origin: (origin, callback) => {

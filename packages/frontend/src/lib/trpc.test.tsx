@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import { resolveTrpcBaseUrl } from '@/lib/trpc'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { setAuthAccessToken } from '@/lib/authSession'
+import { resolveTrpcBaseUrl, resolveTrpcHeaders } from '@/lib/trpc'
 
 describe('resolveTrpcBaseUrl', () => {
   it('defaults to 127.0.0.1 backend origin in dev when backend origin is not set', () => {
@@ -44,5 +45,33 @@ describe('resolveTrpcBaseUrl', () => {
 
   it('uses relative /trpc for non-local non-dev hosts', () => {
     expect(resolveTrpcBaseUrl({ DEV: false }, { hostname: 'ralph.example.com' })).toBe('/trpc')
+  })
+})
+
+describe('resolveTrpcHeaders', () => {
+  beforeEach(() => {
+    setAuthAccessToken(null)
+  })
+
+  it('adds a bearer token header when a cloud auth session is available', () => {
+    setAuthAccessToken(' supabase-access-token ')
+
+    expect(resolveTrpcHeaders()).toEqual({
+      authorization: 'Bearer supabase-access-token'
+    })
+  })
+
+  it('returns no auth headers when no session token is available', () => {
+    expect(resolveTrpcHeaders()).toEqual({})
+  })
+
+  it('adds a bearer token when frontend auth has a cached session', () => {
+    expect(resolveTrpcHeaders(() => 'token-123')).toEqual({
+      Authorization: 'Bearer token-123'
+    })
+  })
+
+  it('returns empty headers when there is no cached auth token', () => {
+    expect(resolveTrpcHeaders(() => null)).toEqual({})
   })
 })

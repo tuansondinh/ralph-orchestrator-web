@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { ProjectService } from '../src/services/ProjectService.js'
 import type { ProjectRepository, ProjectRecord, RepositoryBundle } from '../src/db/repositories/contracts.js'
 import type { WorkspaceManager } from '../src/services/WorkspaceManager.js'
@@ -19,6 +19,8 @@ vi.mock('../src/lib/detect.js', () => ({
 
 describe('CloudProjectService', () => {
   let mockProjectRepo: ProjectRepository
+  let mockFindByGitHubRepo: Mock<NonNullable<ProjectRepository['findByGitHubRepo']>>
+  let mockFindByUserId: Mock<NonNullable<ProjectRepository['findByUserId']>>
   let mockWorkspaceManager: WorkspaceManager
   let projectService: ProjectService
   let createdProjects: Map<string, ProjectRecord>
@@ -26,6 +28,10 @@ describe('CloudProjectService', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     createdProjects = new Map()
+    mockFindByGitHubRepo = vi.fn<NonNullable<ProjectRepository['findByGitHubRepo']>>().mockResolvedValue(
+      null
+    )
+    mockFindByUserId = vi.fn<NonNullable<ProjectRepository['findByUserId']>>().mockResolvedValue([])
 
     mockProjectRepo = {
       list: vi.fn().mockResolvedValue([]),
@@ -38,8 +44,8 @@ describe('CloudProjectService', () => {
       }),
       update: vi.fn().mockResolvedValue({} as ProjectRecord),
       delete: vi.fn().mockResolvedValue(undefined),
-      findByGitHubRepo: vi.fn().mockResolvedValue(null),
-      findByUserId: vi.fn().mockResolvedValue([])
+      findByGitHubRepo: mockFindByGitHubRepo,
+      findByUserId: mockFindByUserId
     }
 
     mockWorkspaceManager = {
@@ -148,15 +154,20 @@ describe('CloudProjectService', () => {
     })
 
     it('rejects duplicate GitHub repos', async () => {
-      const findByGitHubRepo = mockProjectRepo.findByGitHubRepo
-      if (findByGitHubRepo) {
-        vi.mocked(findByGitHubRepo).mockResolvedValueOnce({
-          id: 'existing-project',
-          name: 'Existing Project',
-          githubOwner: 'acme',
-          githubRepo: 'my-app'
-        } as ProjectRecord)
-      }
+      mockFindByGitHubRepo.mockResolvedValueOnce({
+        id: 'existing-project',
+        name: 'Existing Project',
+        path: '/workspace/existing-project',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        userId: 'user-123',
+        githubOwner: 'acme',
+        githubRepo: 'my-app',
+        defaultBranch: 'main',
+        workspacePath: '/workspace/existing-project'
+      })
 
       const params = {
         userId: 'user-123',
@@ -208,10 +219,7 @@ describe('CloudProjectService', () => {
         }
       ]
 
-      const findByUserId = mockProjectRepo.findByUserId
-      if (findByUserId) {
-        vi.mocked(findByUserId).mockResolvedValueOnce(mockProjects)
-      }
+      mockFindByUserId.mockResolvedValueOnce(mockProjects)
 
       const result = await projectService.findByUserId('user-123')
 
@@ -222,10 +230,7 @@ describe('CloudProjectService', () => {
     })
 
     it('returns empty array when user has no projects', async () => {
-      const findByUserId = mockProjectRepo.findByUserId
-      if (findByUserId) {
-        vi.mocked(findByUserId).mockResolvedValueOnce([])
-      }
+      mockFindByUserId.mockResolvedValueOnce([])
 
       const result = await projectService.findByUserId('user-456')
 
@@ -250,10 +255,7 @@ describe('CloudProjectService', () => {
         workspacePath: '/workspace/project-1'
       }
 
-      const findByGitHubRepo = mockProjectRepo.findByGitHubRepo
-      if (findByGitHubRepo) {
-        vi.mocked(findByGitHubRepo).mockResolvedValueOnce(mockProject)
-      }
+      mockFindByGitHubRepo.mockResolvedValueOnce(mockProject)
 
       const result = await projectService.findByGitHubRepo('user-123', 'acme', 'my-app')
 
@@ -262,10 +264,7 @@ describe('CloudProjectService', () => {
     })
 
     it('returns null when project not found', async () => {
-      const findByGitHubRepo = mockProjectRepo.findByGitHubRepo
-      if (findByGitHubRepo) {
-        vi.mocked(findByGitHubRepo).mockResolvedValueOnce(null)
-      }
+      mockFindByGitHubRepo.mockResolvedValueOnce(null)
 
       const result = await projectService.findByGitHubRepo('user-123', 'acme', 'nonexistent')
 

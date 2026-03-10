@@ -34,8 +34,8 @@ export async function supabaseAuthHook(
   const token = authHeader.slice(7)
   try {
     const user = await verifySupabaseToken(token)
-    ;(request as any).userId = user.id
-    ;(request as any).supabaseUser = user
+    request.userId = user.id
+    request.supabaseUser = user
   } catch {
     reply.code(401).send({ error: 'Invalid or expired token' })
   }

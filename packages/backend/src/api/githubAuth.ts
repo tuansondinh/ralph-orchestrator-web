@@ -1,42 +1,93 @@
-import type { FastifyInstance } from 'fastify';
-import crypto from 'crypto';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { supabaseAuthHook } from '../auth/supabaseAuth.js';
+
+const GITHUB_OAUTH_SESSION_COOKIE = 'github_oauth_session';
+
+async function requireAuthenticatedUser(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<string | null> {
+  await supabaseAuthHook(request, reply);
+  return reply.sent || !request.userId ? null : request.userId;
+}
+
+function parsePositiveInteger(value: unknown, fallback: number): number {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 export function registerGitHubAuthRoutes(app: FastifyInstance): void {
-  const githubService = (app as any).githubService;
+  const githubService = app.githubService;
+  if (!githubService) {
+    throw new Error('GitHub service must be registered before GitHub auth routes');
+  }
 
   app.get('/auth/github', async (request, reply) => {
-    const state = crypto.randomBytes(16).toString('hex');
-    reply.setCookie('github_oauth_state', state, {
+    const userId = await requireAuthenticatedUser(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const session = githubService.createOauthSession(userId);
+    reply.setCookie(GITHUB_OAUTH_SESSION_COOKIE, session.cookieValue, {
       path: '/',
       httpOnly: true,
-      maxAge: 600,
+      maxAge: session.maxAgeSeconds,
       sameSite: 'lax',
     });
-    const url = githubService.getAuthorizationUrl(state);
+    const url = githubService.getAuthorizationUrl(session.state);
     reply.redirect(url);
   });
 
   app.get('/auth/github/callback', async (request, reply) => {
     const { code, state } = request.query as { code?: string; state?: string };
-    const cookies = request.cookies as Record<string, string>;
-    const expectedState = cookies?.github_oauth_state;
+    const session = githubService.readOauthSession(request.cookies?.[GITHUB_OAUTH_SESSION_COOKIE]);
 
-    if (!code || !state || state !== expectedState) {
+    if (!code || !state || !session || state !== session.state) {
+      reply.clearCookie(GITHUB_OAUTH_SESSION_COOKIE, { path: '/' });
       reply.redirect('/?github_error=invalid_state');
       return;
     }
 
     try {
-      const userId = (request as any).userId;
-      if (!userId) {
-        reply.redirect('/?github_error=unauthorized');
-        return;
-      }
-      await githubService.connect(userId, code);
-      reply.clearCookie('github_oauth_state');
+      await githubService.connect(session.userId, code);
+      reply.clearCookie(GITHUB_OAUTH_SESSION_COOKIE, { path: '/' });
       reply.redirect('/settings?github=connected');
     } catch (error) {
       reply.redirect(`/settings?github_error=${encodeURIComponent(String(error))}`);
     }
+  });
+
+  app.get('/auth/github/repos', async (request, reply) => {
+    const userId = await requireAuthenticatedUser(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    const { page, perPage } = request.query as {
+      page?: string;
+      perPage?: string;
+    };
+
+    const result = await githubService.listConnectedRepos(
+      userId,
+      parsePositiveInteger(page, 1),
+      parsePositiveInteger(perPage, 30)
+    );
+    reply.send(result);
+  });
+
+  app.delete('/auth/github', async (request, reply) => {
+    const userId = await requireAuthenticatedUser(request, reply);
+    if (!userId) {
+      return;
+    }
+
+    await githubService.disconnect(userId);
+    reply.code(204).send();
   });
 }

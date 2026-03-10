@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react'
+import { resolveAuthorizedHeaders } from '@/lib/authSession'
 import {
   useChatOverlayStore,
   type OverlayMessage,
@@ -300,10 +301,10 @@ export function useChat() {
     try {
       const { response, url } = await fetchWithNotFoundFallback(confirmEndpoints, {
         method: 'POST',
-        headers: {
+        headers: resolveAuthorizedHeaders({
           accept: 'application/json',
           'content-type': 'application/json'
-        },
+        }),
         body: JSON.stringify({
           sessionId: state.sessionId,
           toolCallId,
@@ -377,10 +378,10 @@ export function useChat() {
     try {
       const { response, url } = await fetchWithNotFoundFallback(streamEndpoints, {
         method: 'POST',
-        headers: {
+        headers: resolveAuthorizedHeaders({
           accept: 'text/event-stream',
           'content-type': 'application/json'
-        },
+        }),
         signal: abortController.signal,
         body: JSON.stringify({
           sessionId,

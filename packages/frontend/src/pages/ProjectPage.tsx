@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom'
+import { Navigate, useParams } from 'react-router-dom'
 import { ChatView } from '@/components/chat/ChatView'
 import { TabBar } from '@/components/layout/TabBar'
 import { LoopsView } from '@/components/loops/LoopsView'
@@ -9,28 +9,16 @@ import { ProjectHeader } from '@/components/project/ProjectHeader'
 import { ProjectConfigView } from '@/components/project/ProjectConfigView'
 import { TasksView } from '@/components/tasks/TasksView'
 import { TerminalView } from '@/components/terminal/TerminalView'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { isProjectTabId, resolveProjectTab } from '@/lib/projectTabs'
 import { useProjectStore } from '@/stores/projectStore'
-
-const validTabs = [
-  'loops',
-  'chat',
-  'tasks',
-  'terminal',
-  'monitor',
-  'preview',
-  'hats-presets',
-  'settings'
-] as const
-type TabKey = (typeof validTabs)[number]
-
-function isTabKey(value: string | undefined): value is TabKey {
-  return Boolean(value && validTabs.includes(value as TabKey))
-}
 
 export function ProjectPage() {
   const params = useParams()
+  const { capabilities } = useCapabilities()
   const projectId = params.id
-  const tab = isTabKey(params.tab) ? params.tab : 'loops'
+  const requestedTab = isProjectTabId(params.tab) ? params.tab : null
+  const tab = resolveProjectTab(requestedTab, capabilities)
   const project = useProjectStore((state) =>
     state.projects.find((candidate) => candidate.id === projectId)
   )
@@ -44,6 +32,10 @@ export function ProjectPage() {
         </p>
       </section>
     )
+  }
+
+  if (requestedTab !== tab) {
+    return <Navigate replace to={`/project/${project.id}/${tab}`} />
   }
 
   return (

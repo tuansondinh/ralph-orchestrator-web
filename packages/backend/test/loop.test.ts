@@ -1260,24 +1260,28 @@ describe('loop tRPC routes', () => {
     })
 
     const listed = await detachedLoopService.list(projectId)
-    expect(listed.find((loop) => loop.id === 'fair-fox')).toMatchObject({
-      id: 'fair-fox',
+    const imported = listed.find((loop) => loop.ralphLoopId === 'fair-fox')
+    expect(imported).toMatchObject({
       ralphLoopId: 'fair-fox',
       state: 'orphan',
       worktree: 'fair-fox'
     })
+    expect(imported?.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    )
+    expect(imported?.id).not.toBe('fair-fox')
 
     const persisted = connection.db
       .select()
       .from(loopRuns)
-      .where(eq(loopRuns.id, 'fair-fox'))
+      .where(eq(loopRuns.ralphLoopId, 'fair-fox'))
       .get()
     expect(persisted).toMatchObject({
-      id: 'fair-fox',
       ralphLoopId: 'fair-fox',
       state: 'orphan',
       worktree: 'fair-fox'
     })
+    expect(persisted?.id).toBe(imported?.id)
   })
 
   it('keeps throwing when CLI stop fails with non-stale errors', async () => {

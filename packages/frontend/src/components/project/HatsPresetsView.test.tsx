@@ -63,7 +63,9 @@ describe('HatsPresetsView', () => {
 
     expect(await screen.findByText(/Source:/)).toBeInTheDocument()
     expect(hatsPresetApi.list).toHaveBeenCalledTimes(1)
-    expect(hatsPresetApi.get).toHaveBeenCalledWith('minimal/default.yml')
+    await waitFor(() => {
+      expect(hatsPresetApi.get).toHaveBeenCalledWith('minimal/default.yml')
+    })
     await waitFor(() => {
       expect(yamlField.value).toContain('hat: default')
       expect(yamlField.value).toContain('mode: focused')

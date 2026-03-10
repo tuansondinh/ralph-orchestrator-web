@@ -1,21 +1,12 @@
 import path from 'path';
 import os from 'os';
-
-export type RuntimeMode = 'local' | 'cloud'
+import {
+  getRuntimeCapabilities,
+  type RuntimeCapabilities,
+  type RuntimeMode
+} from './runtimeCapabilities.js'
 
 export const WORKSPACE_BASE_DIR = process.env.RALPH_UI_WORKSPACE_DIR || path.join(os.homedir(), '.ralph-ui', 'workspaces');
-
-export interface RuntimeCapabilities {
-  mode: RuntimeMode
-  database: true
-  auth: boolean
-  localProjects: boolean
-  githubProjects: boolean
-  terminal: boolean
-  preview: boolean
-  localDirectoryPicker: boolean
-  mcp: boolean
-}
 
 export interface CloudRuntimeConfig {
   supabaseUrl: string
@@ -31,6 +22,9 @@ export interface ResolvedRuntimeMode {
   capabilities: RuntimeCapabilities
   cloud?: CloudRuntimeConfig
 }
+
+export { getRuntimeCapabilities }
+export type { RuntimeCapabilities, RuntimeMode }
 
 export class RuntimeModeConfigError extends Error {
   readonly missing: string[]
@@ -63,34 +57,6 @@ function readEnvValue(env: RuntimeEnv, key: (typeof CLOUD_ENV_KEYS)[number]) {
 
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : undefined
-}
-
-export function getRuntimeCapabilities(mode: RuntimeMode): RuntimeCapabilities {
-  if (mode === 'cloud') {
-    return {
-      mode: 'cloud',
-      database: true,
-      auth: true,
-      localProjects: false,
-      githubProjects: true,
-      terminal: false,
-      preview: false,
-      localDirectoryPicker: false,
-      mcp: false
-    }
-  }
-  
-  return {
-    mode: 'local',
-    database: true,
-    auth: false,
-    localProjects: true,
-    githubProjects: false,
-    terminal: true,
-    preview: true,
-    localDirectoryPicker: true,
-    mcp: true
-  }
 }
 
 export function resolveRuntimeMode(

@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../src/app.js'
+import type { DatabaseProvider } from '../src/db/connection.js'
+import { createTestRuntime } from './test-helpers.js'
 
 describe('GET /health', () => {
   const app = createApp()
@@ -32,17 +34,21 @@ describe('GET /health', () => {
   })
 
   it('surfaces cloud mode when full cloud configuration is present', async () => {
-    const previous = {
-      SUPABASE_URL: process.env.SUPABASE_URL,
-      SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
-      SUPABASE_DB_URL: process.env.SUPABASE_DB_URL
-    }
-
-    process.env.SUPABASE_URL = 'https://example.supabase.co'
-    process.env.SUPABASE_ANON_KEY = 'anon-key'
-    process.env.SUPABASE_DB_URL = 'postgresql://postgres:postgres@localhost:5432/ralph'
-
-    const cloudApp = createApp()
+    const close = vi.fn(async () => {})
+    const cloudApp = createApp({
+      runtime: createTestRuntime('cloud'),
+      databaseProviderFactory: () =>
+        ({
+          mode: 'cloud',
+          dialect: 'postgres',
+          client: {} as never,
+          db: {} as never,
+          metadata: {
+            connectionString: 'postgresql://postgres:postgres@localhost:5432/ralph'
+          },
+          close
+        }) satisfies DatabaseProvider
+    })
 
     try {
       const response = await cloudApp.inject({ method: 'GET', url: '/health' })
@@ -67,21 +73,7 @@ describe('GET /health', () => {
       })
     } finally {
       await cloudApp.close()
-      if (previous.SUPABASE_URL === undefined) {
-        delete process.env.SUPABASE_URL
-      } else {
-        process.env.SUPABASE_URL = previous.SUPABASE_URL
-      }
-      if (previous.SUPABASE_ANON_KEY === undefined) {
-        delete process.env.SUPABASE_ANON_KEY
-      } else {
-        process.env.SUPABASE_ANON_KEY = previous.SUPABASE_ANON_KEY
-      }
-      if (previous.SUPABASE_DB_URL === undefined) {
-        delete process.env.SUPABASE_DB_URL
-      } else {
-        process.env.SUPABASE_DB_URL = previous.SUPABASE_DB_URL
-      }
+      expect(close).toHaveBeenCalledTimes(1)
     }
   })
 })

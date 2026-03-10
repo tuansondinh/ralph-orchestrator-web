@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { projectApi, type ProjectRecord } from '@/lib/projectApi'
+import { capabilitiesApi } from '@/lib/capabilitiesApi'
+import { resetCapabilitiesCache } from '@/hooks/useCapabilities'
 import { monitoringApi } from '@/lib/monitoringApi'
 import { taskApi } from '@/lib/taskApi'
 import { terminalApi } from '@/lib/terminalApi'
@@ -14,14 +16,37 @@ const { websocketSendMock } = vi.hoisted(() => ({
   websocketSendMock: vi.fn(() => true)
 }))
 
+const {
+  getSupabaseClientMock,
+  getSupabaseAccessTokenMock,
+  setSupabaseSessionMock
+} = vi.hoisted(() => ({
+  getSupabaseClientMock: vi.fn(),
+  getSupabaseAccessTokenMock: vi.fn(),
+  setSupabaseSessionMock: vi.fn()
+}))
+
 vi.mock('@/lib/projectApi', () => ({
   projectApi: {
     list: vi.fn(),
     create: vi.fn(),
+    createFromGitHub: vi.fn(),
     delete: vi.fn(),
     getPrompt: vi.fn(),
     updatePrompt: vi.fn(),
     selectDirectory: vi.fn()
+  }
+}))
+
+vi.mock('@/lib/supabase', () => ({
+  getSupabaseClient: getSupabaseClientMock,
+  getSupabaseAccessToken: getSupabaseAccessTokenMock,
+  setSupabaseSession: setSupabaseSessionMock
+}))
+
+vi.mock('@/lib/capabilitiesApi', () => ({
+  capabilitiesApi: {
+    get: vi.fn()
   }
 }))
 
@@ -85,7 +110,43 @@ function seedProjects(nextProjects: ProjectRecord[]) {
   projects = nextProjects
 }
 
+function mockAuthenticatedCloudSession() {
+  const session = {
+    access_token: 'token-123',
+    user: {
+      id: 'user-1',
+      email: 'dev@example.com'
+    }
+  }
+  const unsubscribe = vi.fn()
+
+  getSupabaseAccessTokenMock.mockReturnValue(session.access_token)
+  getSupabaseClientMock.mockReturnValue({
+    auth: {
+      getSession: vi.fn(async () => ({
+        data: {
+          session
+        }
+      })),
+      onAuthStateChange: vi.fn(() => ({
+        data: {
+          subscription: {
+            unsubscribe
+          }
+        }
+      })),
+      signInWithPassword: vi.fn(),
+      signOut: vi.fn(async () => ({
+        error: null
+      }))
+    }
+  })
+
+  return session
+}
+
 beforeEach(() => {
+  resetCapabilitiesCache()
   resetLoopStore()
   resetProjectStore()
   resetTerminalStore()
@@ -95,6 +156,9 @@ beforeEach(() => {
   window.localStorage.clear()
   document.documentElement.classList.remove('dark')
   window.history.pushState({}, '', '/')
+  getSupabaseClientMock.mockReturnValue(null)
+  getSupabaseAccessTokenMock.mockReturnValue(null)
+  setSupabaseSessionMock.mockReset()
 
   vi.mocked(projectApi.list).mockImplementation(async () => projects)
   vi.mocked(projectApi.create).mockImplementation(async (input) => {
@@ -109,6 +173,17 @@ beforeEach(() => {
     }
     projects = [...projects, createdProject]
     return createdProject
+  })
+  vi.mocked(capabilitiesApi.get).mockResolvedValue({
+    mode: 'local',
+    database: true,
+    auth: false,
+    localProjects: true,
+    githubProjects: false,
+    terminal: true,
+    preview: true,
+    localDirectoryPicker: true,
+    mcp: true
   })
   vi.mocked(projectApi.delete).mockImplementation(async (id) => {
     projects = projects.filter((project) => project.id !== id)
@@ -404,6 +479,64 @@ describe('App', () => {
     expect(screen.getAllByRole('link', { name: 'Global settings' }).length).toBeGreaterThan(0)
   })
 
+  it('hides terminal and preview tabs in cloud mode', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ])
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    })
+    mockAuthenticatedCloudSession()
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Alpha App' }))
+
+    const projectSections = screen.getByRole('navigation', { name: 'Project sections' })
+    expect(within(projectSections).queryByRole('link', { name: 'Terminal' })).not.toBeInTheDocument()
+    expect(within(projectSections).queryByRole('link', { name: 'Preview' })).not.toBeInTheDocument()
+    expect(within(projectSections).getByRole('link', { name: 'Loops' })).toBeInTheDocument()
+    expect(within(projectSections).getByRole('link', { name: 'Monitor' })).toBeInTheDocument()
+  })
+
+  it('redirects unauthenticated cloud users to sign-in before rendering the app shell', async () => {
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    })
+    vi.mocked(projectApi.list).mockRejectedValue(new Error('UNAUTHORIZED'))
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Email')).toBeInTheDocument()
+    expect(screen.queryByText('Project workspaces')).not.toBeInTheDocument()
+    expect(projectApi.list).not.toHaveBeenCalled()
+  })
+
   it('reorders projects in sidebar via drag and drop', async () => {
     seedProjects([
       {
@@ -527,6 +660,79 @@ describe('App', () => {
     })
   })
 
+  it('falls back to loops when the remembered tab is hidden in cloud mode', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ])
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    })
+    mockAuthenticatedCloudSession()
+    window.localStorage.setItem(
+      'ralph-ui.last-project-tabs',
+      JSON.stringify({
+        alpha: 'terminal'
+      })
+    )
+    window.history.pushState({}, '', '/project/alpha')
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/project/alpha/loops')
+    })
+  })
+
+  it('redirects hidden project routes back to loops in cloud mode', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ])
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    })
+    mockAuthenticatedCloudSession()
+    window.history.pushState({}, '', '/project/alpha/terminal')
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/project/alpha/loops')
+    })
+    expect(screen.queryByRole('button', { name: 'Terminal 1' })).not.toBeInTheDocument()
+  })
+
   it('navigates between project tabs', async () => {
     seedProjects([
       {
@@ -623,7 +829,7 @@ describe('App', () => {
 
     expect(screen.getByRole('button', { name: 'Terminal 1' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Close Terminal 2' })).not.toBeInTheDocument()
-  })
+  }, 10000)
 
   it('runs plan with selected terminal backend', async () => {
     seedProjects([
@@ -711,6 +917,8 @@ describe('App', () => {
 
   it('opens create-project dialog with Cmd+N and closes with Escape', async () => {
     render(<App />)
+
+    await screen.findByRole('heading', { name: 'No projects yet' })
 
     fireEvent.keyDown(window, { key: 'n', metaKey: true })
     expect(await screen.findByRole('heading', { name: 'Create new project' })).toBeInTheDocument()

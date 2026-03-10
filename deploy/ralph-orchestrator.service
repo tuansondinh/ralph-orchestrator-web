@@ -1,0 +1,21 @@
+[Unit]
+Description=Ralph Orchestrator Web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=app
+Group=app
+WorkingDirectory=/opt/ralph-orchestrator-web
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/ralph-orchestrator-web/.env
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { getAuthAccessToken } from '@/lib/authSession'
 
 interface UseWebSocketOptions {
   channels: string[]
@@ -6,6 +7,7 @@ interface UseWebSocketOptions {
   reconnectDelayMs?: number
   maxReconnectDelayMs?: number
   connectTimeoutMs?: number
+  accessToken?: string
 }
 
 export type WebSocketStatus = 'connecting' | 'connected' | 'reconnecting'
@@ -25,22 +27,34 @@ function resolveDefaultDevWebsocketUrl(
 
 export function resolveWebsocketUrl(
   env: RuntimeEnv = import.meta.env,
-  runtimeLocation: RuntimeLocation = window.location
+  runtimeLocation: RuntimeLocation = window.location,
+  accessToken?: string
 ) {
+  let baseUrl: string
+
   if (env.DEV) {
     const backendOrigin = env.VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN
     if (typeof backendOrigin === 'string' && backendOrigin.trim().length > 0) {
       const origin = backendOrigin.replace(/\/$/, '')
       const host = origin.replace(/^https?:\/\//, '')
       const protocol = origin.startsWith('https://') ? 'wss' : 'ws'
-      return `${protocol}://${host}/ws`
+      baseUrl = `${protocol}://${host}/ws`
+    } else {
+      baseUrl = resolveDefaultDevWebsocketUrl(runtimeLocation)
     }
-
-    return resolveDefaultDevWebsocketUrl(runtimeLocation)
+  } else {
+    const protocol = runtimeLocation.protocol === 'https:' ? 'wss:' : 'ws:'
+    baseUrl = `${protocol}//${runtimeLocation.host}/ws`
   }
 
-  const protocol = runtimeLocation.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${runtimeLocation.host}/ws`
+  const trimmedAccessToken = accessToken?.trim() || getAuthAccessToken()
+  if (!trimmedAccessToken) {
+    return baseUrl
+  }
+
+  const url = new URL(baseUrl)
+  url.searchParams.set('access_token', trimmedAccessToken)
+  return url.toString()
 }
 
 function normalizeChannels(channels: string[]) {
@@ -65,7 +79,8 @@ export function useWebSocket({
   onMessage,
   reconnectDelayMs = 1_000,
   maxReconnectDelayMs = 16_000,
-  connectTimeoutMs = 10_000
+  connectTimeoutMs = 10_000,
+  accessToken
 }: UseWebSocketOptions) {
   const [isConnected, setIsConnected] = useState(false)
   const [status, setStatus] = useState<WebSocketStatus>('connecting')
@@ -126,7 +141,7 @@ export function useWebSocket({
 
       const attempt = reconnectAttemptRef.current
       setStatus(attempt > 0 ? 'reconnecting' : 'connecting')
-      const url = resolveWebsocketUrl()
+      const url = resolveWebsocketUrl(import.meta.env, window.location, accessToken)
       console.debug('[ws] connect attempt', { attempt, url })
       const socket = new WebSocket(url)
       socketRef.current = socket
@@ -236,7 +251,7 @@ export function useWebSocket({
         }
       }
     }
-  }, [connectTimeoutMs, maxReconnectDelayMs, reconnectDelayMs])
+  }, [accessToken, connectTimeoutMs, maxReconnectDelayMs, reconnectDelayMs])
 
   const send = useCallback((message: Record<string, unknown>) => {
     const socket = socketRef.current

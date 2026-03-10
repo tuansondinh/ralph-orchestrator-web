@@ -1,6 +1,8 @@
 import { QueryClient } from '@tanstack/react-query'
 import { createTRPCProxyClient, httpLink } from '@trpc/client'
 import type { AppRouter } from '@ralph-ui/backend/trpc/router'
+import { notifyUnauthorized } from '@/lib/authEvents'
+import { resolveAuthorizedHeaders } from '@/lib/authSession'
 
 type RuntimeEnv = {
   DEV: boolean
@@ -20,16 +22,54 @@ export function resolveTrpcBaseUrl(
   env: RuntimeEnv = import.meta.env,
   runtimeLocation: RuntimeLocation = window.location
 ) {
-  const backendOrigin = env.VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN
-  if (typeof backendOrigin === 'string' && backendOrigin.trim().length > 0) {
-    return `${backendOrigin.replace(/\/$/, '')}/trpc`
-  }
-
-  if (env.DEV || isLocalHost(runtimeLocation.hostname)) {
-    return `${resolveDefaultDevBackendOrigin()}/trpc`
+  const backendOrigin = resolveBackendOrigin(env, runtimeLocation)
+  if (backendOrigin) {
+    return `${backendOrigin}/trpc`
   }
 
   return '/trpc'
+}
+
+export function resolveBackendOrigin(
+  env: RuntimeEnv = import.meta.env,
+  runtimeLocation: RuntimeLocation = window.location
+) {
+  const backendOrigin = env.VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN
+  if (typeof backendOrigin === 'string' && backendOrigin.trim().length > 0) {
+    return backendOrigin.replace(/\/$/, '')
+  }
+
+  if (env.DEV || isLocalHost(runtimeLocation.hostname)) {
+    return resolveDefaultDevBackendOrigin()
+  }
+
+  return ''
+}
+
+export function resolveBackendUrl(
+  path: string,
+  env: RuntimeEnv = import.meta.env,
+  runtimeLocation: RuntimeLocation = window.location
+) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const backendOrigin = resolveBackendOrigin(env, runtimeLocation)
+  return backendOrigin ? `${backendOrigin}${normalizedPath}` : normalizedPath
+}
+
+export function resolveTrpcHeaders(
+  getAccessToken?: () => string | null
+) {
+  if (getAccessToken) {
+    const accessToken = getAccessToken()
+    if (!accessToken) {
+      return {}
+    }
+    return {
+      Authorization: `Bearer ${accessToken}`
+    }
+  }
+
+  return resolveAuthorizedHeaders()
 }
 
 const trpcBaseUrl = resolveTrpcBaseUrl()
@@ -38,7 +78,17 @@ export const queryClient = new QueryClient()
 export const trpcClient = createTRPCProxyClient<AppRouter>({
   links: [
     httpLink({
-      url: trpcBaseUrl
+      url: trpcBaseUrl,
+      headers() {
+        return resolveTrpcHeaders()
+      },
+      async fetch(url, options) {
+        const response = await globalThis.fetch(url, options)
+        if (response.status === 401) {
+          notifyUnauthorized()
+        }
+        return response
+      }
     })
   ]
 })

@@ -13,6 +13,7 @@ import {
   parseAllowedOrigins,
   parseRequestHosts
 } from '../lib/origin.js'
+import { verifySupabaseToken } from '../auth/supabaseAuth.js'
 import {
   allowsDangerousOperations,
   getDangerousOperationBlockMessage
@@ -279,10 +280,10 @@ export async function registerWebsocket(app: FastifyInstance) {
       return
     }
 
-    app.log.info('[WS] Client connected')
     const unsubscribers = new Map<string, () => void>()
     let cleaned = false
     let subscriptionUpdate = Promise.resolve()
+    let sessionReady = app.runtimeConfig.mode !== 'cloud'
 
     const cleanup = (reason: 'close' | 'error') => {
       if (cleaned) {
@@ -295,6 +296,35 @@ export async function registerWebsocket(app: FastifyInstance) {
       }
       unsubscribers.clear()
       app.log.info({ reason }, '[WS] Client disconnected')
+    }
+
+    const startSession = async () => {
+      if (app.runtimeConfig.mode === 'cloud') {
+        const host =
+          typeof req.headers.host === 'string' && req.headers.host.trim().length > 0
+            ? req.headers.host
+            : 'localhost'
+        const requestUrl = new URL(req.url, `http://${host}`)
+        const token = requestUrl.searchParams.get('token')
+
+        if (!token) {
+          socket.close(4001, 'Authentication required')
+          return
+        }
+
+        try {
+          const user = await verifySupabaseToken(token)
+          req.userId = user.id
+          req.supabaseUser = user
+          sessionReady = true
+        } catch {
+          socket.close(4001, 'Invalid or expired token')
+          return
+        }
+      }
+
+      sessionReady = true
+      app.log.info('[WS] Client connected')
     }
 
     const unsubscribeChannel = (channel: string) => {
@@ -526,6 +556,10 @@ export async function registerWebsocket(app: FastifyInstance) {
     }
 
     socket.on('message', (raw: RawData) => {
+      if (!sessionReady) {
+        return
+      }
+
       const message = parseClientMessage(raw)
       if (!message) {
         app.log.debug('[WS] Invalid subscribe payload')
@@ -586,5 +620,10 @@ export async function registerWebsocket(app: FastifyInstance) {
 
     socket.on('close', () => cleanup('close'))
     socket.on('error', () => cleanup('error'))
+
+    void startSession().catch((error) => {
+      app.log.warn({ error }, '[WS] Failed to initialize websocket session')
+      socket.close(1011, 'WebSocket initialization failed')
+    })
   })
 }

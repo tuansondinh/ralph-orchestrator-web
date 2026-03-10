@@ -71,9 +71,14 @@ function requireGitHubService(ctx: Context) {
 }
 
 const projectRouter = t.router({
-  list: t.procedure.query(({ ctx }) =>
-    ctx.projectService.list().catch((error) => asTRPCError(error))
-  ),
+  list: t.procedure.query(({ ctx }) => {
+    const listPromise =
+      ctx.runtime.mode === 'cloud' && ctx.userId
+        ? ctx.projectService.findByUserId(ctx.userId)
+        : ctx.projectService.list()
+
+    return listPromise.catch((error) => asTRPCError(error))
+  }),
   get: t.procedure
     .input(
       z.object({

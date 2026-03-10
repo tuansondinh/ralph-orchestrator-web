@@ -96,7 +96,7 @@ hats:
       name: "⚙️ Builder"
       description: "TDD implementer following RED → GREEN → REFACTOR cycle, one task at a time."
       triggers: ["tasks.ready", "validation.failed", "validation.passed"]
-      publishes: ["implementation.ready", "build.blocked", "task.complete"]
+      publishes: ["build.blocked", "task.complete"]
       default_publishes: "task.complete"
       instructions: |
          ## BUILDER MODE — TDD Implementation Cycle
@@ -113,21 +113,20 @@ hats:
          - Update task frontmatter: `status: in_progress`, `started: YYYY-MM-DD`
          - Implement using TDD
          - Update task frontmatter: `status: completed`, `completed: YYYY-MM-DD`
-         - Publish `task.complete` when you finished the current task AND other tasks are still open
-         - Publish `implementation.ready` only when the final remaining task is complete
+         - Publish `task.complete` after finishing each task, including the final one
 
          **For single task mode:**
          - Read the task file directly
          - Implement using TDD
          - Update task frontmatter when complete
-         - Publish `implementation.ready` (only one task)
+         - Publish `task.complete`
 
          **For description mode:**
          - Read the description from the prompt
          - Explore codebase to understand context
          - Write tests first, then implement
          - No task file to update
-         - Publish `implementation.ready` when done
+         - Publish `task.complete` when done
 
          ### ONE TASK AT A TIME (CRITICAL for PDD mode)
          In PDD mode, implement exactly ONE code task file per iteration.
@@ -166,7 +165,9 @@ hats:
 
          ### Event Handling
          - If triggered by `validation.failed`, re-open and fix only the task the Validator rejected
-         - If triggered by `validation.passed`, move to the next pending task
+         - If triggered by `validation.passed`, check whether pending tasks remain
+         - If pending tasks remain, move to the next pending task
+         - If no pending tasks remain, the Validator should terminate the run; do not attempt to continue from Builder
          - Do not start the next task until validation has passed for the previous one
 
          ### Constraints
@@ -204,7 +205,7 @@ hats:
    validator:
       name: "✅ Validator"
       description: "Exhaustive quality gate with YAGNI/KISS checks and manual E2E testing. Max push-back: 2."
-      triggers: ["task.complete", "implementation.ready"]
+      triggers: ["task.complete"]
       publishes: ["validation.passed", "validation.failed"]
       default_publishes: "validation.passed"
       max_pushback: 2
@@ -239,10 +240,11 @@ hats:
          - Validate the task that was just completed
          - DO NOT fail merely because later tasks are still pending
 
-         When triggered by `implementation.ready`:
-         - Validate the final completed task
+         When the completed task appears to be the final remaining task:
+         - Validate that final completed task
          - Verify all `*.code-task.md` files are `status: completed`
          - FAIL if any task is not marked completed at final validation
+         - If final validation passes and no pending tasks remain, emit `LOOP_COMPLETE` instead of publishing a continuation event
 
          **1. All Tests Pass**
          Run the full test suite yourself. Don't trust "tests passing" claims.
@@ -288,10 +290,17 @@ hats:
          ### Decision Criteria
          **PASS** requires ALL of:
          - For per-task validation: the current completed task is acceptable and the relevant verification passes
-         - For final validation: all automated tests pass, build succeeds, lint/type checks pass, all tasks are completed, and manual E2E passes
+         - For final-task validation: all automated tests pass, build succeeds, lint/type checks pass, all tasks are completed, and manual E2E passes
          - YAGNI, KISS, and idiomatic checks do not reveal blocking issues for the active task
 
          **FAIL** if ANY check fails.
+
+         ### Completion Behavior
+         - If the validated task is not the last remaining task:
+           publish `validation.passed`
+         - If the validated task is the last remaining task and final validation passes:
+           output exactly `LOOP_COMPLETE`
+         - Do not publish `validation.passed` for the final task once the run is complete
 
          ### Constraints
          - You MUST NOT skip verification steps

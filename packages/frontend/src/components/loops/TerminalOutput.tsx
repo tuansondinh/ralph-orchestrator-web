@@ -29,9 +29,10 @@ interface Segment {
   className: string
 }
 
+const ansiRegex = /\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))/g
+
 function parseAnsiLine(input: string): Segment[] {
   const segments: Segment[] = []
-  const ansiRegex = /\x1b\[([0-9;]*)m/g
   let activeClass = 'text-zinc-200'
   let cursor = 0
 
@@ -45,18 +46,22 @@ function parseAnsiLine(input: string): Segment[] {
       })
     }
 
-    const codes = (match[1] || '0')
-      .split(';')
-      .map((code) => code.trim())
-      .filter(Boolean)
+    const sequence = match[0]
+    const sgrMatch = /^\x1b\[([0-9;]*)m$/.exec(sequence)
+    if (sgrMatch) {
+      const codes = (sgrMatch[1] || '0')
+        .split(';')
+        .map((code) => code.trim())
+        .filter(Boolean)
 
-    if (codes.length === 0 || codes.includes('0')) {
-      activeClass = 'text-zinc-200'
-    }
+      if (codes.length === 0 || codes.includes('0')) {
+        activeClass = 'text-zinc-200'
+      }
 
-    for (const code of codes) {
-      if (colorClasses[code]) {
-        activeClass = colorClasses[code]
+      for (const code of codes) {
+        if (colorClasses[code]) {
+          activeClass = colorClasses[code]
+        }
       }
     }
 
@@ -65,19 +70,26 @@ function parseAnsiLine(input: string): Segment[] {
 
   if (cursor < input.length) {
     segments.push({
-      text: input.slice(cursor),
+      text: input.slice(cursor).replace(/\r/g, ''),
       className: activeClass
     })
   }
 
-  return segments.length > 0
-    ? segments
+  const cleanedSegments = segments
+    .map((segment) => ({
+      ...segment,
+      text: segment.text.replace(/\r/g, '')
+    }))
+    .filter((segment) => segment.text.length > 0)
+
+  return cleanedSegments.length > 0
+    ? cleanedSegments
     : [
-      {
-        text: input,
-        className: activeClass
-      }
-    ]
+        {
+          text: input.replace(ansiRegex, '').replace(/\r/g, ''),
+          className: activeClass
+        }
+      ]
 }
 
 export function TerminalOutput({ lines, emptyMessage = 'Waiting for loop output...' }: TerminalOutputProps) {

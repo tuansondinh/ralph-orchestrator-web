@@ -5,16 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json && vite build",
+    "build": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{ts,tsx}\" vite.config.ts vitest.config.ts",
     "test": "vitest run",
     "coverage": "vitest run --coverage --coverage.provider=v8 --coverage.reportsDirectory=coverage",
     "complexity": "eslint \"src/**/*.{ts,tsx}\" --max-warnings=0 --rule \"complexity: [\\\"error\\\", 12]\"",
-    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.99.0",
     "@tanstack/react-query": "^5.90.21",
     "@trpc/client": "^11.10.0",
     "@trpc/react-query": "^11.10.0",
@@ -30,7 +31,6 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.0.18",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "^4.2.0",
     "@testing-library/jest-dom": "^6.9.1",
@@ -38,6 +38,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.4",
+    "@vitest/coverage-v8": "^4.0.18",
     "jsdom": "^28.1.0",
     "tailwindcss": "^4.2.0",
     "typescript": "^5.9.3",

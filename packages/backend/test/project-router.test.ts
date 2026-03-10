@@ -45,8 +45,8 @@ describe('project tRPC router', () => {
 
     await expect(
       caller.project.createFromGitHub({
-        githubOwner: 'octocat',
-        githubRepo: 'hello-world',
+        owner: 'octocat',
+        repo: 'hello-world',
         defaultBranch: 'main'
       })
     ).resolves.toMatchObject({

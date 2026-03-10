@@ -26,8 +26,8 @@ export interface SelectDirectoryResult {
 }
 
 export interface CreateGitHubProjectInput {
-  githubOwner: string
-  githubRepo: string
+  owner: string
+  repo: string
   defaultBranch: string
   name?: string
 }

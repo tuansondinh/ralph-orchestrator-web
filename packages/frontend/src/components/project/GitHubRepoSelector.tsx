@@ -114,8 +114,8 @@ export function GitHubRepoSelector({ onProjectCreated }: GitHubRepoSelectorProps
     try {
       const { githubOwner, githubRepo } = splitFullName(repo.fullName)
       const project = await projectApi.createFromGitHub({
-        githubOwner,
-        githubRepo,
+        owner: githubOwner,
+        repo: githubRepo,
         defaultBranch: repo.defaultBranch
       })
       onProjectCreated(project)

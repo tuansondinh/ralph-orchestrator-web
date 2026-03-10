@@ -1,8 +1,7 @@
-import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import {
-  getCachedAccessToken,
-  resetCachedAccessToken,
-  setCachedAccessToken
+  getAuthAccessToken,
+  setAuthAccessToken
 } from '@/lib/authSession'
 
 type RuntimeEnv = {
@@ -30,15 +29,15 @@ export function getSupabaseClient(
   return supabaseClient
 }
 
-export function setSupabaseSession(session: Pick<Session, 'access_token'> | null) {
-  setCachedAccessToken(session)
+export function setSupabaseSession(session: { access_token: string } | null) {
+  setAuthAccessToken(session?.access_token ?? null)
 }
 
 export function getSupabaseAccessToken() {
-  return getCachedAccessToken()
+  return getAuthAccessToken()
 }
 
 export function resetSupabaseClient() {
   supabaseClient = undefined
-  resetCachedAccessToken()
+  setAuthAccessToken(null)
 }

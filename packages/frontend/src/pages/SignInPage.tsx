@@ -19,7 +19,7 @@ function resolveRedirectTarget(state: unknown) {
 export function SignInPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, isLoading, isConfigured, signIn } = useAuth()
+  const { user, isLoading, signIn } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -42,10 +42,11 @@ export function SignInPage() {
     setErrorMessage(null)
 
     try {
-      const result = await signIn(email.trim(), password)
-      if (result.error) {
-        setErrorMessage(result.error)
-      }
+      await signIn({ email: email.trim(), password })
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Sign-in failed.'
+      )
     } finally {
       setIsSubmitting(false)
     }
@@ -63,12 +64,6 @@ export function SignInPage() {
             Use your Supabase email and password to open the Ralph cloud shell.
           </p>
         </header>
-
-        {!isConfigured ? (
-          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-            Cloud auth is enabled, but the frontend Supabase client is not configured.
-          </p>
-        ) : null}
 
         <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
           <label className="flex flex-col gap-1 text-sm text-zinc-200">

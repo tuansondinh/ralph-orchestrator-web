@@ -52,13 +52,48 @@ echo "Ensuring opencode CLI is installed..."
 ssh ${SSH_OPTS} "${REMOTE_HOST}" \
   "command -v opencode >/dev/null 2>&1 || sudo npm install -g opencode-ai"
 
+echo "Ensuring expect is installed..."
+ssh ${SSH_OPTS} "${REMOTE_HOST}" \
+  "command -v expect >/dev/null 2>&1 || (echo 'expect not present; continuing with script(1) PTY fallback if available' >&2; true)"
+
 echo "Installing opencode config..."
 ssh ${SSH_OPTS} "${REMOTE_HOST}" \
   "mkdir -p ~/.config/opencode && cp ${REMOTE_DIR}/deploy/opencode.json ~/.config/opencode/opencode.json"
 
 echo "Updating runtime environment defaults..."
-ssh ${SSH_OPTS} "${REMOTE_HOST}" \
-  "python3 - <<'PY'\nfrom pathlib import Path\npath = Path('${REMOTE_DIR}/.env')\ntext = path.read_text() if path.exists() else ''\nlines = text.splitlines()\nupdates = {\n  'PATH': '/home/app/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',\n  'RALPH_UI_RALPH_BIN': '${REMOTE_DIR}/node_modules/.bin/ralph',\n}\nseen = set()\nout = []\nfor line in lines:\n  replaced = False\n  for key, value in updates.items():\n    if line.startswith(key + '='):\n      out.append(f'{key}={value}')\n      seen.add(key)\n      replaced = True\n      break\n  if not replaced:\n    out.append(line)\nfor key, value in updates.items():\n  if key not in seen:\n    out.append(f'{key}={value}')\npath.write_text('\\n'.join(out) + '\\n')\nprint('updated')\nPY"
+ssh ${SSH_OPTS} "${REMOTE_HOST}" "REMOTE_DIR='${REMOTE_DIR}' python3 -" <<'PY'
+from pathlib import Path
+import os
+
+remote_dir = os.environ["REMOTE_DIR"]
+path = Path(remote_dir) / ".env"
+text = path.read_text() if path.exists() else ""
+lines = text.splitlines()
+updates = {
+    "PATH": "/home/app/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "RALPH_UI_RALPH_BIN": f"{remote_dir}/node_modules/.bin/ralph",
+}
+seen = set()
+out = []
+
+for line in lines:
+    replaced = False
+    for key, value in updates.items():
+        if line.startswith(f"{key}="):
+            out.append(f"{key}={value}")
+            seen.add(key)
+            replaced = True
+            break
+    if not replaced:
+        out.append(line)
+
+for key, value in updates.items():
+    if key not in seen:
+        out.append(f"{key}={value}")
+
+path.write_text("\n".join(out) + "\n")
+print("updated")
+PY
 
 echo "Installing systemd unit on remote..."
 ssh ${SSH_OPTS} "${REMOTE_HOST}" \

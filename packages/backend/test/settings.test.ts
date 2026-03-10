@@ -496,7 +496,6 @@ describe('app integration: configured binary path', () => {
     expect(handle?.args[1]).toContain(binaryPath)
     expect(handle?.args[1]).toContain('run')
     expect(handle?.args[1]).toContain('--verbose')
-    expect(handle?.args[1]).toContain('tee debug.log')
 
     await caller.loop.stop({ loopId: started.id })
   })

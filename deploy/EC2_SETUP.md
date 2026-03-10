@@ -10,15 +10,16 @@ This deploy layout runs the built frontend bundle and backend API from one Node.
 
 ## 2. Install runtime dependencies
 
-Install Node.js 20+, npm, git, rsync, and nginx if you want the reverse proxy:
+Install Node.js 20+, npm, git, `rsync`, `expect`, and nginx if you want the reverse proxy:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl git rsync nginx
+sudo apt-get install -y ca-certificates curl git rsync expect nginx
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
 node --version
 npm --version
+expect -v
 ```
 
 ## 3. Create the app user and directories

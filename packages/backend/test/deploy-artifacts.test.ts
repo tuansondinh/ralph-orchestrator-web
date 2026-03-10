@@ -90,6 +90,7 @@ describe('EC2 deployment artifacts', () => {
     expect(deployScript).toContain('npm run build')
     expect(deployScript).toContain('npm ci --omit=dev')
     expect(deployScript).toContain('@google/gemini-cli')
+    expect(deployScript).toContain('command -v expect')
     expect(deployScript).toContain('RALPH_UI_RALPH_BIN')
     expect(deployScript).toContain('npm run db:migrate:cloud')
     expect(deployScript).toContain('systemctl restart ralph-orchestrator')
@@ -99,6 +100,7 @@ describe('EC2 deployment artifacts', () => {
     const guide = readDeployFile('EC2_SETUP.md')
 
     expect(guide).toContain('Node.js 20')
+    expect(guide).toContain('expect')
     expect(guide).toContain('systemctl enable --now ralph-orchestrator')
     expect(guide).toContain('nginx -t')
     expect(guide).toContain('journalctl -u ralph-orchestrator')

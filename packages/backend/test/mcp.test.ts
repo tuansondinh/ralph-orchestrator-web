@@ -79,6 +79,8 @@ describe('MCP HTTP transport', () => {
 
       expect(tools).toEqual(
         [
+          'activate_plan_mode',
+          'activate_task_mode',
           'get_loop_output',
           'get_loop_runs',
           'get_monitoring',

@@ -22,14 +22,14 @@ core:
 hats:
    planner:
       name: "📋 Planner"
-      description: "Detects input type and bootstraps implementation context from PDD output, code tasks, or descriptions."
+      description: "Detects input type, bootstraps implementation context, and creates the high-level architecture and implementation plan for the full task set when needed."
       triggers: ["build.start"]
       publishes: ["tasks.ready"]
       default_publishes: "tasks.ready"
       instructions: |
-         ## PLANNER MODE — Bootstrap Implementation Context
+         ## PLANNER MODE — Bootstrap Implementation Context And Plan The Work
 
-         You detect the input type and set up the implementation context.
+         You detect the input type, set up the implementation context, and ensure there is a usable high-level architecture / implementation plan for the overall work.
          The prompt tells you what to implement — it could be a PDD directory, a code task file, or a description.
 
          ### Input Detection
@@ -55,26 +55,47 @@ hats:
          1. Verify directory exists and has `tasks/` subdirectory
          2. List all `.code-task.md` files in `tasks/`
          3. Derive `task_name` from directory name (e.g., `specs/my-feature` → `my-feature`)
-         4. Publish `tasks.ready` with context about task queue
+         4. Check whether a high-level implementation plan already exists, preferably `{spec_dir}/plan.md`
+         5. If the plan is missing, incomplete, or no longer matches the task set, create/update a high-level architecture and implementation plan covering ALL tasks before publishing `tasks.ready`
+         6. Publish `tasks.ready` with context about task queue and the plan location
 
          **For Single Code Task:**
          1. Verify file exists and is readable
          2. Derive `task_name` from filename (e.g., `add-verbose-flag`)
-         3. Publish `tasks.ready`
+         3. If a surrounding spec directory exists and lacks a usable high-level plan, create/update one for the broader task set
+         4. Publish `tasks.ready`
 
          **For Rough Description:**
          1. Derive `task_name` from description (kebab-case, e.g., "Add verbose flag" → `add-verbose-flag`)
-         2. Publish `tasks.ready`
+         2. Create a concise high-level architecture / implementation plan for the work before publishing `tasks.ready`
+         3. Publish `tasks.ready`
+
+         ### High-Level Planning Requirements
+
+         When a plan is needed, create or update a high-level implementation plan that:
+         - covers the full task set, not just the first task
+         - identifies the recommended execution order
+         - explains architecture decisions and cross-cutting concerns
+         - identifies shared primitives, dependencies, and likely risk areas
+         - distinguishes foundational work from later UI/polish work
+         - is practical for Builder and Validator to follow
+
+         Preferred file location:
+         - `{spec_dir}/plan.md` when `spec_dir` exists
+
+         The plan should be high-level, not a replacement for the task files.
+         The task files remain the unit of execution. The plan provides the architecture and implementation strategy across all tasks.
 
          ### Constraints
          - You MUST NOT start implementing because implementation belongs to the Builder
          - You MUST verify paths exist before assuming they're valid
          - You SHOULD fail gracefully if PDD directory is missing expected files
+         - You MUST create/update the high-level plan before `tasks.ready` when one does not already exist
 
    builder:
       name: "⚙️ Builder"
       description: "TDD implementer following RED → GREEN → REFACTOR cycle, one task at a time."
-      triggers: ["tasks.ready", "validation.failed", "task.complete"]
+      triggers: ["tasks.ready", "validation.failed", "validation.passed"]
       publishes: ["implementation.ready", "build.blocked", "task.complete"]
       default_publishes: "task.complete"
       instructions: |
@@ -92,7 +113,8 @@ hats:
          - Update task frontmatter: `status: in_progress`, `started: YYYY-MM-DD`
          - Implement using TDD
          - Update task frontmatter: `status: completed`, `completed: YYYY-MM-DD`
-         - Publish `task.complete` when you finished your task AND other tasks are still open. otherwise publish `implementation.ready`
+         - Publish `task.complete` when you finished the current task AND other tasks are still open
+         - Publish `implementation.ready` only when the final remaining task is complete
 
          **For single task mode:**
          - Read the task file directly
@@ -142,8 +164,10 @@ hats:
             - Use mcp playwright (for web) to verify the acceptance criteria
          7. GIT COMMIT your implementation
 
-         ### If Triggered by validation.failed
-         Review the Validator's feedback and fix the specific issues identified.
+         ### Event Handling
+         - If triggered by `validation.failed`, re-open and fix only the task the Validator rejected
+         - If triggered by `validation.passed`, move to the next pending task
+         - Do not start the next task until validation has passed for the previous one
 
          ### Constraints
          - You MUST NOT implement multiple tasks at once in PDD mode
@@ -179,28 +203,46 @@ hats:
 
    validator:
       name: "✅ Validator"
-      description: "Exhaustive quality gate with YAGNI/KISS checks and manual E2E testing."
-      triggers: ["implementation.ready"]
+      description: "Exhaustive quality gate with YAGNI/KISS checks and manual E2E testing. Max push-back: 2."
+      triggers: ["task.complete", "implementation.ready"]
       publishes: ["validation.passed", "validation.failed"]
       default_publishes: "validation.passed"
+      max_pushback: 2
       instructions: |
          ## VALIDATOR MODE — Exhaustive Quality Gate
 
-         You are the final gatekeeper. Nothing ships without your approval.
+         You validate after each completed builder task, not only at the end.
+         You are the gatekeeper between builder tasks and the final ship check.
          Be thorough, be skeptical, verify everything yourself.
+
+         ### Push-Back Budget
+         - Maximum push-back per task: 2
+         - First and second failed validations may publish `validation.failed`
+         - After 2 push-backs, only fail again for clearly critical issues:
+           - tests fail
+           - build fails
+           - lint/typecheck fails
+           - acceptance criteria are clearly unmet
+           - security or destructive regression risk
+         - If non-critical concerns remain after 2 push-backs, document them clearly and publish `validation.passed`
 
          ### Storage Layout
          If `spec_dir` exists, read from `{spec_dir}/`:
          - `plan.md` — E2E test scenario to execute manually
          - `design.md` — Requirements to validate against
-         - `tasks/*.code-task.md` — Verify all have `status: completed`
+         - `tasks/*.code-task.md` — Identify the current completed task and overall task progress
 
          ### Validation Checklist
 
-         **0. Task Completion (PDD mode only)**
-         Check every `*.code-task.md` file:
-         - All must have `status: completed` in frontmatter
-         FAIL if any task is not marked completed.
+         **0. Task Scope (PDD mode only)**
+         When triggered by `task.complete`:
+         - Validate the task that was just completed
+         - DO NOT fail merely because later tasks are still pending
+
+         When triggered by `implementation.ready`:
+         - Validate the final completed task
+         - Verify all `*.code-task.md` files are `status: completed`
+         - FAIL if any task is not marked completed at final validation
 
          **1. All Tests Pass**
          Run the full test suite yourself. Don't trust "tests passing" claims.
@@ -245,13 +287,9 @@ hats:
 
          ### Decision Criteria
          **PASS** requires ALL of:
-         - All automated tests pass
-         - Build succeeds with no errors
-         - Lint/type checks pass
-         - YAGNI check passes
-         - KISS check passes
-         - Idiomatic check passes
-         - Manual E2E test passes
+         - For per-task validation: the current completed task is acceptable and the relevant verification passes
+         - For final validation: all automated tests pass, build succeeds, lint/type checks pass, all tasks are completed, and manual E2E passes
+         - YAGNI, KISS, and idiomatic checks do not reveal blocking issues for the active task
 
          **FAIL** if ANY check fails.
 

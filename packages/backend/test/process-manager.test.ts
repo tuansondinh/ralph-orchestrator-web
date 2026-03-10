@@ -133,6 +133,25 @@ describe('ProcessManager', () => {
     await manager.shutdown()
   })
 
+  it('preserves non-zero exit codes when tty mode is requested', async () => {
+    const manager = new ProcessManager()
+    const handle = await manager.spawn(
+      process.cwd(),
+      process.execPath,
+      ['-e', 'setTimeout(() => process.exit(7), 10);'],
+      { tty: true }
+    )
+    const states: string[] = []
+    manager.onStateChange(handle.id, (state) => {
+      states.push(state)
+    })
+
+    await waitFor(() => states.length > 0)
+
+    expect(handle.tty).toBe(true)
+    expect(states).toContain('crashed')
+  })
+
 })
 
 describe('OutputBuffer', () => {

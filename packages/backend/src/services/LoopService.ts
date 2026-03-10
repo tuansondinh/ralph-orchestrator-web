@@ -887,15 +887,17 @@ export class LoopService {
 
     runtime.buffer.append(chunk.data)
     this.events.emit(`${OUTPUT_EVENT_PREFIX}${loopId}`, chunk)
-    runtime.pendingLogWrite = runtime.pendingLogWrite
-      .then(() =>
-        Promise.all([
-          appendFile(runtime.debugLogPath, chunk.data, 'utf8'),
-          appendFile(runtime.outputLogPath, chunk.data, 'utf8')
-        ]).then(() => undefined)
-      )
+    const pendingLogWrite = runtime.pendingLogWrite ?? Promise.resolve()
+    runtime.pendingLogWrite = pendingLogWrite
+      .then(async () => {
+        if (!runtime.outputLogPath) {
+          return
+        }
+
+        await appendFile(runtime.outputLogPath, chunk.data, 'utf8')
+      })
       .catch((error) => {
-        console.warn(`Failed to persist output log files for loop ${loopId}:`, error)
+        console.warn(`Failed to persist output log file for loop ${loopId}:`, error)
       })
     
     this.loopOutput.append({

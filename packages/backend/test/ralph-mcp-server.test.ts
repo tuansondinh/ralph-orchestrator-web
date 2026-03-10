@@ -18,6 +18,8 @@ const ALL_MCP_TOOLS = [
   'get_monitoring',
   'get_settings',
   'list_hats_presets',
+  'activate_plan_mode',
+  'activate_task_mode',
   'start_loop',
   'stop_loop',
   'create_project',

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
@@ -176,6 +176,50 @@ describe('Loop Output Persistence', () => {
       expect(replayed).toEqual(['db line 1', 'db line 2', 'db error'])
     })
 
+    it('should fall back to disk replay without warning when local-mode persistence is unavailable', async () => {
+      const loopRunId = randomUUID()
+      const mockRepo = createMockRepo()
+      mockRepo.getByLoopRunId.mockRejectedValue(
+        new Error('Loop output persistence is not available in local mode')
+      )
+
+      const repos = createMockRepos(mockRepo)
+      ;(repos.loopRuns.findById as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: loopRunId,
+        projectId: 'test-project',
+        ralphLoopId: null,
+        state: 'completed',
+        config: JSON.stringify({}),
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: Date.now(),
+        endedAt: Date.now()
+      })
+      ;(repos.projects.findById as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'test-project',
+        name: 'Test Project',
+        path: tempDir,
+        type: null,
+        ralphConfig: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      })
+
+      await writeFile(join(tempDir, 'debug.log'), 'disk line 1\ndisk line 2\n', 'utf8')
+
+      loopService = new LoopService(repos, processManager)
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const replayed = await loopService.replayOutput(loopRunId)
+
+      expect(replayed).toEqual(['disk line 1', 'disk line 2'])
+      expect(warnSpy).not.toHaveBeenCalled()
+      warnSpy.mockRestore()
+    })
+
     it('should not crash loop when database write fails (fire-and-forget)', async () => {
       const loopRunId = randomUUID()
       const mockRepo = createMockRepo()
@@ -211,6 +255,46 @@ describe('Loop Output Persistence', () => {
       await new Promise((resolve) => setTimeout(resolve, 50))
 
       expect(mockRepo.append).toHaveBeenCalled()
+    })
+
+    it('should ignore unavailable local-mode persistence writes without warning', async () => {
+      const loopRunId = randomUUID()
+      const mockRepo = createMockRepo()
+      mockRepo.append.mockRejectedValue(new Error('Loop output persistence is not available in local mode'))
+
+      const repos = createMockRepos(mockRepo)
+      loopService = new LoopService(repos, processManager)
+
+      const runtime = {
+        processId: 'test-process',
+        processPid: 1234,
+        active: true,
+        stopRequested: false,
+        ralphLoopId: null,
+        outputRemainder: '',
+        buffer: { append: vi.fn(), replay: vi.fn().mockReturnValue([]) } as unknown as import('../src/runner/OutputBuffer.js').OutputBuffer,
+        parser: { parseChunk: vi.fn().mockReturnValue([]) } as unknown as import('../src/runner/RalphEventParser.js').RalphEventParser,
+        currentHat: null,
+        iterations: 0,
+        notified: new Set(),
+        unsubOutput: vi.fn(),
+        unsubState: vi.fn(),
+        outputSequenceCounter: 0
+      }
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(loopService as any).runtimes.set(loopRunId, runtime)
+
+      await expect(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (loopService as any).handleOutput(loopRunId, { data: 'test output\n', stream: 'stdout' })
+      ).resolves.not.toThrow()
+
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      expect(mockRepo.append).toHaveBeenCalled()
+      expect(warnSpy).not.toHaveBeenCalled()
+      warnSpy.mockRestore()
     })
 
     it('should prefer in-memory buffer over database for active loops', async () => {

@@ -141,6 +141,7 @@ const STOP_ATTEMPTS = 3
 const STOP_WAIT_MS_PER_ATTEMPT = 700
 const PROJECT_RECONCILE_MIN_INTERVAL_MS = 2_000
 const DEFAULT_OUTPUT_BUFFER_LINES = 500
+const LOCAL_MODE_LOOP_OUTPUT_UNAVAILABLE = 'Loop output persistence is not available in local mode'
 
 const OUTPUT_EVENT_PREFIX = 'loop-output:'
 const STATE_EVENT_PREFIX = 'loop-state:'
@@ -186,6 +187,10 @@ function isLoopUnavailableError(error: unknown): boolean {
     output.includes('unable to find loop') ||
     output.includes('cannot find loop')
   )
+}
+
+function isLocalModeLoopOutputUnavailable(error: unknown): boolean {
+  return error instanceof Error && error.message === LOCAL_MODE_LOOP_OUTPUT_UNAVAILABLE
 }
 
 function buildRunArgs(options: LoopStartOptions): string[] {
@@ -740,9 +745,17 @@ export class LoopService {
         return chunks.map(chunk => chunk.data.replace(/\n$/, ''))
       }
     } catch (error) {
+      if (isLocalModeLoopOutputUnavailable(error)) {
+        return this.readOutputReplayFromDiskForLoop(loopId)
+      }
+
       console.warn(`Failed to replay output from database for loop ${loopId}:`, error)
     }
 
+    return this.readOutputReplayFromDiskForLoop(loopId)
+  }
+
+  private async readOutputReplayFromDiskForLoop(loopId: string): Promise<string[]> {
     const run = await this.loopRuns.findById(loopId)
     if (!run) {
       return []
@@ -869,6 +882,10 @@ export class LoopService {
       data: chunk.data,
       createdAt: Date.now()
     }).catch(err => {
+      if (isLocalModeLoopOutputUnavailable(err)) {
+        return
+      }
+
       console.warn(`Failed to persist output chunk for loop ${loopId}:`, err)
     })
 

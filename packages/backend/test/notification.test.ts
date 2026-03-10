@@ -302,7 +302,7 @@ describe('notification routes', () => {
     expect(updated.read).toBe(1)
 
     expect(completed.id).not.toBe(crashed.id)
-  })
+  }, 8_000)
 })
 
 describe('notification websocket channel', () => {

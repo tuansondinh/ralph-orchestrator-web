@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { parse, stringify } from 'yaml'
 import { detectProjectType, detectRalphConfig, type ProjectType } from '../lib/detect.js'
 import { type Project } from '../db/schema.js'
-import type { NotificationRepository, ProjectRepository } from '../db/repositories/contracts.js'
+import type { NotificationRepository, ProjectRepository, ProjectRecord } from '../db/repositories/contracts.js'
 import { resolveRepositoryBundle, type RepositoryBundleSource } from '../db/repositories/index.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 
@@ -407,11 +407,88 @@ async function openNativeFolderPicker() {
 export class ProjectService {
   private readonly projects: ProjectRepository
   private readonly notifications: NotificationRepository
+  private workspaceManager?: import('./WorkspaceManager.js').WorkspaceManager
 
   constructor(source: RepositoryBundleSource) {
     const repositories = resolveRepositoryBundle(source)
     this.projects = repositories.projects
     this.notifications = repositories.notifications
+  }
+
+  setWorkspaceManager(manager: import('./WorkspaceManager.js').WorkspaceManager) {
+    this.workspaceManager = manager
+  }
+
+  async createFromGitHub(params: {
+    userId: string
+    githubOwner: string
+    githubRepo: string
+    defaultBranch: string
+    githubToken: string
+    name?: string
+  }): Promise<Project> {
+    if (!this.workspaceManager) {
+      throw new ProjectServiceError('BAD_REQUEST', 'WorkspaceManager not configured')
+    }
+
+    const name = params.name ?? params.githubRepo
+
+    const existing = await this.projects.findByGitHubRepo?.(
+      params.userId,
+      params.githubOwner,
+      params.githubRepo
+    )
+    if (existing) {
+      throw new ProjectServiceError(
+        'BAD_REQUEST',
+        `Project already exists for ${params.githubOwner}/${params.githubRepo}`
+      )
+    }
+
+    const projectId = randomUUID()
+    const workspacePath = await this.workspaceManager.prepare({
+      projectId,
+      githubOwner: params.githubOwner,
+      githubRepo: params.githubRepo,
+      branch: params.defaultBranch,
+      token: params.githubToken
+    })
+
+    const now = Date.now()
+    const type = await detectProjectType(workspacePath)
+    const ralphConfig = await ensureProjectRalphConfig(workspacePath)
+
+    const project: ProjectRecord = {
+      id: projectId,
+      name,
+      path: workspacePath,
+      type,
+      ralphConfig,
+      createdAt: now,
+      updatedAt: now,
+      userId: params.userId,
+      githubOwner: params.githubOwner,
+      githubRepo: params.githubRepo,
+      defaultBranch: params.defaultBranch,
+      workspacePath
+    }
+
+    await this.projects.create(project)
+    return this.get(projectId)
+  }
+
+  async findByUserId(userId: string): Promise<Project[]> {
+    if (!this.projects.findByUserId) {
+      return []
+    }
+    return await this.projects.findByUserId(userId)
+  }
+
+  async findByGitHubRepo(userId: string, owner: string, repo: string): Promise<Project | null> {
+    if (!this.projects.findByGitHubRepo) {
+      return null
+    }
+    return await this.projects.findByGitHubRepo(userId, owner, repo)
   }
 
   async create(input: CreateProjectInput): Promise<Project> {

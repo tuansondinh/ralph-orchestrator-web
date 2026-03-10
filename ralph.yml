@@ -7,8 +7,8 @@ event_loop:
    checkpoint_interval: 5
 
 cli:
-   backend: "opencode"
-   args: ["--model", "zai-coding-plan/glm-5"]
+   backend: "codex"
+   #args: ["--model", "zai-coding-plan/glm-5"]
 
 core:
    specs_dir: ".ralph/specs/"

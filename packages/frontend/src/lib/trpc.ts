@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/react-query'
 import { createTRPCProxyClient, httpLink } from '@trpc/client'
 import type { AppRouter } from '@ralph-ui/backend/trpc/router'
+import { resolveAuthorizedHeaders } from '@/lib/authSession'
 
 type RuntimeEnv = {
   DEV: boolean
@@ -32,12 +33,19 @@ export function resolveTrpcBaseUrl(
   return '/trpc'
 }
 
+export function resolveTrpcHeaders() {
+  return resolveAuthorizedHeaders()
+}
+
 const trpcBaseUrl = resolveTrpcBaseUrl()
 
 export const queryClient = new QueryClient()
 export const trpcClient = createTRPCProxyClient<AppRouter>({
   links: [
     httpLink({
+      headers() {
+        return resolveTrpcHeaders()
+      },
       url: trpcBaseUrl
     })
   ]

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { getAuthAccessToken } from '@/lib/authSession'
 
 interface UseWebSocketOptions {
   channels: string[]
@@ -45,7 +46,7 @@ export function resolveWebsocketUrl(
     baseUrl = `${protocol}//${runtimeLocation.host}/ws`
   }
 
-  const trimmedAccessToken = accessToken?.trim()
+  const trimmedAccessToken = accessToken?.trim() || getAuthAccessToken()
   if (!trimmedAccessToken) {
     return baseUrl
   }

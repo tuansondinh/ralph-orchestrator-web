@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { setAuthAccessToken } from '@/lib/authSession'
 import { resolveWebsocketUrl, useWebSocket } from '@/hooks/useWebSocket'
 
 class MockWebSocket {
@@ -101,6 +102,7 @@ describe('useWebSocket', () => {
     vi.useFakeTimers()
     vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
     MockWebSocket.instances = []
+    setAuthAccessToken(null)
   })
 
   afterEach(() => {
@@ -108,6 +110,7 @@ describe('useWebSocket', () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+    setAuthAccessToken(null)
   })
 
   it('uses exponential reconnect backoff and tracks reconnect status', () => {
@@ -211,6 +214,20 @@ describe('useWebSocket', () => {
 
     expect(MockWebSocket.instances[0]?.url).toBe(
       'ws://127.0.0.1:3003/ws?access_token=supabase-access-token'
+    )
+  })
+
+  it('reuses the shared auth access token when a websocket caller does not pass one', () => {
+    setAuthAccessToken('shared-cloud-token')
+
+    render(<HookHarness />)
+
+    act(() => {
+      vi.advanceTimersByTime(0)
+    })
+
+    expect(MockWebSocket.instances[0]?.url).toBe(
+      'ws://127.0.0.1:3003/ws?access_token=shared-cloud-token'
     )
   })
 

@@ -18,28 +18,21 @@ import { NotificationToast } from '@/components/notifications/NotificationToast'
 import { EmptyState } from '@/components/project/EmptyState'
 import { ProjectHomeState } from '@/components/project/ProjectHomeState'
 import { ProjectSwitcherDialog } from '@/components/project/ProjectSwitcherDialog'
+import { useCapabilities } from '@/hooks/useCapabilities'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { useNotifications } from '@/hooks/useNotifications'
+import {
+  getProjectShortcutTabs,
+  isRememberedProjectTab,
+  type RememberedProjectTab,
+  resolveProjectTab
+} from '@/lib/projectTabs'
 import { ProjectPage } from '@/pages/ProjectPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import type { ProjectRecord } from '@/lib/projectApi'
 import { useProjectStore } from '@/stores/projectStore'
 
 const LAST_PROJECT_TAB_STORAGE_KEY = 'ralph-ui.last-project-tabs'
-const rememberedProjectTabs = [
-  'loops',
-  'tasks',
-  'terminal',
-  'monitor',
-  'preview',
-  'hats-presets',
-  'settings'
-] as const
-type RememberedProjectTab = (typeof rememberedProjectTabs)[number]
-
-function isRememberedProjectTab(value: string | undefined): value is RememberedProjectTab {
-  return Boolean(value && rememberedProjectTabs.includes(value as RememberedProjectTab))
-}
 
 function readLastProjectTabs() {
   try {
@@ -69,14 +62,20 @@ function readLastProjectTabs() {
 
 function getPreferredProjectTab(
   projectId: string,
-  lastProjectTabById: Record<string, RememberedProjectTab>
+  lastProjectTabById: Record<string, RememberedProjectTab>,
+  capabilities: ReturnType<typeof useCapabilities>['capabilities']
 ) {
-  return lastProjectTabById[projectId] ?? readLastProjectTabs()[projectId] ?? 'loops'
+  return resolveProjectTab(
+    lastProjectTabById[projectId] ?? readLastProjectTabs()[projectId],
+    capabilities
+  )
 }
 
 function ProjectIndexRedirect({
+  capabilities,
   lastProjectTabById
 }: {
+  capabilities: ReturnType<typeof useCapabilities>['capabilities']
   lastProjectTabById: Record<string, RememberedProjectTab>
 }) {
   const params = useParams()
@@ -85,7 +84,7 @@ function ProjectIndexRedirect({
     return <Navigate replace to="/" />
   }
 
-  const tab = getPreferredProjectTab(projectId, lastProjectTabById)
+  const tab = getPreferredProjectTab(projectId, lastProjectTabById, capabilities)
   return <Navigate replace to={`/project/${projectId}/${tab}`} />
 }
 
@@ -119,6 +118,7 @@ function HomePage({
 function AppRoutes() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { capabilities } = useCapabilities()
   const [isQuickSwitcherOpen, setIsQuickSwitcherOpen] = useState(false)
   const [lastProjectTabById, setLastProjectTabById] =
     useState<Record<string, RememberedProjectTab>>(() => readLastProjectTabs())
@@ -188,7 +188,7 @@ function AppRoutes() {
       return
     }
 
-    const tabs = ['loops', 'terminal', 'monitor', 'preview'] as const
+    const tabs = getProjectShortcutTabs(capabilities)
     const tab = tabs[tabNumber - 1]
     if (!tab) {
       return
@@ -226,7 +226,7 @@ function AppRoutes() {
   const handleProjectSelect = (projectId: string) => {
     setActiveProject(projectId)
     setIsQuickSwitcherOpen(false)
-    const tab = getPreferredProjectTab(projectId, lastProjectTabById)
+    const tab = getPreferredProjectTab(projectId, lastProjectTabById, capabilities)
     navigate(`/project/${projectId}/${tab}`)
   }
 
@@ -313,7 +313,12 @@ function AppRoutes() {
               <Route path="/project/:id">
                 <Route
                   index
-                  element={<ProjectIndexRedirect lastProjectTabById={lastProjectTabById} />}
+                  element={
+                    <ProjectIndexRedirect
+                      capabilities={capabilities}
+                      lastProjectTabById={lastProjectTabById}
+                    />
+                  }
                 />
                 <Route path="chat" element={<Navigate replace to="../loops" />} />
                 <Route path=":tab" element={<ProjectPage />} />

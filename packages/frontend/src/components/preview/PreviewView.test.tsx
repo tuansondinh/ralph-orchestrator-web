@@ -200,6 +200,9 @@ describe('PreviewView', () => {
     await waitFor(() => {
       expect(previewApi.start).toHaveBeenCalledWith('project-1')
     })
+    await waitFor(() => {
+      expect(screen.getByLabelText('Preview URL')).toHaveValue('http://127.0.0.1:3001')
+    })
 
     fireEvent.change(screen.getByLabelText('Preview URL'), {
       target: { value: 'https://preview.example.com:9999' }

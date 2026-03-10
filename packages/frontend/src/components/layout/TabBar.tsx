@@ -1,20 +1,15 @@
 import { NavLink } from 'react-router-dom'
-
-const tabs = [
-  { id: 'loops', label: 'Loops' },
-  { id: 'tasks', label: 'Tasks' },
-  { id: 'terminal', label: 'Terminal' },
-  { id: 'hats-presets', label: 'Hats presets' },
-  { id: 'settings', label: 'Settings' },
-  { id: 'monitor', label: 'Monitor' },
-  { id: 'preview', label: 'Preview' }
-]
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { getVisibleProjectTabs } from '@/lib/projectTabs'
 
 interface TabBarProps {
   projectId: string
 }
 
 export function TabBar({ projectId }: TabBarProps) {
+  const { capabilities } = useCapabilities()
+  const tabs = getVisibleProjectTabs(capabilities)
+
   return (
     <nav aria-label="Project sections" className="flex flex-wrap gap-2">
       {tabs.map((tab) => (

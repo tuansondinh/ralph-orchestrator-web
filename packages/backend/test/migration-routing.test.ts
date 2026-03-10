@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -177,5 +177,37 @@ describe('database migration routing', () => {
     expect(after.mtimeMs).toBe(before.mtimeMs)
     expect(after.size).toBe(before.size)
     expect(nextContents).toBe(originalContents)
+  })
+
+  it('keeps cloud schema additions in the postgres migration directory only', async () => {
+    const paths = resolveMigrationPaths()
+    const sqliteEntries = await readFile(join(paths.sqlite, '0000_fuzzy_kylun.sql'), 'utf8')
+    const sqliteLoopIdentity = await readFile(join(paths.sqlite, '0001_solid_loop_identity.sql'), 'utf8')
+    const postgresSqlFiles = (await readdir(paths.postgres))
+      .filter((entry) => entry.endsWith('.sql'))
+      .sort()
+    const firstPostgresMigration = postgresSqlFiles[0]
+
+    expect(firstPostgresMigration).toBeDefined()
+
+    const postgresEntries = await readFile(
+      join(paths.postgres, firstPostgresMigration as string),
+      'utf8'
+    )
+
+    expect(sqliteEntries).not.toContain('github_connections')
+    expect(sqliteEntries).not.toContain('loop_output_chunks')
+    expect(sqliteEntries).not.toContain('github_owner')
+    expect(sqliteLoopIdentity).not.toContain('github_connections')
+    expect(sqliteLoopIdentity).not.toContain('loop_output_chunks')
+
+    expect(postgresEntries).toContain('CREATE TABLE "projects"')
+    expect(postgresEntries).toContain('"user_id" text')
+    expect(postgresEntries).toContain('"github_owner" text')
+    expect(postgresEntries).toContain('"github_repo" text')
+    expect(postgresEntries).toContain('"default_branch" text')
+    expect(postgresEntries).toContain('"workspace_path" text')
+    expect(postgresEntries).toContain('CREATE TABLE "github_connections"')
+    expect(postgresEntries).toContain('CREATE TABLE "loop_output_chunks"')
   })
 })

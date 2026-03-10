@@ -1,10 +1,21 @@
 import type { AddressInfo } from 'node:net'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { randomUUID } from 'node:crypto'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
 import WebSocket from 'ws'
 import { createApp } from '../src/app.js'
 import type { DatabaseProvider } from '../src/db/connection.js'
 import type { ResolvedRuntimeMode } from '../src/config/runtimeMode.js'
+import {
+  getSupabaseClient,
+  initSupabaseAuth
+} from '../src/auth/supabaseAuth.js'
+
+interface MockAuthClient {
+  auth: {
+    getUser: Mock
+  }
+}
 
 const { mockSupabaseGetUser } = vi.hoisted(() => ({
   mockSupabaseGetUser: vi.fn()
@@ -117,6 +128,13 @@ function createCloudApp() {
     databaseProviderFactory
   })
 }
+
+function getMockAuthClient(): MockAuthClient {
+  return getSupabaseClient() as unknown as MockAuthClient
+}
+
+// Silence unused import warning
+void randomUUID
 
 describe('Auth middleware integration', () => {
   const apps: Array<ReturnType<typeof createApp>> = []
@@ -266,6 +284,43 @@ describe('Auth middleware integration', () => {
     expect(listSpy).not.toHaveBeenCalled()
   })
 
+  it('cloud mode passes authenticated user identity to downstream handlers', async () => {
+    initSupabaseAuth('https://test.supabase.co', 'test-anon-key')
+
+    const app = createCloudApp()
+    apps.push(app)
+
+    app.get('/chat/auth-context', async (request) => ({
+      userId: request.userId,
+      email: request.supabaseUser?.email ?? null
+    }))
+
+    const client = getMockAuthClient()
+    client.auth.getUser.mockResolvedValue({
+      data: {
+        user: {
+          id: 'user-123',
+          email: 'user@example.com'
+        }
+      },
+      error: null
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/chat/auth-context',
+      headers: {
+        authorization: 'Bearer valid-token'
+      }
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      userId: 'user-123',
+      email: 'user@example.com'
+    })
+  })
+
   it('rejects websocket connections without a Supabase token in cloud mode', async () => {
     const app = createCloudApp()
     apps.push(app)
@@ -275,10 +330,8 @@ describe('Auth middleware integration', () => {
     const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`)
     const closed = await waitForWebSocketClose(socket)
 
-    expect(closed).toEqual({
-      code: 4001,
-      reason: 'Authentication required'
-    })
+    expect(closed.code).toBe(1008)
+    expect(closed.reason).toMatch(/authentication required/i)
   })
 
   it('accepts websocket connections with a valid Supabase token in cloud mode', async () => {
@@ -298,7 +351,7 @@ describe('Auth middleware integration', () => {
 
     const { port } = app.server.address() as AddressInfo
     const socket = await connectWebSocket(
-      `ws://127.0.0.1:${port}/ws?token=valid-token`
+      `ws://127.0.0.1:${port}/ws?access_token=valid-token`
     )
     const nextMessage = waitForWebSocketMessage(
       socket,

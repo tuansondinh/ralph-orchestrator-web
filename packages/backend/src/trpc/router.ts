@@ -25,6 +25,18 @@ const chatSessionMutationInputSchema = z.object({
   backend: chatBackendSchema.optional(),
   initialInput: z.string().trim().min(1).optional()
 })
+const githubRepoListInputSchema = z
+  .object({
+    page: z.number().int().positive().optional(),
+    perPage: z.number().int().positive().max(100).optional()
+  })
+  .optional()
+const createGitHubProjectInputSchema = z.object({
+  owner: z.string().trim().min(1),
+  repo: z.string().trim().min(1),
+  defaultBranch: z.string().trim().min(1),
+  name: z.string().trim().min(1).optional()
+})
 
 function asTRPCError(error: unknown): never {
   if (error instanceof ServiceError) {
@@ -59,6 +71,28 @@ function requireAuthenticatedUserId(ctx: Context) {
   return ctx.userId
 }
 
+function assertCloudGitHubAvailable(ctx: Context) {
+  if (ctx.runtime.mode !== 'cloud' || !ctx.runtime.capabilities.githubProjects) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'GitHub cloud procedures are unavailable in local mode.'
+    })
+  }
+}
+
+function requireAuthenticatedCloudUser(ctx: Context) {
+  assertCloudGitHubAvailable(ctx)
+
+  if (!ctx.userId) {
+    throw new TRPCError({
+      code: 'UNAUTHORIZED',
+      message: 'Authentication required in cloud mode.'
+    })
+  }
+
+  return ctx.userId
+}
+
 function requireGitHubService(ctx: Context) {
   if (!ctx.githubService) {
     throw new TRPCError({
@@ -70,26 +104,81 @@ function requireGitHubService(ctx: Context) {
   return ctx.githubService
 }
 
+async function requireProjectAccess(ctx: Context, projectId: string) {
+  const project = await ctx.projectService.get(projectId).catch((error) => asTRPCError(error))
+
+  if (ctx.runtime.mode === 'cloud') {
+    const userId = requireAuthenticatedCloudUser(ctx)
+    const projectOwnerId = (project as { userId?: string | null }).userId
+    if (projectOwnerId !== userId) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'You do not have access to this project.'
+      })
+    }
+  }
+
+  return project
+}
+
 const projectRouter = t.router({
   list: t.procedure.query(({ ctx }) => {
-    const listPromise =
-      ctx.runtime.mode === 'cloud' && ctx.userId
-        ? ctx.projectService.findByUserId(ctx.userId)
-        : ctx.projectService.list()
+    if (ctx.runtime.mode === 'cloud') {
+      const userId = requireAuthenticatedCloudUser(ctx)
+      return ctx.projectService
+        .findByUserId(userId)
+        .catch((error) => asTRPCError(error))
+    }
 
-    return listPromise.catch((error) => asTRPCError(error))
+    return ctx.projectService.list().catch((error) => asTRPCError(error))
   }),
+  listGitHubRepos: t.procedure
+    .input(githubRepoListInputSchema)
+    .query(({ ctx, input }) => {
+      const userId = requireAuthenticatedCloudUser(ctx)
+      const githubService = requireGitHubService(ctx)
+
+      return githubService
+        .listConnectedRepos(userId, input?.page, input?.perPage)
+        .catch((error) => {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              error instanceof Error ? error.message : 'Unable to list GitHub repositories.'
+          })
+        })
+    }),
+  createFromGitHub: t.procedure
+    .input(createGitHubProjectInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userId = requireAuthenticatedCloudUser(ctx)
+      const githubService = requireGitHubService(ctx)
+      const githubToken = await githubService.getDecryptedToken(userId).catch((error) => {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            error instanceof Error ? error.message : 'Unable to read GitHub connection.'
+        })
+      })
+
+      return ctx.projectService
+        .createFromGitHub({
+          userId,
+          githubOwner: input.owner,
+          githubRepo: input.repo,
+          defaultBranch: input.defaultBranch,
+          githubToken,
+          name: input.name
+        })
+        .catch((error) => asTRPCError(error))
+    }),
   get: t.procedure
     .input(
       z.object({
         id: z.string().min(1)
       })
     )
-    .query(({ ctx, input }) =>
-      ctx.projectService
-        .get(input.id)
-        .catch((error) => asTRPCError(error))
-    ),
+    .query(({ ctx, input }) => requireProjectAccess(ctx, input.id)),
   create: t.procedure
     .input(
       z.object({
@@ -104,33 +193,6 @@ const projectRouter = t.router({
         .create(input)
         .catch((error) => asTRPCError(error))
     ),
-  createFromGitHub: t.procedure
-    .input(
-      z.object({
-        githubOwner: z.string().trim().min(1),
-        githubRepo: z.string().trim().min(1),
-        defaultBranch: z.string().trim().min(1),
-        name: z.string().trim().min(1).optional()
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const githubService = requireGitHubService(ctx)
-      const userId = requireAuthenticatedUserId(ctx)
-      const githubToken = await githubService
-        .getDecryptedToken(userId)
-        .catch((error) => asTRPCError(error))
-
-      return ctx.projectService
-        .createFromGitHub({
-          userId,
-          githubOwner: input.githubOwner,
-          githubRepo: input.githubRepo,
-          defaultBranch: input.defaultBranch,
-          githubToken,
-          name: input.name
-        })
-        .catch((error) => asTRPCError(error))
-    }),
   selectDirectory: t.procedure.mutation(({ ctx }) =>
     ctx.projectService
       .selectDirectory()
@@ -149,11 +211,13 @@ const projectRouter = t.router({
         })
     )
     .mutation(({ ctx, input }) =>
-      ctx.projectService
-        .update(input.id, {
-          name: input.name,
-          path: input.path
-        })
+      requireProjectAccess(ctx, input.id)
+        .then(() =>
+          ctx.projectService.update(input.id, {
+            name: input.name,
+            path: input.path
+          })
+        )
         .catch((error) => asTRPCError(error))
     ),
   delete: t.procedure
@@ -163,8 +227,8 @@ const projectRouter = t.router({
       })
     )
     .mutation(({ ctx, input }) =>
-      ctx.projectService
-        .delete(input.id)
+      requireProjectAccess(ctx, input.id)
+        .then(() => ctx.projectService.delete(input.id))
         .catch((error) => asTRPCError(error))
     ),
   getConfig: t.procedure
@@ -174,8 +238,8 @@ const projectRouter = t.router({
       })
     )
     .query(({ ctx, input }) =>
-      ctx.projectService
-        .getConfig(input.projectId)
+      requireProjectAccess(ctx, input.projectId)
+        .then(() => ctx.projectService.getConfig(input.projectId))
         .catch((error) => asTRPCError(error))
     ),
   getPrompt: t.procedure
@@ -185,8 +249,8 @@ const projectRouter = t.router({
       })
     )
     .query(({ ctx, input }) =>
-      ctx.projectService
-        .getPrompt(input.projectId)
+      requireProjectAccess(ctx, input.projectId)
+        .then(() => ctx.projectService.getPrompt(input.projectId))
         .catch((error) => asTRPCError(error))
     ),
   listWorktrees: t.procedure
@@ -196,8 +260,8 @@ const projectRouter = t.router({
       })
     )
     .query(({ ctx, input }) =>
-      ctx.projectService
-        .listWorktrees(input.projectId)
+      requireProjectAccess(ctx, input.projectId)
+        .then(() => ctx.projectService.listWorktrees(input.projectId))
         .catch((error) => asTRPCError(error))
     ),
   createWorktree: t.procedure
@@ -208,8 +272,8 @@ const projectRouter = t.router({
       })
     )
     .mutation(({ ctx, input }) =>
-      ctx.projectService
-        .createWorktree(input.projectId, input.name)
+      requireProjectAccess(ctx, input.projectId)
+        .then(() => ctx.projectService.createWorktree(input.projectId, input.name))
         .catch((error) => asTRPCError(error))
     ),
   updateConfig: t.procedure
@@ -225,11 +289,13 @@ const projectRouter = t.router({
         })
     )
     .mutation(({ ctx, input }) =>
-      ctx.projectService
-        .updateConfig(input.projectId, {
-          yaml: input.yaml,
-          config: input.config
-        })
+      requireProjectAccess(ctx, input.projectId)
+        .then(() =>
+          ctx.projectService.updateConfig(input.projectId, {
+            yaml: input.yaml,
+            config: input.config
+          })
+        )
         .catch((error) => asTRPCError(error))
     ),
   updatePrompt: t.procedure
@@ -240,8 +306,10 @@ const projectRouter = t.router({
       })
     )
     .mutation(({ ctx, input }) =>
-      ctx.projectService
-        .updatePrompt(input.projectId, { content: input.content })
+      requireProjectAccess(ctx, input.projectId)
+        .then(() =>
+          ctx.projectService.updatePrompt(input.projectId, { content: input.content })
+        )
         .catch((error) => asTRPCError(error))
     ),
   clearRalphCache: t.procedure
@@ -251,8 +319,8 @@ const projectRouter = t.router({
       })
     )
     .mutation(({ ctx, input }) =>
-      ctx.projectService
-        .clearRalphCache(input.projectId)
+      requireProjectAccess(ctx, input.projectId)
+        .then(() => ctx.projectService.clearRalphCache(input.projectId))
         .catch((error) => asTRPCError(error))
     )
 })
@@ -624,6 +692,34 @@ const settingsRouter = t.router({
   get: t.procedure.query(({ ctx }) =>
     ctx.settingsService.get().catch((error) => asTRPCError(error))
   ),
+  githubConnection: t.procedure.query(({ ctx }) => {
+    const userId = requireAuthenticatedCloudUser(ctx)
+    const githubService = requireGitHubService(ctx)
+
+    return githubService.getConnection(userId).then((connection) => {
+      if (!connection) {
+        return {
+          connected: false as const,
+          githubUsername: null,
+          connectedAt: null
+        }
+      }
+
+      return {
+        connected: true as const,
+        githubUsername: connection.githubUsername,
+        connectedAt: connection.connectedAt
+      }
+    })
+  }),
+  disconnectGitHub: t.procedure.mutation(({ ctx }) => {
+    const userId = requireAuthenticatedCloudUser(ctx)
+    const githubService = requireGitHubService(ctx)
+
+    return githubService.disconnect(userId).then(() => ({
+      disconnected: true as const
+    }))
+  }),
   getDefaultPreset: t.procedure.query(({ ctx }) =>
     ctx.settingsService
       .getDefaultPreset()

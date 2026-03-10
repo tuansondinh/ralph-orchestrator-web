@@ -1,20 +1,13 @@
-import type { ResolvedRuntimeMode } from '../src/config/runtimeMode.js'
+import {
+  getRuntimeCapabilities,
+  type ResolvedRuntimeMode
+} from '../src/config/runtimeMode.js'
 
 export function createTestRuntime(mode: 'local' | 'cloud' = 'local'): ResolvedRuntimeMode {
   if (mode === 'cloud') {
     return {
       mode: 'cloud',
-      capabilities: {
-        mode: 'cloud',
-        database: true,
-        auth: true,
-        localProjects: false,
-        githubProjects: true,
-        terminal: false,
-        preview: false,
-        localDirectoryPicker: false,
-        mcp: false
-      },
+      capabilities: getRuntimeCapabilities('cloud'),
       cloud: {
         supabaseUrl: 'https://test.supabase.co',
         supabaseAnonKey: 'test-key',
@@ -25,16 +18,6 @@ export function createTestRuntime(mode: 'local' | 'cloud' = 'local'): ResolvedRu
 
   return {
     mode: 'local',
-    capabilities: {
-      mode: 'local',
-      database: true,
-      auth: false,
-      localProjects: true,
-      githubProjects: false,
-      terminal: true,
-      preview: true,
-      localDirectoryPicker: true,
-      mcp: true
-    }
+    capabilities: getRuntimeCapabilities('local')
   }
 }

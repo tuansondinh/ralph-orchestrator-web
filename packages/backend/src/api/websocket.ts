@@ -1,5 +1,5 @@
 import websocket from '@fastify/websocket'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { RawData } from 'ws'
 import type { OutputChunk } from '../runner/ProcessManager.js'
 import type { LoopSummary } from '../services/LoopService.js'
@@ -17,6 +17,7 @@ import {
   allowsDangerousOperations,
   getDangerousOperationBlockMessage
 } from '../lib/safety.js'
+import { verifySupabaseToken } from '../auth/supabaseAuth.js'
 
 interface SubscribeRequest {
   type: 'subscribe'
@@ -38,18 +39,11 @@ interface TerminalResizeRequest {
 
 type ClientMessage = SubscribeRequest | TerminalInputRequest | TerminalResizeRequest
 
-let verifySupabaseTokenLoader:
-  | Promise<typeof import('../auth/supabaseAuth.js').verifySupabaseToken>
-  | null = null
-
-async function loadVerifySupabaseToken() {
-  if (!verifySupabaseTokenLoader) {
-    verifySupabaseTokenLoader = import('../auth/supabaseAuth.js').then(
-      ({ verifySupabaseToken }) => verifySupabaseToken
-    )
+class WebSocketChannelAccessError extends Error {
+  constructor(message = 'You do not have access to this channel.') {
+    super(message)
+    this.name = 'WebSocketChannelAccessError'
   }
-
-  return verifySupabaseTokenLoader
 }
 
 function safeSend(app: FastifyInstance, socket: websocket.WebSocket, message: unknown) {
@@ -129,6 +123,73 @@ function parseClientMessage(raw: RawData): ClientMessage | null {
       cols: body.cols,
       rows: body.rows
     }
+  }
+
+  return null
+}
+
+function getAuthorizationBearerToken(value: unknown) {
+  if (typeof value !== 'string' || !value.startsWith('Bearer ')) {
+    return null
+  }
+
+  const token = value.slice(7).trim()
+  return token.length > 0 ? token : null
+}
+
+function getQueryAccessToken(query: FastifyRequest['query']) {
+  if (!query || typeof query !== 'object') {
+    return null
+  }
+
+  const token = (query as Record<string, unknown>).access_token
+  if (typeof token !== 'string') {
+    return null
+  }
+
+  const trimmed = token.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+async function authenticateCloudSocket(
+  request: FastifyRequest
+): Promise<string> {
+  const token =
+    getAuthorizationBearerToken(request.headers.authorization) ??
+    getQueryAccessToken(request.query)
+
+  if (!token) {
+    throw new Error('Authentication required')
+  }
+
+  const user = await verifySupabaseToken(token)
+  request.userId = user.id
+  request.supabaseUser = user
+  return user.id
+}
+
+async function resolveChannelProjectId(app: FastifyInstance, channel: string) {
+  const loopMatch = /^loop:([^:]+):(output|state|metrics)$/.exec(channel)
+  if (loopMatch) {
+    const loop = await app.loopService.get(loopMatch[1]).catch(() => null)
+    return loop?.projectId ?? null
+  }
+
+  const chatMatch = /^chat:([^:]+):message$/.exec(channel)
+  if (chatMatch) {
+    const session = await app.chatService.getSession(chatMatch[1]).catch(() => null)
+    return session?.projectId ?? null
+  }
+
+  const previewMatch = /^preview:([^:]+):state$/.exec(channel)
+  if (previewMatch) {
+    return previewMatch[1]
+  }
+
+  const terminalMatch = /^terminal:([^:]+):(output|state)$/.exec(channel)
+  if (terminalMatch) {
+    const session = app.terminalService.getSession(terminalMatch[1])
+    return session.projectId
   }
 
   return null
@@ -278,7 +339,7 @@ export async function registerWebsocket(app: FastifyInstance) {
   )
   const dangerousOperationsAllowed = allowsDangerousOperations()
 
-  app.get('/ws', { websocket: true }, (socket, req) => {
+  app.get('/ws', { websocket: true }, async (socket, req) => {
     const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined
     const requestHosts = parseRequestHosts([
       typeof req.headers.host === 'string' ? req.headers.host : undefined,
@@ -293,11 +354,28 @@ export async function registerWebsocket(app: FastifyInstance) {
       return
     }
 
+    const cloudMode =
+      app.runtimeConfig.mode === 'cloud' && app.runtimeConfig.capabilities.auth
+    let cloudUserId: string | null = null
+    if (cloudMode) {
+      try {
+        cloudUserId = await authenticateCloudSocket(req)
+      } catch (error) {
+        const reason =
+          error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : 'Invalid or expired token'
+        socket.close(1008, reason)
+        return
+      }
+    }
+
+    app.log.info({ userId: cloudUserId }, '[WS] Client connected')
     const unsubscribers = new Map<string, () => void>()
     let cleaned = false
     let subscriptionUpdate = Promise.resolve()
-    let sessionReady = app.runtimeConfig.mode !== 'cloud'
-    const pendingMessages: RawData[] = []
+    const projectAccessCache = new Map<string, boolean>()
+    let ownedProjectIdsPromise: Promise<Set<string>> | null = null
 
     const cleanup = (reason: 'close' | 'error') => {
       if (cleaned) {
@@ -312,40 +390,6 @@ export async function registerWebsocket(app: FastifyInstance) {
       app.log.info({ reason }, '[WS] Client disconnected')
     }
 
-    const startSession = async () => {
-      if (app.runtimeConfig.mode === 'cloud') {
-        const host =
-          typeof req.headers.host === 'string' && req.headers.host.trim().length > 0
-            ? req.headers.host
-            : 'localhost'
-        const requestUrl = new URL(req.url, `http://${host}`)
-        const token = requestUrl.searchParams.get('token')
-
-        if (!token) {
-          socket.close(4001, 'Authentication required')
-          return
-        }
-
-        try {
-          const verifySupabaseToken = await loadVerifySupabaseToken()
-          const user = await verifySupabaseToken(token)
-          req.userId = user.id
-          req.supabaseUser = user
-          sessionReady = true
-        } catch {
-          socket.close(4001, 'Invalid or expired token')
-          return
-        }
-      }
-
-      sessionReady = true
-      app.log.info('[WS] Client connected')
-
-      for (const raw of pendingMessages.splice(0)) {
-        handleMessage(raw)
-      }
-    }
-
     const unsubscribeChannel = (channel: string) => {
       const unsubscribe = unsubscribers.get(channel)
       if (!unsubscribe) {
@@ -354,6 +398,64 @@ export async function registerWebsocket(app: FastifyInstance) {
 
       unsubscribe()
       unsubscribers.delete(channel)
+    }
+
+    const hasProjectAccess = async (projectId: string) => {
+      if (!cloudUserId) {
+        return true
+      }
+
+      const cached = projectAccessCache.get(projectId)
+      if (cached !== undefined) {
+        return cached
+      }
+
+      const project = await app.projectService.get(projectId).catch(() => null)
+      const allowed = (project as { userId?: string | null } | null)?.userId === cloudUserId
+      projectAccessCache.set(projectId, allowed)
+      return allowed
+    }
+
+    const getOwnedProjectIds = async () => {
+      if (!cloudUserId) {
+        return null
+      }
+
+      if (!ownedProjectIdsPromise) {
+        ownedProjectIdsPromise = app.projectService
+          .findByUserId(cloudUserId)
+          .then((projects) => new Set(projects.map((project) => project.id)))
+      }
+
+      return ownedProjectIdsPromise
+    }
+
+    const assertChannelAccess = async (channel: string) => {
+      if (!cloudUserId) {
+        return null
+      }
+
+      if (channel === 'notifications') {
+        return await getOwnedProjectIds()
+      }
+
+      const projectId = await resolveChannelProjectId(app, channel)
+      if (!projectId || !(await hasProjectAccess(projectId))) {
+        throw new WebSocketChannelAccessError()
+      }
+
+      return null
+    }
+
+    const assertTerminalSessionAccess = async (sessionId: string) => {
+      if (!cloudUserId) {
+        return
+      }
+
+      const session = app.terminalService.getSession(sessionId)
+      if (!(await hasProjectAccess(session.projectId))) {
+        throw new WebSocketChannelAccessError('You do not have access to this terminal session.')
+      }
     }
 
     const subscribeChannel = async (channel: string) => {
@@ -366,6 +468,7 @@ export async function registerWebsocket(app: FastifyInstance) {
       }
 
       app.log.debug({ channel }, '[WS] Subscribe request')
+      const allowedNotificationProjectIds = await assertChannelAccess(channel)
 
       const outputMatch = /^loop:([^:]+):output$/.exec(channel)
       if (outputMatch) {
@@ -542,10 +645,22 @@ export async function registerWebsocket(app: FastifyInstance) {
       if (channel === 'notifications') {
         const replay = await app.loopService.replayNotifications().catch(() => [])
         for (const notification of replay) {
+          if (
+            allowedNotificationProjectIds &&
+            (!notification.projectId || !allowedNotificationProjectIds.has(notification.projectId))
+          ) {
+            continue
+          }
           safeSend(app, socket, asNotificationMessage(notification, true))
         }
 
         const unsubscribe = app.loopService.subscribeNotifications((notification) => {
+          if (
+            allowedNotificationProjectIds &&
+            (!notification.projectId || !allowedNotificationProjectIds.has(notification.projectId))
+          ) {
+            return
+          }
           safeSend(app, socket, asNotificationMessage(notification))
         })
 
@@ -569,17 +684,19 @@ export async function registerWebsocket(app: FastifyInstance) {
         try {
           await subscribeChannel(channel)
         } catch (error) {
+          if (error instanceof WebSocketChannelAccessError) {
+            safeSend(app, socket, {
+              type: 'error',
+              message: error.message
+            })
+            continue
+          }
           app.log.debug({ channel, error }, '[WS] Failed to subscribe channel')
         }
       }
     }
 
-    const handleMessage = (raw: RawData) => {
-      if (!sessionReady) {
-        pendingMessages.push(raw)
-        return
-      }
-
+    const handleMessage = async (raw: RawData) => {
       const message = parseClientMessage(raw)
       if (!message) {
         app.log.debug('[WS] Invalid subscribe payload')
@@ -609,8 +726,16 @@ export async function registerWebsocket(app: FastifyInstance) {
           return
         }
         try {
+          await assertTerminalSessionAccess(message.sessionId)
           app.terminalService.sendInput(message.sessionId, message.data)
-        } catch {
+        } catch (error) {
+          if (error instanceof WebSocketChannelAccessError) {
+            safeSend(app, socket, {
+              type: 'error',
+              message: error.message
+            })
+            return
+          }
           safeSend(app, socket, {
             type: 'error',
             message: `Terminal session not active: ${message.sessionId}`
@@ -628,8 +753,16 @@ export async function registerWebsocket(app: FastifyInstance) {
           return
         }
         try {
+          await assertTerminalSessionAccess(message.sessionId)
           app.terminalService.resizeSession(message.sessionId, message.cols, message.rows)
-        } catch {
+        } catch (error) {
+          if (error instanceof WebSocketChannelAccessError) {
+            safeSend(app, socket, {
+              type: 'error',
+              message: error.message
+            })
+            return
+          }
           safeSend(app, socket, {
             type: 'error',
             message: `Terminal session not active: ${message.sessionId}`
@@ -642,10 +775,5 @@ export async function registerWebsocket(app: FastifyInstance) {
 
     socket.on('close', () => cleanup('close'))
     socket.on('error', () => cleanup('error'))
-
-    void startSession().catch((error) => {
-      app.log.warn({ error }, '[WS] Failed to initialize websocket session')
-      socket.close(1011, 'WebSocket initialization failed')
-    })
   })
 }

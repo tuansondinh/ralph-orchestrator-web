@@ -1,5 +1,6 @@
 /// <reference path="../types/fastify.d.ts" />
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
+import type { User } from '@supabase/supabase-js'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import type { ResolvedRuntimeMode } from '../config/runtimeMode.js'
 import type { schema } from '../db/schema.js'
@@ -16,11 +17,12 @@ import type { SettingsService } from '../services/SettingsService.js'
 import type { HatsPresetService } from '../services/HatsPresetService.js'
 import type { TaskService } from '../services/TaskService.js'
 import type { GitHubService } from '../services/GitHubService.js'
-import type { User } from '@supabase/supabase-js'
 
 export interface Context {
   runtime: ResolvedRuntimeMode
   db: BetterSQLite3Database<typeof schema>
+  userId?: string
+  supabaseUser?: User
   processManager: ProcessManager
   loopService: LoopService
   chatService: ChatService
@@ -34,14 +36,14 @@ export interface Context {
   hatsPresetService: HatsPresetService
   taskService: TaskService
   githubService?: GitHubService
-  userId?: string
-  supabaseUser?: User
 }
 
 export function createContext(opts: CreateFastifyContextOptions): Context {
   return {
     runtime: opts.req.server.runtimeConfig,
     db: opts.req.server.db,
+    userId: opts.req.userId,
+    supabaseUser: opts.req.supabaseUser,
     processManager: opts.req.server.processManager,
     loopService: opts.req.server.loopService,
     chatService: opts.req.server.chatService,
@@ -54,8 +56,6 @@ export function createContext(opts: CreateFastifyContextOptions): Context {
     settingsService: opts.req.server.settingsService,
     hatsPresetService: opts.req.server.hatsPresetService,
     taskService: opts.req.server.taskService,
-    githubService: opts.req.server.githubService,
-    userId: opts.req.userId,
-    supabaseUser: opts.req.supabaseUser
+    githubService: opts.req.server.githubService
   }
 }

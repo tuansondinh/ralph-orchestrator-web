@@ -31,15 +31,14 @@ describe('WorkspaceManager', () => {
       mockExec.mockResolvedValue({ stdout: '', stderr: '' });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       vi.spyOn(workspaceManager as any, 'exists').mockResolvedValueOnce(false);
-      vi.spyOn(fs, 'mkdir').mockResolvedValueOnce(undefined);
+      vi.spyOn(workspaceManager, 'clone').mockResolvedValueOnce(
+        path.join(tempDir, 'owner', 'repo', projectId)
+      );
 
       const workspacePath = await workspaceManager.prepare(params);
 
-      expect(workspacePath).toBe(path.join(tempDir, projectId));
-      expect(mockExec).toHaveBeenCalledWith(
-        'git',
-        ['clone', '--branch', 'main', 'https://x-access-token:test-token@github.com/owner/repo.git', workspacePath]
-      );
+      expect(workspacePath).toBe(path.join(tempDir, 'owner', 'repo', projectId));
+      expect(workspaceManager.clone).toHaveBeenCalledWith(params);
     });
 
     it('pulls latest changes when workspace exists', async () => {
@@ -55,17 +54,14 @@ describe('WorkspaceManager', () => {
       mockExec.mockResolvedValue({ stdout: '', stderr: '' });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       vi.spyOn(workspaceManager as any, 'exists').mockResolvedValueOnce(true);
+      vi.spyOn(workspaceManager, 'pull').mockResolvedValueOnce(
+        path.join(tempDir, 'owner', 'repo', projectId)
+      );
 
       const workspacePath = await workspaceManager.prepare(params);
 
-      expect(workspacePath).toBe(path.join(tempDir, projectId));
-      expect(mockExec).toHaveBeenCalledWith('git', ['fetch', 'origin'], { cwd: workspacePath });
-      expect(mockExec).toHaveBeenCalledWith('git', ['checkout', 'main'], { cwd: workspacePath });
-      expect(mockExec).toHaveBeenCalledWith(
-        'git',
-        ['reset', '--hard', 'origin/main'],
-        { cwd: workspacePath }
-      );
+      expect(workspacePath).toBe(path.join(tempDir, 'owner', 'repo', projectId));
+      expect(workspaceManager.pull).toHaveBeenCalledWith(params);
     });
 
     it('builds clone URL with token correctly', () => {
@@ -73,6 +69,64 @@ describe('WorkspaceManager', () => {
       const manager = workspaceManager as any;
       const url = manager.buildCloneUrl('my-token', 'owner', 'repo');
       expect(url).toBe('https://x-access-token:my-token@github.com/owner/repo.git');
+    });
+  });
+
+  describe('clone()', () => {
+    it('creates a deterministic workspace path tied to repository identity', async () => {
+      const params = {
+        projectId: 'project-123',
+        githubOwner: 'owner',
+        githubRepo: 'repo',
+        branch: 'main',
+        token: 'test-token',
+      };
+
+      mockExec.mockResolvedValue({ stdout: '', stderr: '' });
+      vi.spyOn(fs, 'mkdir').mockResolvedValueOnce(undefined);
+
+      const workspacePath = await workspaceManager.clone(params);
+
+      expect(workspacePath).toBe(path.join(tempDir, 'owner', 'repo', 'project-123'));
+      expect(fs.mkdir).toHaveBeenCalledWith(path.join(tempDir, 'owner', 'repo'), {
+        recursive: true,
+      });
+      expect(mockExec).toHaveBeenCalledWith(
+        'git',
+        [
+          'clone',
+          '--branch',
+          'main',
+          'https://x-access-token:test-token@github.com/owner/repo.git',
+          workspacePath,
+        ]
+      );
+    });
+  });
+
+  describe('pull()', () => {
+    it('refreshes an existing workspace and returns its deterministic path', async () => {
+      const params = {
+        projectId: 'project-456',
+        githubOwner: 'owner',
+        githubRepo: 'repo',
+        branch: 'main',
+        token: 'test-token',
+      };
+
+      mockExec.mockResolvedValue({ stdout: '', stderr: '' });
+
+      const workspacePath = await workspaceManager.pull(params);
+
+      expect(workspacePath).toBe(path.join(tempDir, 'owner', 'repo', 'project-456'));
+      expect(mockExec).toHaveBeenCalledWith('git', ['remote', 'set-url', 'origin', 'https://x-access-token:test-token@github.com/owner/repo.git'], {
+        cwd: workspacePath,
+      });
+      expect(mockExec).toHaveBeenCalledWith('git', ['fetch', 'origin'], { cwd: workspacePath });
+      expect(mockExec).toHaveBeenCalledWith('git', ['checkout', 'main'], { cwd: workspacePath });
+      expect(mockExec).toHaveBeenCalledWith('git', ['reset', '--hard', 'origin/main'], {
+        cwd: workspacePath,
+      });
     });
   });
 

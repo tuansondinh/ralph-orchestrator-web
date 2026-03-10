@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { setAuthAccessToken } from '@/lib/authSession'
 import { resolveWebsocketUrl, useWebSocket } from '@/hooks/useWebSocket'
 
 class MockWebSocket {
@@ -10,6 +11,7 @@ class MockWebSocket {
   static CLOSED = 3
 
   readyState = MockWebSocket.CONNECTING
+  readonly url: string
   private listeners: Record<string, Array<(event: Event | MessageEvent) => void>> = {
     open: [],
     close: [],
@@ -17,7 +19,8 @@ class MockWebSocket {
     error: []
   }
 
-  constructor(_url: string) {
+  constructor(url: string) {
+    this.url = url
     MockWebSocket.instances.push(this)
   }
 
@@ -71,12 +74,19 @@ class MockWebSocket {
   }
 }
 
-function HookHarness({ connectTimeoutMs }: { connectTimeoutMs?: number }) {
+function HookHarness({
+  connectTimeoutMs,
+  accessToken
+}: {
+  connectTimeoutMs?: number
+  accessToken?: string
+}) {
   const { status, reconnectAttempt } = useWebSocket({
     channels: ['notifications'],
     onMessage: () => {},
     reconnectDelayMs: 100,
-    connectTimeoutMs
+    connectTimeoutMs,
+    accessToken
   })
 
   return (
@@ -92,6 +102,7 @@ describe('useWebSocket', () => {
     vi.useFakeTimers()
     vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
     MockWebSocket.instances = []
+    setAuthAccessToken(null)
   })
 
   afterEach(() => {
@@ -99,6 +110,7 @@ describe('useWebSocket', () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+    setAuthAccessToken(null)
   })
 
   it('uses exponential reconnect backoff and tracks reconnect status', () => {
@@ -193,6 +205,32 @@ describe('useWebSocket', () => {
     expect(MockWebSocket.instances).toHaveLength(2)
   })
 
+  it('passes an access token in the websocket connection URL when provided', () => {
+    render(<HookHarness accessToken="supabase-access-token" />)
+
+    act(() => {
+      vi.advanceTimersByTime(0)
+    })
+
+    expect(MockWebSocket.instances[0]?.url).toBe(
+      'ws://127.0.0.1:3003/ws?access_token=supabase-access-token'
+    )
+  })
+
+  it('reuses the shared auth access token when a websocket caller does not pass one', () => {
+    setAuthAccessToken('shared-cloud-token')
+
+    render(<HookHarness />)
+
+    act(() => {
+      vi.advanceTimersByTime(0)
+    })
+
+    expect(MockWebSocket.instances[0]?.url).toBe(
+      'ws://127.0.0.1:3003/ws?access_token=shared-cloud-token'
+    )
+  })
+
   it('logs lifecycle transitions and received message types', () => {
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {})
     render(<HookHarness />)
@@ -255,6 +293,22 @@ describe('resolveWebsocketUrl', () => {
     ).toBe('ws://127.0.0.1:3001/ws')
   })
 
+  it('appends the access_token query parameter when provided', () => {
+    expect(
+      resolveWebsocketUrl(
+        {
+          DEV: true,
+          VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'https://cloud.example.com'
+        },
+        {
+          protocol: 'https:',
+          host: 'cloud.example.com'
+        },
+        'token with spaces'
+      )
+    ).toBe('wss://cloud.example.com/ws?access_token=token+with+spaces')
+  })
+
   it('appends the Supabase access token when cloud auth is active', () => {
     expect(
       resolveWebsocketUrl(
@@ -267,6 +321,6 @@ describe('resolveWebsocketUrl', () => {
         },
         'token-123'
       )
-    ).toBe('wss://ralph.example.com/ws?token=token-123')
+    ).toBe('wss://ralph.example.com/ws?access_token=token-123')
   })
 })

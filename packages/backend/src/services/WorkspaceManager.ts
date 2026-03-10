@@ -7,22 +7,26 @@ const defaultExec = promisify(execFile);
 
 type ExecFunction = typeof defaultExec;
 
-export interface WorkspaceManager {
-  prepare(params: {
-    projectId: string;
-    githubOwner: string;
-    githubRepo: string;
-    branch: string;
-    token: string;
-  }): Promise<string>;
+export interface PrepareWorkspaceParams {
+  projectId: string;
+  githubOwner: string;
+  githubRepo: string;
+  branch: string;
+  token: string;
+}
 
-  pushBranch(params: {
-    workspacePath: string;
-    branchName: string;
-    token: string;
-    githubOwner: string;
-    githubRepo: string;
-  }): Promise<void>;
+export interface PushBranchParams {
+  workspacePath: string;
+  branchName: string;
+  token: string;
+  githubOwner: string;
+  githubRepo: string;
+}
+
+export interface WorkspaceManager {
+  prepare(params: PrepareWorkspaceParams): Promise<string>;
+
+  pushBranch(params: PushBranchParams): Promise<void>;
 
   cleanup(workspacePath: string): Promise<void>;
 
@@ -39,40 +43,40 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     this.exec = exec || defaultExec;
   }
 
-  async prepare(params: {
-    projectId: string;
-    githubOwner: string;
-    githubRepo: string;
-    branch: string;
-    token: string;
-  }): Promise<string> {
-    const workspacePath = path.join(this.baseDir, params.projectId);
+  async prepare(params: PrepareWorkspaceParams): Promise<string> {
+    const workspacePath = this.resolveWorkspacePath(params);
 
     if (await this.exists(workspacePath)) {
       try {
-        await this.setRemoteToken(workspacePath, params.token, params.githubOwner, params.githubRepo);
-        await this.exec('git', ['fetch', 'origin'], { cwd: workspacePath });
-        await this.exec('git', ['checkout', params.branch], { cwd: workspacePath });
-        await this.exec('git', ['reset', '--hard', `origin/${params.branch}`], { cwd: workspacePath });
+        return await this.pull(params);
       } catch (err) {
         console.warn(`Workspace pull failed for ${params.projectId}, using existing state:`, err);
       }
     } else {
-      await fs.mkdir(this.baseDir, { recursive: true });
-      const cloneUrl = this.buildCloneUrl(params.token, params.githubOwner, params.githubRepo);
-      await this.exec('git', ['clone', '--branch', params.branch, cloneUrl, workspacePath]);
+      return await this.clone(params);
     }
 
     return workspacePath;
   }
 
-  async pushBranch(params: {
-    workspacePath: string;
-    branchName: string;
-    token: string;
-    githubOwner: string;
-    githubRepo: string;
-  }): Promise<void> {
+  async clone(params: PrepareWorkspaceParams): Promise<string> {
+    const workspacePath = this.resolveWorkspacePath(params);
+    await fs.mkdir(path.dirname(workspacePath), { recursive: true });
+    const cloneUrl = this.buildCloneUrl(params.token, params.githubOwner, params.githubRepo);
+    await this.exec('git', ['clone', '--branch', params.branch, cloneUrl, workspacePath]);
+    return workspacePath;
+  }
+
+  async pull(params: PrepareWorkspaceParams): Promise<string> {
+    const workspacePath = this.resolveWorkspacePath(params);
+    await this.setRemoteToken(workspacePath, params.token, params.githubOwner, params.githubRepo);
+    await this.exec('git', ['fetch', 'origin'], { cwd: workspacePath });
+    await this.exec('git', ['checkout', params.branch], { cwd: workspacePath });
+    await this.exec('git', ['reset', '--hard', `origin/${params.branch}`], { cwd: workspacePath });
+    return workspacePath;
+  }
+
+  async pushBranch(params: PushBranchParams): Promise<void> {
     await this.setRemoteToken(params.workspacePath, params.token, params.githubOwner, params.githubRepo);
     
     await this.exec('git', ['checkout', '-b', params.branchName], { cwd: params.workspacePath }).catch(() => {
@@ -97,6 +101,10 @@ export class LocalWorkspaceManager implements WorkspaceManager {
 
   buildCloneUrl(token: string, owner: string, repo: string): string {
     return `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
+  }
+
+  private resolveWorkspacePath(params: Pick<PrepareWorkspaceParams, 'projectId' | 'githubOwner' | 'githubRepo'>): string {
+    return path.join(this.baseDir, params.githubOwner, params.githubRepo, params.projectId);
   }
 
   private async setRemoteToken(

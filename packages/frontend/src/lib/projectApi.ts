@@ -8,6 +8,11 @@ export interface ProjectRecord {
   ralphConfig: string | null
   createdAt: number
   updatedAt: number
+  userId?: string | null
+  githubOwner?: string | null
+  githubRepo?: string | null
+  defaultBranch?: string | null
+  workspacePath?: string | null
 }
 
 export interface CreateProjectInput {
@@ -18,6 +23,13 @@ export interface CreateProjectInput {
 
 export interface SelectDirectoryResult {
   path: string
+}
+
+export interface CreateGitHubProjectInput {
+  githubOwner: string
+  githubRepo: string
+  defaultBranch: string
+  name?: string
 }
 
 export interface ProjectPromptSnapshot {
@@ -36,6 +48,9 @@ export const projectApi = {
   },
   create(input: CreateProjectInput): Promise<ProjectRecord> {
     return trpcClient.project.create.mutate(input)
+  },
+  createFromGitHub(input: CreateGitHubProjectInput): Promise<ProjectRecord> {
+    return trpcClient.project.createFromGitHub.mutate(input)
   },
   delete(id: string): Promise<void> {
     return trpcClient.project.delete.mutate({ id })

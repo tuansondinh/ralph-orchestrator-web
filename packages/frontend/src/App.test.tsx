@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { projectApi, type ProjectRecord } from '@/lib/projectApi'
+import { capabilitiesApi } from '@/lib/capabilitiesApi'
 import { monitoringApi } from '@/lib/monitoringApi'
 import { taskApi } from '@/lib/taskApi'
 import { terminalApi } from '@/lib/terminalApi'
@@ -18,10 +19,17 @@ vi.mock('@/lib/projectApi', () => ({
   projectApi: {
     list: vi.fn(),
     create: vi.fn(),
+    createFromGitHub: vi.fn(),
     delete: vi.fn(),
     getPrompt: vi.fn(),
     updatePrompt: vi.fn(),
     selectDirectory: vi.fn()
+  }
+}))
+
+vi.mock('@/lib/capabilitiesApi', () => ({
+  capabilitiesApi: {
+    get: vi.fn()
   }
 }))
 
@@ -109,6 +117,17 @@ beforeEach(() => {
     }
     projects = [...projects, createdProject]
     return createdProject
+  })
+  vi.mocked(capabilitiesApi.get).mockResolvedValue({
+    mode: 'local',
+    database: true,
+    auth: false,
+    localProjects: true,
+    githubProjects: false,
+    terminal: true,
+    preview: true,
+    localDirectoryPicker: true,
+    mcp: true
   })
   vi.mocked(projectApi.delete).mockImplementation(async (id) => {
     projects = projects.filter((project) => project.id !== id)

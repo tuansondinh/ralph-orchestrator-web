@@ -99,6 +99,33 @@ const projectRouter = t.router({
         .create(input)
         .catch((error) => asTRPCError(error))
     ),
+  createFromGitHub: t.procedure
+    .input(
+      z.object({
+        githubOwner: z.string().trim().min(1),
+        githubRepo: z.string().trim().min(1),
+        defaultBranch: z.string().trim().min(1),
+        name: z.string().trim().min(1).optional()
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const githubService = requireGitHubService(ctx)
+      const userId = requireAuthenticatedUserId(ctx)
+      const githubToken = await githubService
+        .getDecryptedToken(userId)
+        .catch((error) => asTRPCError(error))
+
+      return ctx.projectService
+        .createFromGitHub({
+          userId,
+          githubOwner: input.githubOwner,
+          githubRepo: input.githubRepo,
+          defaultBranch: input.defaultBranch,
+          githubToken,
+          name: input.name
+        })
+        .catch((error) => asTRPCError(error))
+    }),
   selectDirectory: t.procedure.mutation(({ ctx }) =>
     ctx.projectService
       .selectDirectory()
@@ -710,6 +737,21 @@ const githubRouter = t.router({
       connectedAt: connection.connectedAt
     }
   }),
+  listRepos: t.procedure
+    .input(
+      z.object({
+        page: z.number().int().positive().optional()
+      })
+    )
+    .query(({ ctx, input }) => {
+      const githubService = requireGitHubService(ctx)
+      const userId = requireAuthenticatedUserId(ctx)
+
+      return githubService
+        .getDecryptedToken(userId)
+        .then((token) => githubService.listRepos(token, input.page ?? 1))
+        .catch((error) => asTRPCError(error))
+    }),
   disconnect: t.procedure.mutation(({ ctx }) => {
     const githubService = requireGitHubService(ctx)
     const userId = requireAuthenticatedUserId(ctx)

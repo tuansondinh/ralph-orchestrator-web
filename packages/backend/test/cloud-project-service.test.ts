@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { ProjectService } from '../src/services/ProjectService.js'
 import type { ProjectRepository, ProjectRecord, RepositoryBundle } from '../src/db/repositories/contracts.js'
 import type { WorkspaceManager } from '../src/services/WorkspaceManager.js'
@@ -19,8 +19,8 @@ vi.mock('../src/lib/detect.js', () => ({
 
 describe('CloudProjectService', () => {
   let mockProjectRepo: ProjectRepository
-  let mockFindByGitHubRepo: NonNullable<ProjectRepository['findByGitHubRepo']>
-  let mockFindByUserId: NonNullable<ProjectRepository['findByUserId']>
+  let mockFindByGitHubRepo: Mock<NonNullable<ProjectRepository['findByGitHubRepo']>>
+  let mockFindByUserId: Mock<NonNullable<ProjectRepository['findByUserId']>>
   let mockWorkspaceManager: WorkspaceManager
   let projectService: ProjectService
   let createdProjects: Map<string, ProjectRecord>
@@ -157,8 +157,16 @@ describe('CloudProjectService', () => {
       mockFindByGitHubRepo.mockResolvedValueOnce({
         id: 'existing-project',
         name: 'Existing Project',
+        path: '/workspace/existing-project',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        userId: 'user-123',
         githubOwner: 'acme',
-        githubRepo: 'my-app'
+        githubRepo: 'my-app',
+        defaultBranch: 'main',
+        workspacePath: '/workspace/existing-project'
       })
 
       const params = {

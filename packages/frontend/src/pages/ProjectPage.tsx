@@ -10,6 +10,7 @@ import { ProjectConfigView } from '@/components/project/ProjectConfigView'
 import { TasksView } from '@/components/tasks/TasksView'
 import { TerminalView } from '@/components/terminal/TerminalView'
 import { useCapabilities } from '@/hooks/useCapabilities'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { isProjectTabId, resolveProjectTab } from '@/lib/projectTabs'
 import { useProjectStore } from '@/stores/projectStore'
 
@@ -18,7 +19,9 @@ export function ProjectPage() {
   const { capabilities } = useCapabilities()
   const projectId = params.id
   const requestedTab = isProjectTabId(params.tab) ? params.tab : null
-  const tab = resolveProjectTab(requestedTab, capabilities)
+  const tab = requestedTab === 'chat' ? 'chat' : resolveProjectTab(requestedTab, capabilities)
+  const isMobile = useMediaQuery('(max-width: 767px)')
+  const hideChrome = isMobile && tab === 'chat'
   const project = useProjectStore((state) =>
     state.projects.find((candidate) => candidate.id === projectId)
   )
@@ -39,9 +42,15 @@ export function ProjectPage() {
   }
 
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
-      <ProjectHeader project={project} />
-      <TabBar projectId={project.id} />
+    <section
+      className={
+        hideChrome
+          ? 'flex h-[100dvh] flex-col'
+          : 'flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden'
+      }
+    >
+      {!hideChrome && <ProjectHeader project={project} />}
+      {!hideChrome && <TabBar projectId={project.id} />}
       {tab === 'loops' ? (
         <div className="min-h-0 flex-1">
           <LoopsView projectId={project.id} />

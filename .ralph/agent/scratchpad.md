@@ -34,3 +34,12 @@ Scope is limited to the new frontend singleton chat session layer: `chatSessionS
 
 2026-03-10T18:59:35Z Task-05 complete.
 Added the new frontend chat session layer with `packages/frontend/src/types/chat.ts`, `chatSessionStore`, `ChatSessionProvider`, and `useChatSession`, then mounted the provider at the app-shell route root. Provider normalization now converts backend OpenCode websocket payloads into the frontend chat state model, sends `chat:sync` on first connect/reconnect, and exposes a shared send context for future ChatTab and ChatBubble work. Added focused store/provider/hook tests and updated the notifications integration test to locate websocket instances by subscribed channel now that the app opens the extra root `opencode-chat` socket. Verification passed with `npm run typecheck -w @ralph-ui/frontend` and `npm test -w @ralph-ui/frontend`. Next code task is `task-06-mobile-layout-project-page`.
+
+2026-03-10T19:00:58Z Builder started task-06.
+Scope is limited to `ProjectPage` mobile layout gating only: add a small `useMediaQuery` hook if missing, make `ProjectHeader` and `TabBar` conditional for `mobile + chat`, preserve the existing layout classes for every other path, and add render tests plus a controllable `matchMedia` polyfill. Chat tab content changes remain deferred to task-07.
+
+2026-03-10T19:03:13Z Task-06 note.
+`ProjectPage` currently resolves `params.tab === 'chat'` back to `loops` because the visible tab list does not include chat yet. To keep this iteration meaningful without broadening into tab-nav work, preserve the chat route locally inside `ProjectPage` so the mobile layout branch can activate; documented as DEC-003.
+
+2026-03-10T19:05:12Z Task-06 complete.
+Added `useMediaQuery` and a controllable `matchMedia` test polyfill, then updated `ProjectPage` to hide `ProjectHeader` and `TabBar` only for `mobile + chat` while preserving the prior wrapper classes everywhere else. Kept the currently hidden `chat` route valid within `ProjectPage` so the branch is reachable without changing broader tab navigation. Added focused render tests for mobile chat, mobile loops, and desktop chat. Verification passed with `npm run typecheck -w @ralph-ui/frontend` and `npm test -w @ralph-ui/frontend`. Browser-level Playwright verification was not meaningful in this iteration because `AppShellRoutes` still redirects `/project/:id/chat` to `/loops` until a later chat-route task removes that guard.

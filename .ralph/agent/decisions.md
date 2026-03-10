@@ -17,3 +17,12 @@
 - Reasoning: The backend contract is already covered by Task 3 and Task 4 tests, so changing it here would widen scope. The UI design requires streamed assistant state and plain-text tool result rendering, which the raw backend message shape does not provide directly. Provider-side normalization is additive, localized, and reversible.
 - Reversibility: High. A later phase can collapse the mapping once backend and frontend types are intentionally unified.
 - Timestamp (UTC ISO 8601): 2026-03-10T00:00:00Z
+
+## DEC-003
+- Decision: Handle the currently hidden `chat` route while implementing the mobile chat layout gate in Task 6.
+- Chosen Option: Preserve `params.tab === 'chat'` as the active `ProjectPage` tab locally, while leaving the broader tab visibility and navigation model unchanged in this iteration.
+- Confidence: 71
+- Alternatives Considered: Keep the existing `resolveProjectTab()` behavior and only test the layout with mocked tab resolution; expand `projectTabs`/routing now so chat becomes a fully visible project tab in the broader app shell.
+- Reasoning: The current `ProjectPage` logic collapses `chat` to `loops`, which makes the mobile chat layout branch unreachable and defeats the task's acceptance criteria. Preserving the chat route locally is the narrowest reversible change that enables the layout behavior without pulling Task 7/8 navigation work into this iteration.
+- Reversibility: High. Later chat-tab work can centralize chat visibility once the full tab experience is intentionally enabled.
+- Timestamp (UTC ISO 8601): 2026-03-10T19:03:13Z

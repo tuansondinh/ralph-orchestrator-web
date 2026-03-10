@@ -8,6 +8,7 @@ import * as pty from 'node-pty'
 import type { ProjectRepository } from '../db/repositories/contracts.js'
 import { resolveRepositoryBundle, type RepositoryBundleSource } from '../db/repositories/index.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
+import { asLoopBackend, type LoopBackend } from './loopUtils.js'
 
 type TerminalSessionState = 'active' | 'completed'
 
@@ -17,6 +18,7 @@ const MIN_COLS = 20
 const MAX_COLS = 400
 const MIN_ROWS = 8
 const MAX_ROWS = 200
+const RALPH_PLAN_OR_TASK_COMMAND = /^ralph\s+(plan|task)(?:\s+.*)?$/i
 const require = createRequire(import.meta.url)
 
 export interface TerminalSessionSummary {
@@ -84,6 +86,33 @@ function normalizeRows(value: number | undefined) {
     return 36
   }
   return clamp(Math.floor(value), MIN_ROWS, MAX_ROWS)
+}
+
+function resolveDefaultBackendFromEnv(): LoopBackend | null {
+  const raw = process.env.RALPH_UI_DEFAULT_BACKEND
+  if (typeof raw !== 'string') {
+    return null
+  }
+
+  const normalized = raw.trim().toLowerCase()
+  return asLoopBackend(normalized) ?? null
+}
+
+function applyDefaultBackendToInitialCommand(command: string, backend: LoopBackend | null) {
+  const trimmed = command.trim()
+  if (!trimmed || !backend) {
+    return trimmed
+  }
+
+  if (!RALPH_PLAN_OR_TASK_COMMAND.test(trimmed)) {
+    return trimmed
+  }
+
+  if (/\s--backend(?:\s|=|$)/i.test(trimmed)) {
+    return trimmed
+  }
+
+  return `${trimmed} --backend ${backend}`
 }
 
 export class TerminalService {
@@ -317,7 +346,10 @@ export class TerminalService {
     projectSessions.add(sessionId)
     this.events.emit(`${STATE_EVENT_PREFIX}${sessionId}`, 'active' satisfies TerminalSessionState)
 
-    const initialCommand = input.initialCommand?.trim()
+    const initialCommand = applyDefaultBackendToInitialCommand(
+      input.initialCommand ?? '',
+      resolveDefaultBackendFromEnv()
+    )
     if (initialCommand) {
       terminal.write(`${initialCommand}\r`)
     }

@@ -51,6 +51,7 @@ Required values:
 - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_DB_URL` must all be present to activate cloud mode.
 - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `GITHUB_CALLBACK_URL` must match your GitHub OAuth App.
 - `RALPH_UI_WORKSPACE_DIR` should point at the workspace directory created for the `app` user.
+- `RALPH_UI_DEFAULT_BACKEND=opencode` is recommended so quick `ralph plan` / `ralph task` actions use the installed backend.
 - Add at least one model provider key such as `ANTHROPIC_API_KEY` so loop runs can execute on the instance.
 
 ## 5. Install and start the systemd service

@@ -186,6 +186,61 @@ describe('TerminalService', () => {
       expect(session.cols).toBe(200)
       expect(session.rows).toBe(50)
     })
+
+    it('applies default backend to ralph plan/task initial command when configured', async () => {
+      const { tempDir, connection } = await setupDatabase()
+      tempDirs.push(tempDir)
+      connections.push(connection)
+
+      const projectPath = join(tempDir, 'project-default-backend')
+      await mkdir(projectPath, { recursive: true })
+      const projectId = await insertProject(connection, projectPath)
+      const previousDefaultBackend = process.env.RALPH_UI_DEFAULT_BACKEND
+      process.env.RALPH_UI_DEFAULT_BACKEND = 'opencode'
+
+      try {
+        const service = new TerminalService(connection.db)
+        await service.startSession({ projectId, initialCommand: 'ralph plan' })
+
+        const pty = lastPty()
+        expect(pty?.write).toHaveBeenCalledWith('ralph plan --backend opencode\r')
+      } finally {
+        if (previousDefaultBackend === undefined) {
+          delete process.env.RALPH_UI_DEFAULT_BACKEND
+        } else {
+          process.env.RALPH_UI_DEFAULT_BACKEND = previousDefaultBackend
+        }
+      }
+    })
+
+    it('does not override explicit initial command backend flag', async () => {
+      const { tempDir, connection } = await setupDatabase()
+      tempDirs.push(tempDir)
+      connections.push(connection)
+
+      const projectPath = join(tempDir, 'project-explicit-backend')
+      await mkdir(projectPath, { recursive: true })
+      const projectId = await insertProject(connection, projectPath)
+      const previousDefaultBackend = process.env.RALPH_UI_DEFAULT_BACKEND
+      process.env.RALPH_UI_DEFAULT_BACKEND = 'opencode'
+
+      try {
+        const service = new TerminalService(connection.db)
+        await service.startSession({
+          projectId,
+          initialCommand: 'ralph plan --backend claude'
+        })
+
+        const pty = lastPty()
+        expect(pty?.write).toHaveBeenCalledWith('ralph plan --backend claude\r')
+      } finally {
+        if (previousDefaultBackend === undefined) {
+          delete process.env.RALPH_UI_DEFAULT_BACKEND
+        } else {
+          process.env.RALPH_UI_DEFAULT_BACKEND = previousDefaultBackend
+        }
+      }
+    })
   })
 
   describe('sendInput', () => {

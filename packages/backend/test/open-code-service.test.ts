@@ -11,20 +11,6 @@ import { OpenCodeService } from '../src/services/OpenCodeService.js'
 import type { SettingsSnapshot } from '../src/services/SettingsService.js'
 import type { OpenCodeEvent } from '../src/types/chat.js'
 
-function createDeferred<T>() {
-  let resolvePromise: ((value: T) => void) | undefined
-  const promise = new Promise<T>((resolve) => {
-    resolvePromise = resolve
-  })
-
-  return {
-    promise,
-    resolve(value: T) {
-      resolvePromise?.(value)
-    }
-  }
-}
-
 function createAsyncQueue<T>() {
   const values: T[] = []
   const waiters: Array<(result: IteratorResult<T>) => void> = []
@@ -417,7 +403,7 @@ describe('OpenCodeService', () => {
           state: {
             status: 'completed',
             input: { limit: 10 },
-            output: '[{\"id\":\"project-1\"}]',
+            output: '[{"id":"project-1"}]',
             title: 'Listed projects',
             metadata: {},
             time: { start: 1, end: 2 }

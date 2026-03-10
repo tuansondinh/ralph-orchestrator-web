@@ -69,3 +69,24 @@ Automated verification passed: `npm run typecheck -w @ralph-ui/backend`, `npm ru
 
 2026-03-10T20:41:00Z Validator follow-up fix complete.
 Added a focused RED regression test in `packages/frontend/src/AppShellRoutes.test.tsx` proving `/project/:id/chat` must stay on the chat route, then removed the dedicated `chat -> ../loops` redirect from `packages/frontend/src/AppShellRoutes.tsx` so routing falls through to `ProjectPage`, which already preserves the `chat` tab locally. Updated stale code-task frontmatter for tasks 03, 05, 06, 07, and 10 from `status: in_progress` to `status: completed`. Verification passed with `npm run typecheck -w @ralph-ui/frontend`, `npm test -w @ralph-ui/frontend -- --run src/AppShellRoutes.test.tsx src/pages/ProjectPage.test.tsx src/components/chat/ChatOverlay.test.tsx`, and manual Playwright validation against `http://localhost:5174/project/e9d4bd12-7545-4d58-9b08-edbacc635ad2/chat`, which now stayed on `/chat` and rendered the Chat UI instead of redirecting to `/loops`.
+
+2026-03-10T19:46:54Z Validator pass for implementation.ready/task-10 failed.
+Verified all code-task frontmatter under `specs/chat-loop-control/tasks/` is now `status: completed`. Full automated verification results:
+- `npm run typecheck -w @ralph-ui/backend`: pass
+- `npm run typecheck -w @ralph-ui/frontend`: pass
+- `npm test -w @ralph-ui/backend`: pass
+- `npm test -w @ralph-ui/frontend`: pass
+- `npm run build -w @ralph-ui/backend`: pass
+- `npm run build -w @ralph-ui/frontend`: pass, but Vite reported a non-fatal chunk-size warning for `dist/assets/index-MNMBo4zW.js`
+- `npm run lint -w @ralph-ui/frontend`: pass
+- `npm run lint -w @ralph-ui/backend`: fail in `packages/backend/test/open-code-service.test.ts` because `createDeferred` is unused and the JSON string literal at line 420 contains unnecessary escapes
+
+Manual/live validation against the running local app found a remaining product gap beyond the lint failure:
+- `http://localhost:5174` and `http://127.0.0.1:3003/health` were both reachable during validation
+- The direct `/project/:id/chat` route regression itself is fixed, but the project navigation still does not expose a Chat tab anywhere. This is visible in code via `packages/frontend/src/lib/projectTabs.ts` and `packages/frontend/src/components/layout/TabBar.tsx`, and the current app-level test suite explicitly asserts that the Chat link is absent in `packages/frontend/src/App.test.tsx`
+- Because the mobile flow depends on ChatTab as a first-class surface, keeping it deep-link-only means the intended in-app ChatTab entry point is still missing even though the route no longer redirects
+
+Validator outcome: fail and hand back to Builder. Minimum fixes are to make backend lint green and decide whether ChatTab must be exposed in project navigation to satisfy the chat-loop-control acceptance criteria.
+
+2026-03-10T20:53:00Z Builder validator follow-up complete for task-10.
+Fixed the remaining validator issues without broadening scope: removed the dead `createDeferred` helper and simplified the JSON output fixture in `packages/backend/test/open-code-service.test.ts` so backend lint is green again, and exposed `Chat` as a visible project tab by adding it back to `packages/frontend/src/lib/projectTabs.ts`. Turned the navigation requirement RED first by updating `packages/frontend/src/App.test.tsx` to require a visible Chat link and successful in-app navigation to the chat screen, then made the minimal implementation change to satisfy it. Verification passed with `npm run lint -w @ralph-ui/backend`, `npm run lint -w @ralph-ui/frontend`, `npm run typecheck -w @ralph-ui/backend`, `npm run typecheck -w @ralph-ui/frontend`, `npm test -w @ralph-ui/backend`, `npm test -w @ralph-ui/frontend`, `npm run build -w @ralph-ui/backend`, and `npm run build -w @ralph-ui/frontend` (same non-fatal Vite chunk-size warning on the frontend build). Manual Playwright validation against `http://localhost:5174/project/e9d4bd12-7545-4d58-9b08-edbacc635ad2/loops` confirmed the project nav now shows a `Chat` tab and clicking it stays on `/project/e9d4bd12-7545-4d58-9b08-edbacc635ad2/chat` with the Chat UI rendered.

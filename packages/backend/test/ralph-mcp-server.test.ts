@@ -8,7 +8,6 @@ import {
 import type {
   ChatSessionSummary
 } from '../src/services/ChatService.js'
-import { DESTRUCTIVE_TOOLS } from '../src/services/McpChatService.js'
 
 const ALL_MCP_TOOLS = [
   'list_projects',
@@ -27,6 +26,16 @@ const ALL_MCP_TOOLS = [
   'kill_process',
   'update_settings'
 ]
+
+const DESTRUCTIVE_TOOL_NAMES = [
+  'start_loop',
+  'stop_loop',
+  'create_project',
+  'update_project',
+  'delete_project',
+  'kill_process',
+  'update_settings'
+] as const
 
 function parseSseMessages(payload: string): Array<Record<string, unknown>> {
   return payload
@@ -621,7 +630,7 @@ describe('RalphMcpServer read-only tools', () => {
   })
 
   it('marks destructive tools with metadata and matches DESTRUCTIVE_TOOLS', async () => {
-    expect(DESTRUCTIVE_TOOLS.slice().sort()).toEqual(
+    expect(DESTRUCTIVE_TOOL_NAMES.slice().sort()).toEqual(
       [
         'start_loop',
         'stop_loop',
@@ -656,6 +665,6 @@ describe('RalphMcpServer read-only tools', () => {
       .filter((toolName): toolName is string => Boolean(toolName))
       .sort()
 
-    expect(destructiveFromMetadata).toEqual(DESTRUCTIVE_TOOLS.slice().sort())
+    expect(destructiveFromMetadata).toEqual(DESTRUCTIVE_TOOL_NAMES.slice().sort())
   })
 })

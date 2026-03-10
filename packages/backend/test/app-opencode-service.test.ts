@@ -68,4 +68,34 @@ describe('createApp OpenCode service wiring', () => {
     expect(createOpencode).toHaveBeenCalledTimes(1)
     expect(stopSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('does not register the legacy chat stream and confirm routes', async () => {
+    const app = createApp()
+    apps.push(app)
+
+    const [streamResponse, trpcStreamResponse, confirmResponse, trpcConfirmResponse] =
+      await Promise.all([
+        app.inject({
+          method: 'POST',
+          url: '/chat/stream'
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/trpc/chat/stream'
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/chat/confirm'
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/trpc/chat/confirm'
+        })
+      ])
+
+    expect(streamResponse.statusCode).toBe(404)
+    expect(trpcStreamResponse.statusCode).toBe(404)
+    expect(confirmResponse.statusCode).toBe(404)
+    expect(trpcConfirmResponse.statusCode).toBe(404)
+  })
 })

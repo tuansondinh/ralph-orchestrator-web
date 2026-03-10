@@ -5,6 +5,7 @@ import {
   type SettingsSnapshot,
   type SettingsUpdateInput
 } from '@/lib/settingsApi'
+import { GitHubConnectCard } from '@/components/settings/GitHubConnectCard'
 import { RalphProcessList } from '@/components/system/RalphProcessList'
 
 function toUpdateInput(settings: SettingsSnapshot): SettingsUpdateInput {
@@ -308,6 +309,8 @@ export function SettingsPage() {
           </label>
         </div>
       </section>
+
+      <GitHubConnectCard />
 
       <RalphProcessList />
 

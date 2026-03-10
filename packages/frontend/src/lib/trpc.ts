@@ -20,16 +20,38 @@ export function resolveTrpcBaseUrl(
   env: RuntimeEnv = import.meta.env,
   runtimeLocation: RuntimeLocation = window.location
 ) {
-  const backendOrigin = env.VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN
-  if (typeof backendOrigin === 'string' && backendOrigin.trim().length > 0) {
-    return `${backendOrigin.replace(/\/$/, '')}/trpc`
-  }
-
-  if (env.DEV || isLocalHost(runtimeLocation.hostname)) {
-    return `${resolveDefaultDevBackendOrigin()}/trpc`
+  const backendOrigin = resolveBackendOrigin(env, runtimeLocation)
+  if (backendOrigin) {
+    return `${backendOrigin}/trpc`
   }
 
   return '/trpc'
+}
+
+export function resolveBackendOrigin(
+  env: RuntimeEnv = import.meta.env,
+  runtimeLocation: RuntimeLocation = window.location
+) {
+  const backendOrigin = env.VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN
+  if (typeof backendOrigin === 'string' && backendOrigin.trim().length > 0) {
+    return backendOrigin.replace(/\/$/, '')
+  }
+
+  if (env.DEV || isLocalHost(runtimeLocation.hostname)) {
+    return resolveDefaultDevBackendOrigin()
+  }
+
+  return ''
+}
+
+export function resolveBackendUrl(
+  path: string,
+  env: RuntimeEnv = import.meta.env,
+  runtimeLocation: RuntimeLocation = window.location
+) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const backendOrigin = resolveBackendOrigin(env, runtimeLocation)
+  return backendOrigin ? `${backendOrigin}${normalizedPath}` : normalizedPath
 }
 
 const trpcBaseUrl = resolveTrpcBaseUrl()

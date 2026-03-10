@@ -48,6 +48,28 @@ function assertDangerousOperationAllowed(operation: string) {
   })
 }
 
+function requireAuthenticatedUserId(ctx: Context) {
+  if (!ctx.userId) {
+    throw new TRPCError({
+      code: 'UNAUTHORIZED',
+      message: 'Authentication required'
+    })
+  }
+
+  return ctx.userId
+}
+
+function requireGitHubService(ctx: Context) {
+  if (!ctx.githubService) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'GitHub connector is not configured'
+    })
+  }
+
+  return ctx.githubService
+}
+
 const projectRouter = t.router({
   list: t.procedure.query(({ ctx }) =>
     ctx.projectService.list().catch((error) => asTRPCError(error))
@@ -669,6 +691,33 @@ const settingsRouter = t.router({
     )
 })
 
+const githubRouter = t.router({
+  getConnection: t.procedure.query(async ({ ctx }) => {
+    const githubService = requireGitHubService(ctx)
+    const userId = requireAuthenticatedUserId(ctx)
+    const connection = await githubService
+      .getConnection(userId)
+      .catch((error) => asTRPCError(error))
+
+    if (!connection) {
+      return null
+    }
+
+    return {
+      githubUserId: connection.githubUserId,
+      githubUsername: connection.githubUsername,
+      scope: connection.scope,
+      connectedAt: connection.connectedAt
+    }
+  }),
+  disconnect: t.procedure.mutation(({ ctx }) => {
+    const githubService = requireGitHubService(ctx)
+    const userId = requireAuthenticatedUserId(ctx)
+
+    return githubService.disconnect(userId).catch((error) => asTRPCError(error))
+  })
+})
+
 const terminalRouter = t.router({
   startSession: t.procedure
     .input(
@@ -834,6 +883,7 @@ export const appRouter = t.router({
   presets: presetsRouter,
   hatsPresets: hatsPresetsRouter,
   settings: settingsRouter,
+  github: githubRouter,
   terminal: terminalRouter,
   ralph: ralphRouter
 })

@@ -1,7 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { settingsApi } from '@/lib/settingsApi'
+import { capabilitiesApi } from '@/lib/capabilitiesApi'
+import { githubApi } from '@/lib/githubApi'
 
 vi.mock('@/lib/settingsApi', () => ({
   settingsApi: {
@@ -9,6 +12,20 @@ vi.mock('@/lib/settingsApi', () => ({
     update: vi.fn(),
     testBinary: vi.fn(),
     clearData: vi.fn()
+  }
+}))
+
+vi.mock('@/lib/capabilitiesApi', () => ({
+  capabilitiesApi: {
+    get: vi.fn()
+  }
+}))
+
+vi.mock('@/lib/githubApi', () => ({
+  githubApi: {
+    getConnection: vi.fn(),
+    beginConnection: vi.fn(),
+    disconnect: vi.fn()
   }
 }))
 
@@ -35,6 +52,18 @@ describe('SettingsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(settingsApi.get).mockResolvedValue(baseSettings)
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'local',
+      database: true,
+      auth: false,
+      localProjects: true,
+      githubProjects: false,
+      terminal: true,
+      preview: true,
+      localDirectoryPicker: true,
+      mcp: true
+    })
+    vi.mocked(githubApi.getConnection).mockResolvedValue(null)
     vi.mocked(settingsApi.update).mockImplementation(async (input) => ({
       ...baseSettings,
       ...input,
@@ -62,7 +91,11 @@ describe('SettingsPage', () => {
   })
 
   it('loads settings and saves updated values', async () => {
-    render(<SettingsPage />)
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    )
 
     const binaryInput = await screen.findByLabelText('Ralph binary path')
     expect(binaryInput).toHaveValue('/usr/local/bin/ralph')
@@ -102,7 +135,11 @@ describe('SettingsPage', () => {
   })
 
   it('tests the configured binary and shows success or failure feedback', async () => {
-    render(<SettingsPage />)
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    )
 
     await screen.findByLabelText('Ralph binary path')
     fireEvent.click(screen.getByRole('button', { name: 'Test binary' }))
@@ -120,7 +157,11 @@ describe('SettingsPage', () => {
 
   it('confirms before clearing data', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
-    render(<SettingsPage />)
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    )
 
     await screen.findByLabelText('Ralph binary path')
     fireEvent.click(screen.getByRole('button', { name: 'Clear data' }))
@@ -130,5 +171,39 @@ describe('SettingsPage', () => {
     })
 
     confirmSpy.mockRestore()
+  })
+
+  it('does not render the GitHub connector outside cloud mode', async () => {
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    )
+
+    await screen.findByLabelText('Ralph binary path')
+    expect(screen.queryByRole('heading', { name: 'GitHub connector' })).not.toBeInTheDocument()
+    expect(githubApi.getConnection).not.toHaveBeenCalled()
+  })
+
+  it('renders the GitHub connector in cloud mode', async () => {
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    })
+
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByRole('heading', { name: 'GitHub connector' })).toBeInTheDocument()
   })
 })

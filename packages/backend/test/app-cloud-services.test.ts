@@ -1,120 +1,29 @@
-import { randomUUID } from 'node:crypto'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import postgres from 'postgres'
-import { drizzle } from 'drizzle-orm/postgres-js'
-import { createApp } from '../src/app.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseProvider } from '../src/db/connection.js'
-import { createPostgresRepositoryBundle } from '../src/db/repositories/index.js'
-import { postgresSchema } from '../src/db/schema/postgres.js'
+import type { RepositoryBundle } from '../src/db/repositories/contracts.js'
+import { createTestRuntime } from './test-helpers.js'
 
-const DEFAULT_POSTGRES_TEST_URL =
-  'postgresql://supabase_admin:postgres@127.0.0.1:55322/postgres'
+const createRepositoryBundle = vi.fn<(database: DatabaseProvider) => RepositoryBundle>()
 
-async function createPostgresHarness() {
-  const schemaName = `app_cloud_services_${randomUUID().replace(/-/g, '')}`
-  const connectionString = process.env.RALPH_TEST_POSTGRES_URL ?? DEFAULT_POSTGRES_TEST_URL
-  const client = postgres(connectionString, {
-    max: 1,
-    onnotice: () => {}
-  })
-
-  await client.unsafe(`create schema "${schemaName}"`)
-  await client.unsafe(`set search_path to "${schemaName}"`)
-  await client.unsafe(`
-    create table projects (
-      id text primary key,
-      name text not null,
-      path text not null unique,
-      type text,
-      ralph_config text,
-      created_at bigint not null,
-      updated_at bigint not null,
-      user_id text,
-      github_owner text,
-      github_repo text,
-      default_branch text,
-      workspace_path text
-    );
-    create table loop_runs (
-      id text primary key,
-      project_id text not null references projects(id) on delete cascade,
-      ralph_loop_id text,
-      state text not null,
-      config text,
-      prompt text,
-      worktree text,
-      iterations bigint not null default 0,
-      tokens_used bigint not null default 0,
-      errors bigint not null default 0,
-      started_at bigint not null,
-      ended_at bigint
-    );
-    create table chat_sessions (
-      id text primary key,
-      project_id text not null references projects(id) on delete cascade,
-      type text not null,
-      state text not null,
-      created_at bigint not null,
-      ended_at bigint
-    );
-    create table chat_messages (
-      id text primary key,
-      session_id text not null references chat_sessions(id) on delete cascade,
-      role text not null,
-      content text not null,
-      timestamp bigint not null
-    );
-    create table notifications (
-      id text primary key,
-      project_id text references projects(id),
-      type text not null,
-      title text not null,
-      message text,
-      read boolean not null default false,
-      created_at bigint not null
-    );
-    create table settings (
-      key text primary key,
-      value text not null
-    );
-    create table github_connections (
-      id text primary key,
-      user_id text not null,
-      github_user_id integer not null,
-      github_username text not null,
-      access_token text not null,
-      scope text not null,
-      connected_at bigint not null
-    );
-    create table loop_output_chunks (
-      id text primary key,
-      loop_run_id text not null references loop_runs(id) on delete cascade,
-      sequence integer not null,
-      stream text not null,
-      data text not null,
-      created_at bigint not null
-    );
-    create index loop_output_chunks_loop_run_id_sequence_idx on loop_output_chunks(loop_run_id, sequence);
-  `)
-
-  const db = drizzle(client, {
-    schema: postgresSchema
-  })
+vi.mock('../src/db/repositories/index.js', async () => {
+  const actual = await vi.importActual<typeof import('../src/db/repositories/index.js')>(
+    '../src/db/repositories/index.js'
+  )
 
   return {
-    client,
-    db,
-    repositories: createPostgresRepositoryBundle(db),
-    async cleanup() {
-      await client.unsafe(`drop schema if exists "${schemaName}" cascade`)
-      await client.end()
-    }
+    ...actual,
+    createRepositoryBundle
   }
-}
+})
+
+const { createApp } = await import('../src/app.js')
 
 describe('createApp cloud service wiring', () => {
   const apps: Array<ReturnType<typeof createApp>> = []
-  const cleanups: Array<() => Promise<void>> = []
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
 
   afterEach(async () => {
     while (apps.length > 0) {
@@ -123,60 +32,103 @@ describe('createApp cloud service wiring', () => {
         await app.close()
       }
     }
-
-    while (cleanups.length > 0) {
-      await cleanups.pop()?.()
-    }
   })
 
   it('exposes repository-backed loop, chat, monitoring, project, and settings services in cloud mode', async () => {
-    const harness = await createPostgresHarness()
-    cleanups.push(harness.cleanup)
     const now = Date.now()
-    await harness.repositories.projects.create({
+    const project = {
       id: 'project-1',
       name: 'Project One',
       path: process.cwd(),
       type: null,
       ralphConfig: null,
       createdAt: now,
-      updatedAt: now
-    })
-
+      updatedAt: now,
+      userId: null,
+      githubOwner: null,
+      githubRepo: null,
+      defaultBranch: null,
+      workspacePath: null
+    }
+    const repositories: RepositoryBundle = {
+      projects: {
+        list: vi.fn().mockResolvedValue([project]),
+        findById: vi.fn().mockImplementation(async (id: string) => (id === project.id ? project : null)),
+        create: vi.fn().mockResolvedValue(project),
+        update: vi.fn().mockResolvedValue(project),
+        delete: vi.fn().mockResolvedValue(undefined),
+        findByUserId: vi.fn().mockResolvedValue([]),
+        findByGitHubRepo: vi.fn().mockResolvedValue(null)
+      },
+      loopRuns: {
+        listAll: vi.fn().mockResolvedValue([]),
+        listByProjectId: vi.fn().mockResolvedValue([]),
+        findById: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({
+          id: 'loop-1',
+          projectId: project.id,
+          ralphLoopId: null,
+          state: 'running',
+          config: null,
+          prompt: null,
+          worktree: null,
+          iterations: 0,
+          tokensUsed: 0,
+          errors: 0,
+          startedAt: now,
+          endedAt: null
+        }),
+        update: vi.fn().mockRejectedValue(new Error('not used')),
+        findByState: vi.fn().mockResolvedValue([])
+      },
+      chats: {
+        findSessionById: vi.fn().mockResolvedValue(null),
+        findLatestActiveSessionByProjectId: vi.fn().mockResolvedValue(null),
+        createSession: vi.fn().mockRejectedValue(new Error('not used')),
+        updateSession: vi.fn().mockRejectedValue(new Error('not used')),
+        listMessagesBySessionId: vi.fn().mockResolvedValue([]),
+        createMessage: vi.fn().mockRejectedValue(new Error('not used'))
+      },
+      notifications: {
+        list: vi.fn().mockResolvedValue([]),
+        findById: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockRejectedValue(new Error('not used')),
+        update: vi.fn().mockRejectedValue(new Error('not used')),
+        delete: vi.fn().mockResolvedValue(undefined)
+      },
+      settings: {
+        list: vi.fn().mockResolvedValue([]),
+        get: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockRejectedValue(new Error('not used')),
+        delete: vi.fn().mockResolvedValue(undefined)
+      },
+      githubConnections: {
+        findByUserId: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockRejectedValue(new Error('not used')),
+        delete: vi.fn().mockResolvedValue(undefined)
+      },
+      loopOutput: {
+        append: vi.fn().mockResolvedValue(undefined),
+        getByLoopRunId: vi.fn().mockResolvedValue([]),
+        deleteByLoopRunId: vi.fn().mockResolvedValue(undefined)
+      }
+    }
     const close = vi.fn(async () => {})
-    const databaseProviderFactory = vi.fn<() => DatabaseProvider>(() => ({
+    const databaseProvider: DatabaseProvider = {
       mode: 'cloud',
       dialect: 'postgres',
-      client: harness.client as never,
-      db: harness.db,
+      client: {} as never,
+      db: {} as never,
       metadata: {
         connectionString: 'postgresql://postgres:postgres@localhost:5432/ralph'
       },
-      async close() {
-        await close()
-      }
-    }))
+      close
+    }
+    createRepositoryBundle.mockReturnValue(repositories)
 
+    const databaseProviderFactory = vi.fn(() => databaseProvider)
     const app = createApp({
-      runtime: {
-        mode: 'cloud',
-        capabilities: {
-          mode: 'cloud',
-          database: true,
-          auth: true,
-          localProjects: false,
-          githubProjects: true,
-          terminal: false,
-          preview: false,
-          localDirectoryPicker: false,
-          mcp: false
-        },
-        cloud: {
-          supabaseUrl: 'https://example.supabase.co',
-          supabaseAnonKey: 'anon-key',
-          databaseUrl: 'postgresql://postgres:postgres@localhost:5432/ralph'
-        }
-      },
+      runtime: createTestRuntime('cloud'),
       databaseProviderFactory
     })
     apps.push(app)
@@ -191,15 +143,16 @@ describe('createApp cloud service wiring', () => {
       chatModel: 'gemini',
       ralphBinaryPath: null
     })
-    await expect(app.loopService.list('project-1')).resolves.toEqual(
-      expect.any(Array)
-    )
+    await expect(app.loopService.list('project-1')).resolves.toEqual([])
     await expect(app.chatService.getProjectSession('project-1')).resolves.toBeNull()
     await expect(app.monitoringService.getStatus()).resolves.toMatchObject({
-      activeLoops: expect.any(Number),
-      totalRuns: expect.any(Number),
-      erroredRuns: expect.any(Number)
+      activeLoops: 0,
+      totalRuns: 0,
+      erroredRuns: 0
     })
+
+    expect(databaseProviderFactory).toHaveBeenCalledTimes(1)
+    expect(createRepositoryBundle).toHaveBeenCalledWith(databaseProvider)
     expect(close).not.toHaveBeenCalled()
   })
 })

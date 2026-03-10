@@ -14,8 +14,7 @@ import {
 import { postgresSchema } from '../src/db/schema/postgres.js'
 import type { RepositoryBundle } from '../src/db/repositories/contracts.js'
 
-const DEFAULT_POSTGRES_TEST_URL =
-  'postgresql://supabase_admin:postgres@127.0.0.1:55322/postgres'
+const POSTGRES_TEST_URL = process.env.RALPH_TEST_POSTGRES_URL
 
 type Cleanup = () => Promise<void> | void
 
@@ -288,9 +287,13 @@ async function createSqliteHarness(): Promise<Harness> {
 
 async function createPostgresHarness(): Promise<Harness> {
   const schemaName = `repository_contract_${randomUUID().replace(/-/g, '')}`
-  const connectionString = process.env.RALPH_TEST_POSTGRES_URL ?? DEFAULT_POSTGRES_TEST_URL
-  const client = postgres(connectionString, {
+  if (!POSTGRES_TEST_URL) {
+    throw new Error('Set RALPH_TEST_POSTGRES_URL to run the Postgres repository parity test')
+  }
+
+  const client = postgres(POSTGRES_TEST_URL, {
     max: 1,
+    connect_timeout: 2,
     onnotice: () => {}
   })
 
@@ -402,7 +405,9 @@ describe('repository contract parity', () => {
     await verifyRepositoryContract(harness.bundle, 'local')
   })
 
-  it('preserves the documented repository contract in postgres cloud mode', async () => {
+  const itWithPostgres = POSTGRES_TEST_URL ? it : it.skip
+
+  itWithPostgres('preserves the documented repository contract in postgres cloud mode', async () => {
     const harness = await createPostgresHarness()
     cleanups.push(harness.cleanup)
 

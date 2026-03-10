@@ -22,3 +22,6 @@ Current task scope: preserve existing assistant-setting `chatModel` semantics an
 
 2026-03-10T00:00:00Z Task-02 complete.
 Implemented backend settings support for OpenCode-specific provider/model settings using additive keys `opencode.provider` and `opencode.model`, exposed as `chatProvider` and `opencodeModel` in the current backend contract to avoid breaking the legacy `chatModel` field already used elsewhere in the repo. Added provider env-var mapping constants, tRPC input validation, tests for defaults/round-trip/env map, and documented the naming mismatch decision in `.ralph/agent/decisions.md`.
+
+2026-03-10T00:00:00Z Task-03 complete.
+Built `OpenCodeService` with backend-owned in-memory transcript, lazy OpenCode startup, session creation, message/tool/permission/status/error event translation, confirmation replies, model updates, and auto-restart on stream termination. Registered the service on Fastify as `openCodeService` with shutdown cleanup, added backend tests for service behavior and app wiring, and restored the missing OpenCode spike artifacts required by the existing backend test suite so `npm test -w @ralph-ui/backend` is green. Next code task remains `task-04-wire-websocket-channel`.

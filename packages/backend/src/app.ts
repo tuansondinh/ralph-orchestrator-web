@@ -39,6 +39,7 @@ import { ProjectService } from './services/ProjectService.js'
 import { PresetService } from './services/PresetService.js'
 import { HatsPresetService } from './services/HatsPresetService.js'
 import { McpChatService, type AIModel } from './services/McpChatService.js'
+import { OpenCodeService } from './services/OpenCodeService.js'
 import { TaskService } from './services/TaskService.js'
 import { RalphMcpServer } from './mcp/RalphMcpServer.js'
 import { resolveRalphBinary } from './lib/ralph.js'
@@ -394,6 +395,10 @@ export function createApp(options: CreateAppOptions = {}) {
 
   const taskService =
     new TaskService(repositories)
+  const openCodeService = new OpenCodeService({
+    mcpEndpointUrl: `http://127.0.0.1:${Number(process.env.PORT ?? 3003)}/mcp`,
+    settingsService
+  })
 
   app.decorate('runtimeConfig', runtime)
   app.decorate(
@@ -413,6 +418,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.decorate('terminalService', terminalService)
   app.decorate('ralphProcessService', ralphProcessService)
   app.decorate('mcpChatService', mcpChatService)
+  app.decorate('openCodeService', openCodeService)
   app.decorate('ralphMcpServer', ralphMcpServer)
   app.decorate('projectService', projectService)
   app.decorate('presetService', presetService)
@@ -722,6 +728,7 @@ export function createApp(options: CreateAppOptions = {}) {
   })
 
   app.addHook('onClose', async () => {
+    await openCodeService.stop()
     if (localDatabase) {
       await ralphMcpServer.close()
       await terminalService.shutdown()

@@ -11,6 +11,7 @@ import type { DevPreviewManager } from '../services/DevPreviewManager.js'
 import type { TerminalService } from '../services/TerminalService.js'
 import type { RalphProcessService } from '../services/RalphProcessService.js'
 import type { McpChatService } from '../services/McpChatService.js'
+import type { OpenCodeService } from '../services/OpenCodeService.js'
 import type { RalphMcpServer } from '../mcp/RalphMcpServer.js'
 import type { ProjectService } from '../services/ProjectService.js'
 import type { PresetService } from '../services/PresetService.js'
@@ -34,6 +35,7 @@ declare module 'fastify' {
     terminalService: TerminalService
     ralphProcessService: RalphProcessService
     mcpChatService: McpChatService
+    openCodeService: OpenCodeService
     ralphMcpServer: RalphMcpServer
     projectService: ProjectService
     presetService: PresetService

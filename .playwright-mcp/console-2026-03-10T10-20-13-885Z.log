@@ -1,9 +1,0 @@
-[    8440ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5174/auth/github:0
-[    8441ms] Error: GitHub connect failed: 404
-    at Object.beginConnection (http://localhost:5174/src/lib/githubApi.ts:17:13)
-[   19640ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5174/auth/github:0
-[   19641ms] Error: GitHub connect failed: 404
-    at Object.beginConnection (http://localhost:5174/src/lib/githubApi.ts:17:13)
-[   21016ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5174/auth/github:0
-[   21017ms] Error: GitHub connect failed: 404
-    at Object.beginConnection (http://localhost:5174/src/lib/githubApi.ts:17:13)

@@ -63,8 +63,12 @@ packages/*/vitest.config.js
 # Playwright
 test-results/
 playwright-report/
+.playwright-mcp/
 packages/frontend/test/.tmp/
 .worktrees/
+
+# Screenshots / artifacts
+*.png
 
 # Generated Projects
 projects/

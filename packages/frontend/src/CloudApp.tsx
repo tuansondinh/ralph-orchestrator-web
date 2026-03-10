@@ -41,6 +41,20 @@ function SignInRoute() {
   return <SignInPage />
 }
 
+function SignUpRoute() {
+  const { user, isLoading } = useAuth()
+
+  if (isLoading) {
+    return <AppLoadingState message="Loading session..." />
+  }
+
+  if (user) {
+    return <Navigate replace to="/" />
+  }
+
+  return <SignInPage mode="sign-up" />
+}
+
 export default function CloudApp({
   capabilities
 }: {
@@ -50,6 +64,7 @@ export default function CloudApp({
     <AuthProvider>
       <Routes>
         <Route element={<SignInRoute />} path="/sign-in" />
+        <Route element={<SignUpRoute />} path="/sign-up" />
         <Route element={<AuthGate capabilities={capabilities} />} path="*" />
       </Routes>
     </AuthProvider>

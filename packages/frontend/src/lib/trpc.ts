@@ -34,12 +34,19 @@ export function resolveBackendOrigin(
   env: RuntimeEnv = import.meta.env,
   runtimeLocation: RuntimeLocation = window.location
 ) {
+  // In dev mode (Vite dev server), always use relative URLs so the Vite proxy
+  // handles forwarding to the backend. This avoids CORS preflight failures when
+  // Authorization headers are present (e.g. cloud auth mode).
+  if (env.DEV) {
+    return ''
+  }
+
   const backendOrigin = env.VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN
   if (typeof backendOrigin === 'string' && backendOrigin.trim().length > 0) {
     return backendOrigin.replace(/\/$/, '')
   }
 
-  if (env.DEV || isLocalHost(runtimeLocation.hostname)) {
+  if (isLocalHost(runtimeLocation.hostname)) {
     return resolveDefaultDevBackendOrigin()
   }
 

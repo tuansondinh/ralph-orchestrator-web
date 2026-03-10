@@ -8,8 +8,11 @@
   ],
   "scripts": {
     "dev": "concurrently -n backend,frontend -c blue,green \"PORT=3003 npm run dev -w @ralph-ui/backend\" \"VITE_PORT=5174 VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN=http://127.0.0.1:3003 npm run dev -w @ralph-ui/frontend\"",
+    "dev:cloud": "concurrently -n backend,frontend -c blue,green \"PORT=3003 npm run dev:cloud -w @ralph-ui/backend\" \"VITE_PORT=5174 VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN=http://127.0.0.1:3003 npm run dev:cloud -w @ralph-ui/frontend\"",
+    "setup:env-cloud": "bash scripts/setup-env-cloud.sh",
     "dev:watch": "concurrently -n backend,frontend -c blue,green \"PORT=3004 npm run dev:watch -w @ralph-ui/backend\" \"VITE_PORT=5175 VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN=http://127.0.0.1:3004 npm run dev -w @ralph-ui/frontend\"",
     "build": "npm run build -ws",
+    "build:cloud": "npm run build -w @ralph-ui/backend && npm run build:cloud -w @ralph-ui/frontend",
     "start": "NODE_ENV=production RALPH_UI_BIND_HOST=${RALPH_UI_BIND_HOST:-0.0.0.0} npm run start -w @ralph-ui/backend",
     "lint": "npm run lint -ws",
     "test": "npm run test -ws",
@@ -19,7 +22,8 @@
     "duplication": "jscpd --config .jscpd.json packages",
     "quality:quick": "npm run lint && npm run typecheck && npm run test",
     "quality": "npm run quality:quick && npm run test:coverage && npm run complexity && npm run duplication",
-    "test:e2e": "npm run test:e2e -w @ralph-ui/frontend"
+    "test:e2e": "npm run test:e2e -w @ralph-ui/frontend",
+    "deploy": "bash deploy/deploy.sh 63.176.97.255 ~/.ssh/ralph-cloud-key.pem"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

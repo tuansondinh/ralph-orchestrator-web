@@ -3,38 +3,36 @@ import { setAuthAccessToken } from '@/lib/authSession'
 import { resolveTrpcBaseUrl, resolveTrpcHeaders } from '@/lib/trpc'
 
 describe('resolveTrpcBaseUrl', () => {
-  it('defaults to 127.0.0.1 backend origin in dev when backend origin is not set', () => {
-    expect(resolveTrpcBaseUrl({ DEV: true }, { hostname: 'localhost' })).toBe(
-      'http://127.0.0.1:3003/trpc'
-    )
+  it('uses relative /trpc in dev mode so Vite proxy handles routing (avoids CORS)', () => {
+    expect(resolveTrpcBaseUrl({ DEV: true }, { hostname: 'localhost' })).toBe('/trpc')
   })
 
-  it('uses explicit backend origin in dev when provided', () => {
+  it('uses relative /trpc in dev even when explicit backend origin env var is set', () => {
     expect(
       resolveTrpcBaseUrl({
         DEV: true,
         VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://127.0.0.1:43300/'
       }, { hostname: 'localhost' })
-    ).toBe('http://127.0.0.1:43300/trpc')
+    ).toBe('/trpc')
   })
 
-  it('uses localhost backend origin in dev when provided', () => {
+  it('uses relative /trpc in dev regardless of backend origin env var value', () => {
     expect(
       resolveTrpcBaseUrl({
         DEV: true,
         VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://localhost:3001'
       }, { hostname: 'localhost' })
-    ).toBe('http://localhost:3001/trpc')
+    ).toBe('/trpc')
 
     expect(
       resolveTrpcBaseUrl({
         DEV: true,
         VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://127.0.0.1:3001'
       }, { hostname: 'localhost' })
-    ).toBe('http://127.0.0.1:3001/trpc')
+    ).toBe('/trpc')
   })
 
-  it('defaults to 127.0.0.1 backend origin for local non-dev hosts', () => {
+  it('defaults to 127.0.0.1 backend origin for local non-dev hosts (production build on localhost)', () => {
     expect(resolveTrpcBaseUrl({ DEV: false }, { hostname: 'localhost' })).toBe(
       'http://127.0.0.1:3003/trpc'
     )

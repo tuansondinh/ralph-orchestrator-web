@@ -29,6 +29,10 @@ export default defineConfig({
     port: Number(process.env.VITE_PORT ?? 5174),
     strictPort: true,
     proxy: {
+      '/auth/github': {
+        target: resolveBackendOrigin(),
+        changeOrigin: true
+      },
       '/chat': {
         target: resolveBackendOrigin(),
         changeOrigin: true

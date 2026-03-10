@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/providers/AuthProvider'
 
 function resolveRedirectTarget(state: unknown) {
@@ -16,14 +16,15 @@ function resolveRedirectTarget(state: unknown) {
   return '/'
 }
 
-export function SignInPage() {
+export function SignInPage({ mode = 'sign-in' }: { mode?: 'sign-in' | 'sign-up' }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, isLoading, signIn } = useAuth()
+  const { user, isLoading, signIn, signUp } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const isSignUpMode = mode === 'sign-up'
 
   const redirectTarget = useMemo(
     () => resolveRedirectTarget(location.state),
@@ -42,10 +43,18 @@ export function SignInPage() {
     setErrorMessage(null)
 
     try {
-      await signIn({ email: email.trim(), password })
+      if (isSignUpMode) {
+        await signUp({ email: email.trim(), password })
+      } else {
+        await signIn({ email: email.trim(), password })
+      }
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : 'Sign-in failed.'
+        error instanceof Error
+          ? error.message
+          : isSignUpMode
+            ? 'Sign-up failed.'
+            : 'Sign-in failed.'
       )
     } finally {
       setIsSubmitting(false)
@@ -59,9 +68,13 @@ export function SignInPage() {
           <p className="text-xs font-medium uppercase tracking-[0.24em] text-amber-300/80">
             Cloud mode
           </p>
-          <h1 className="text-3xl font-semibold text-zinc-50">Sign in</h1>
+          <h1 className="text-3xl font-semibold text-zinc-50">
+            {isSignUpMode ? 'Sign up' : 'Sign in'}
+          </h1>
           <p className="text-sm text-zinc-400">
-            Use your Supabase email and password to open the Ralph cloud shell.
+            {isSignUpMode
+              ? 'Create a Supabase account to access the Ralph cloud shell.'
+              : 'Use your Supabase email and password to open the Ralph cloud shell.'}
           </p>
         </header>
 
@@ -103,8 +116,27 @@ export function SignInPage() {
             disabled={isLoading || isSubmitting}
             type="submit"
           >
-            {isLoading ? 'Checking session...' : isSubmitting ? 'Signing in...' : 'Sign in'}
+            {isLoading
+              ? 'Checking session...'
+              : isSubmitting
+                ? isSignUpMode
+                  ? 'Signing up...'
+                  : 'Signing in...'
+                : isSignUpMode
+                  ? 'Sign up'
+                  : 'Sign in'}
           </button>
+
+          <p className="text-center text-sm text-zinc-400">
+            {isSignUpMode ? 'Already have an account?' : "Don't have an account?"}{' '}
+            <Link
+              className="text-amber-300 underline underline-offset-4 hover:text-amber-200"
+              state={location.state}
+              to={isSignUpMode ? '/sign-in' : '/sign-up'}
+            >
+              {isSignUpMode ? 'Sign in' : 'Sign up'}
+            </Link>
+          </p>
         </form>
       </section>
     </div>

@@ -1,4 +1,5 @@
 import { trpcClient, resolveBackendUrl } from '@/lib/trpc'
+import { resolveAuthorizedHeaders } from '@/lib/authSession'
 
 export interface GitHubConnectionSnapshot {
   githubUserId: number
@@ -30,7 +31,13 @@ export const githubApi = {
   disconnect(): Promise<void> {
     return trpcClient.github.disconnect.mutate()
   },
-  beginConnection() {
-    window.location.assign(resolveBackendUrl('/auth/github'))
+  async beginConnection() {
+    const headers = resolveAuthorizedHeaders({ Accept: 'application/json' })
+    const response = await fetch(resolveBackendUrl('/auth/github'), { headers })
+    if (!response.ok) {
+      throw new Error(`GitHub connect failed: ${response.status}`)
+    }
+    const { url } = await response.json() as { url: string }
+    window.location.assign(url)
   }
 }

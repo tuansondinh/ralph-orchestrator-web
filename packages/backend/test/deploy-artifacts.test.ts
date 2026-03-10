@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const deployDirectory = fileURLToPath(new URL('../../../deploy/', import.meta.url))
+const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 
 function readDeployFile(name: string) {
   return readFileSync(resolve(deployDirectory, name), 'utf8')
@@ -15,8 +16,13 @@ describe('EC2 deployment artifacts', () => {
     expect(existsSync(resolve(deployDirectory, 'ralph-orchestrator.service'))).toBe(true)
     expect(existsSync(resolve(deployDirectory, 'nginx-ralph.conf'))).toBe(true)
     expect(existsSync(resolve(deployDirectory, '.env.example'))).toBe(true)
+    expect(existsSync(resolve(deployDirectory, 'docker.env.example'))).toBe(true)
     expect(existsSync(resolve(deployDirectory, 'deploy.sh'))).toBe(true)
+    expect(existsSync(resolve(deployDirectory, 'docker-deploy.sh'))).toBe(true)
     expect(existsSync(resolve(deployDirectory, 'EC2_SETUP.md'))).toBe(true)
+    expect(existsSync(resolve(repoRoot, 'compose.yaml'))).toBe(true)
+    expect(existsSync(resolve(repoRoot, 'Dockerfile'))).toBe(true)
+    expect(existsSync(resolve(repoRoot, 'scripts', 'docker-entrypoint.sh'))).toBe(true)
   })
 
   it('uses the repo production entrypoint in the systemd service', () => {
@@ -42,6 +48,7 @@ describe('EC2 deployment artifacts', () => {
 
   it('lists the required cloud environment variables', () => {
     const envExample = readDeployFile('.env.example')
+    const dockerEnvExample = readDeployFile('docker.env.example')
 
     expect(envExample).toContain('PORT=3003')
     expect(envExample).toContain('RALPH_UI_BIND_HOST=0.0.0.0')
@@ -52,6 +59,25 @@ describe('EC2 deployment artifacts', () => {
     expect(envExample).toContain('GITHUB_CLIENT_ID=')
     expect(envExample).toContain('GITHUB_CLIENT_SECRET=')
     expect(envExample).toContain('GITHUB_CALLBACK_URL=')
+    expect(dockerEnvExample).toContain('RALPH_UI_ALLOW_REMOTE_UNSAFE_OPS=1')
+    expect(dockerEnvExample).toContain('ZAI_API_KEY=')
+  })
+
+  it('ships docker artifacts with compose startup and opencode wiring', () => {
+    const dockerfile = readFileSync(resolve(repoRoot, 'Dockerfile'), 'utf8')
+    const compose = readFileSync(resolve(repoRoot, 'compose.yaml'), 'utf8')
+    const entrypoint = readFileSync(resolve(repoRoot, 'scripts', 'docker-entrypoint.sh'), 'utf8')
+    const dockerDeploy = readDeployFile('docker-deploy.sh')
+
+    expect(dockerfile).toContain('npm install -g opencode-ai @ralph-orchestrator/ralph-cli')
+    expect(dockerfile).toContain('COPY deploy ./deploy')
+    expect(dockerfile).toContain('scripts/docker-entrypoint.sh')
+    expect(compose).toContain('RALPH_UI_ALLOW_REMOTE_UNSAFE_OPS')
+    expect(compose).toContain('ralph-workspaces')
+    expect(entrypoint).toContain('cp /app/deploy/opencode.json')
+    expect(entrypoint).toContain('node /app/packages/backend/dist/src/db/migrate.js')
+    expect(dockerDeploy).toContain('docker compose up --build -d')
+    expect(dockerDeploy).toContain('deploy/docker.env.example')
   })
 
   it('ships a syntactically valid deploy script with build, migrate, and restart steps', () => {

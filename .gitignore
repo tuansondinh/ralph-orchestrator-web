@@ -17,11 +17,15 @@ out
 
 # Env
 .env
+.env.docker
 .env.local
+.env.cloud
+packages/frontend/.env.cloud
 .env.development.local
 .env.test.local
 .env.production.local
 .envrc
+docs/*.local.md
 
 # Logs
 npm-debug.log*

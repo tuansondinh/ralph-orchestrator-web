@@ -40,7 +40,15 @@ export function registerGitHubAuthRoutes(app: FastifyInstance): void {
       sameSite: 'lax',
     });
     const url = githubService.getAuthorizationUrl(session.state);
-    reply.redirect(url);
+
+    // When called via fetch with Accept: application/json (e.g. from the frontend
+    // using an Authorization header), return the URL as JSON instead of redirecting.
+    const acceptsJson = (request.headers.accept ?? '').includes('application/json');
+    if (acceptsJson) {
+      reply.send({ url });
+    } else {
+      reply.redirect(url);
+    }
   });
 
   app.get('/auth/github/callback', async (request, reply) => {

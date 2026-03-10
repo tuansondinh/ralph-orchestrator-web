@@ -1,5 +1,6 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useAuth } from '@/providers/AuthProvider'
 
 const {
   getCapabilitiesMock,
@@ -7,6 +8,7 @@ const {
   getSupabaseBrowserClientMock,
   getSessionMock,
   signInWithPasswordMock,
+  signUpMock,
   signOutMock,
   unsubscribeMock,
   emitAuthStateChange,
@@ -18,6 +20,7 @@ const {
 
   const getSessionMock = vi.fn()
   const signInWithPasswordMock = vi.fn()
+  const signUpMock = vi.fn()
   const signOutMock = vi.fn()
   const unsubscribeMock = vi.fn()
 
@@ -28,6 +31,7 @@ const {
       auth: {
         getSession: getSessionMock,
         signInWithPassword: signInWithPasswordMock,
+        signUp: signUpMock,
         signOut: signOutMock,
         onAuthStateChange: (
           callback: (event: string, session: Record<string, unknown> | null) => void
@@ -45,6 +49,7 @@ const {
     })),
     getSessionMock,
     signInWithPasswordMock,
+    signUpMock,
     signOutMock,
     unsubscribeMock,
     emitAuthStateChange: (event: string, session: Record<string, unknown> | null) => {
@@ -97,6 +102,7 @@ describe('AppProviders', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     resetAuthStateChange()
+    signUpMock.mockReset()
   })
 
   afterEach(() => {
@@ -118,16 +124,14 @@ describe('AppProviders', () => {
     expect(getSupabaseBrowserClientMock).not.toHaveBeenCalled()
   })
 
-  it('shows a sign-in page in cloud mode when there is no authenticated session', async () => {
+  it('renders children with unauthenticated context in cloud mode when there is no session', async () => {
     resolveSupabaseBrowserConfigMock.mockReturnValue({
       url: 'https://supabase.example.com',
       anonKey: 'anon-key'
     })
     getCapabilitiesMock.mockResolvedValue(createCloudCapabilities())
     getSessionMock.mockResolvedValue({
-      data: {
-        session: null
-      },
+      data: { session: null },
       error: null
     })
 
@@ -137,21 +141,19 @@ describe('AppProviders', () => {
       </AppProviders>
     )
 
-    expect(await screen.findByRole('heading', { name: /sign in to ralph/i })).toBeInTheDocument()
-    expect(screen.queryByText('App shell')).not.toBeInTheDocument()
+    expect(await screen.findByText('App shell')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /sign in to ralph/i })).not.toBeInTheDocument()
     expect(getSupabaseBrowserClientMock).toHaveBeenCalledTimes(1)
   })
 
-  it('enters the app shell after a successful cloud sign-in', async () => {
+  it('updates auth context to authenticated after a successful cloud sign-in', async () => {
     resolveSupabaseBrowserConfigMock.mockReturnValue({
       url: 'https://supabase.example.com',
       anonKey: 'anon-key'
     })
     getCapabilitiesMock.mockResolvedValue(createCloudCapabilities())
     getSessionMock.mockResolvedValue({
-      data: {
-        session: null
-      },
+      data: { session: null },
       error: null
     })
     signInWithPasswordMock.mockImplementation(async ({ email, password }) => {
@@ -162,32 +164,39 @@ describe('AppProviders', () => {
       emitAuthStateChange('SIGNED_IN', session)
 
       return {
-        data: {
-          session,
-          user: session.user
-        },
+        data: { session, user: session.user },
         error: null
       }
     })
 
+    function AuthHarness() {
+      const { isAuthenticated, signIn } = useAuth()
+      return (
+        <>
+          <p data-testid="authenticated">{String(isAuthenticated)}</p>
+          <button
+            onClick={() => void signIn({ email: 'dev@example.com', password: 'hunter2-hunter2' })}
+          >
+            Sign In
+          </button>
+        </>
+      )
+    }
+
     render(
       <AppProviders>
-        <div>App shell</div>
+        <AuthHarness />
       </AppProviders>
     )
 
-    fireEvent.change(await screen.findByLabelText('Email address'), {
-      target: { value: 'dev@example.com' }
-    })
-    fireEvent.change(screen.getByLabelText('Password'), {
-      target: { value: 'hunter2-hunter2' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Sign In' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign In' }))
 
     expect(signInWithPasswordMock).toHaveBeenCalledWith({
       email: 'dev@example.com',
       password: 'hunter2-hunter2'
     })
-    expect(await screen.findByText('App shell')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated')).toHaveTextContent('true')
+    })
   })
 })

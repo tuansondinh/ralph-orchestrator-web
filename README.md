@@ -88,12 +88,15 @@ Notes:
 
 ### Option 2: Docker
 
-Build and run:
+Docker artifacts exist in the repo, but Docker is not the active/default deployment path right now.
+
+The standard deployment remains:
 
 ```bash
-docker build -t ralph-orchestrator-web .
-docker run --rm -p 3003:3003 -e PORT=3003 ralph-orchestrator-web
+npm run deploy
 ```
+
+That path installs the OpenCode CLI on the host and copies the current OpenCode config from [deploy/opencode.json](/Users/sonwork/Workspace/ralph-orchestrator-web/deploy/opencode.json), which is set to `zai-coding-plan/glm-4.7`.
 
 ## First 5 Minutes
 

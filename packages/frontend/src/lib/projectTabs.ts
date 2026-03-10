@@ -1,6 +1,6 @@
 import type { RuntimeCapabilities } from '@/lib/capabilitiesApi'
 
-type CapabilityGate = keyof Pick<RuntimeCapabilities, 'terminal' | 'preview'>
+type CapabilityGate = keyof Pick<RuntimeCapabilities, 'preview'>
 
 const keyboardShortcutTabs = ['loops', 'terminal', 'monitor', 'preview'] as const
 const rememberedProjectTabs = [
@@ -26,7 +26,7 @@ type ProjectTabDefinition = {
 export const projectTabs: readonly ProjectTabDefinition[] = [
   { id: 'loops', label: 'Loops' },
   { id: 'tasks', label: 'Tasks' },
-  { id: 'terminal', label: 'Terminal', capability: 'terminal' },
+  { id: 'terminal', label: 'Terminal' },
   { id: 'hats-presets', label: 'Hats presets' },
   { id: 'settings', label: 'Settings' },
   { id: 'monitor', label: 'Monitor' },
@@ -60,7 +60,7 @@ export function getProjectShortcutTabs(capabilities: RuntimeCapabilities | null)
   return keyboardShortcutTabs.filter((tab) =>
     isCapabilityVisible(
       capabilities,
-      tab === 'terminal' || tab === 'preview' ? tab : undefined
+      tab === 'preview' ? tab : undefined
     )
   )
 }

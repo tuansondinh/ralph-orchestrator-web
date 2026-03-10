@@ -17,6 +17,7 @@ interface AuthContextValue {
   mode: RuntimeMode
   session: Session | null
   signIn: (credentials: { email: string; password: string }) => Promise<void>
+  signUp: (credentials: { email: string; password: string }) => Promise<void>
   signOut: () => Promise<void>
   user: User | null
 }
@@ -60,18 +61,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const clientRef = useRef<ReturnType<typeof getSupabaseBrowserClient>>(null)
 
   useEffect(() => {
-    setAuthAccessToken(session?.access_token ?? null)
-
-    return () => {
-      setAuthAccessToken(null)
-    }
-  }, [session?.access_token])
-
-  useEffect(() => {
     if (!supabaseConfig) {
       setMode('local')
       setRuntimeError(null)
       setSession(null)
+      setAuthAccessToken(null)
       setIsBootstrapping(false)
       return
     }
@@ -93,6 +87,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         if (capabilities.mode === 'local' || capabilities.auth === false) {
           setMode('local')
           setSession(null)
+          setAuthAccessToken(null)
           setIsBootstrapping(false)
           return
         }
@@ -111,6 +106,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
             return
           }
 
+          setAuthAccessToken(nextSession?.access_token ?? null)
           setSession(nextSession)
           setSignInError(null)
           setIsBootstrapping(false)
@@ -131,6 +127,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
           return
         }
 
+        setAuthAccessToken(data.session?.access_token ?? null)
         setSession(data.session ?? null)
         setIsBootstrapping(false)
       } catch (error) {
@@ -150,14 +147,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return () => {
       cancelled = true
       unsubscribe()
+      setAuthAccessToken(null)
     }
   }, [supabaseConfig?.anonKey, supabaseConfig?.url])
 
   const signIn = async ({ email, password }: { email: string; password: string }) => {
     const supabaseClient = clientRef.current ?? getSupabaseBrowserClient()
     if (!supabaseClient) {
-      setSignInError('Supabase browser client is not configured.')
-      return
+      const msg = 'Supabase browser client is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
+      setSignInError(msg)
+      throw new Error(msg)
     }
 
     setIsSigningIn(true)
@@ -171,10 +170,44 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
       if (error) {
         setSignInError(error.message)
-        return
+        throw new Error(error.message)
       }
 
+      setAuthAccessToken(data.session?.access_token ?? null)
       setSession(data.session ?? null)
+    } finally {
+      setIsSigningIn(false)
+    }
+  }
+
+  const signUp = async ({ email, password }: { email: string; password: string }) => {
+    const supabaseClient = clientRef.current ?? getSupabaseBrowserClient()
+    if (!supabaseClient) {
+      const msg = 'Supabase browser client is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
+      setSignInError(msg)
+      throw new Error(msg)
+    }
+
+    setIsSigningIn(true)
+    setSignInError(null)
+
+    try {
+      const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password
+      })
+
+      if (error) {
+        setSignInError(error.message)
+        throw new Error(error.message)
+      }
+
+      if (!data.session) {
+        throw new Error('Sign-up complete. Check your email to confirm your account before signing in.')
+      }
+
+      setAuthAccessToken(data.session.access_token ?? null)
+      setSession(data.session)
     } finally {
       setIsSigningIn(false)
     }
@@ -183,11 +216,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const signOut = async () => {
     const supabaseClient = clientRef.current ?? getSupabaseBrowserClient()
     if (!supabaseClient) {
+      setAuthAccessToken(null)
       setSession(null)
       return
     }
 
     await supabaseClient.auth.signOut()
+    setAuthAccessToken(null)
     setSession(null)
   }
 
@@ -198,24 +233,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
     mode,
     session,
     signIn,
+    signUp,
     signOut,
     user: session?.user ?? null
   }
 
   return (
     <AuthContext.Provider value={contextValue}>
-      {mode === 'cloud' && isBootstrapping ? <AuthLoadingState /> : null}
-      {mode === 'cloud' && !isBootstrapping && runtimeError ? (
-        <AuthErrorState message={runtimeError} />
-      ) : null}
-      {mode === 'cloud' && !isBootstrapping && !runtimeError && !session ? (
-        <SignInPage
-          errorMessage={signInError}
-          isSubmitting={isSigningIn}
-          onSubmit={signIn}
-        />
-      ) : null}
-      {(mode === 'local' || (!isBootstrapping && !runtimeError && session)) ? children : null}
+      {runtimeError ? <AuthErrorState message={runtimeError} /> : children}
     </AuthContext.Provider>
   )
 }

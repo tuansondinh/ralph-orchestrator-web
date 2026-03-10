@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "set -a; [ -f ../../.env.local ] && . ../../.env.local; [ -f ../../.env ] && . ../../.env; set +a; tsx src/serve.ts",
+    "dev:cloud": "set -a; [ -f ../../.env.cloud ] && . ../../.env.cloud; set +a; tsx src/serve.ts",
     "dev:watch": "set -a; [ -f ../../.env.local ] && . ../../.env.local; [ -f ../../.env ] && . ../../.env; set +a; tsx watch src/serve.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/serve.js",

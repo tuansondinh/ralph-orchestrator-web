@@ -1,0 +1,21 @@
+services:
+  ralph-orchestrator-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ralph-orchestrator-web:latest
+    ports:
+      - "${PORT:-3003}:3003"
+    env_file:
+      - ./.env.docker
+    environment:
+      PORT: ${PORT:-3003}
+      RALPH_UI_BIND_HOST: 0.0.0.0
+      RALPH_UI_ALLOW_REMOTE_UNSAFE_OPS: ${RALPH_UI_ALLOW_REMOTE_UNSAFE_OPS:-1}
+      RALPH_UI_WORKSPACE_DIR: /home/app/workspaces
+    volumes:
+      - ralph-workspaces:/home/app/workspaces
+    restart: unless-stopped
+
+volumes:
+  ralph-workspaces:

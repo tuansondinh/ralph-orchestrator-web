@@ -12,8 +12,8 @@ if [[ -n "$KEY_PATH" ]]; then
   SSH_OPTS="-i $KEY_PATH"
 fi
 
-echo "Building workspace..."
-npm run build
+echo "Building workspace (cloud mode)..."
+npm run build:cloud
 
 echo "Syncing repository to ${REMOTE_HOST}:${REMOTE_DIR}..."
 rsync -avz --delete \
@@ -22,12 +22,31 @@ rsync -avz --delete \
   --exclude .env \
   --exclude '.env.*' \
   --exclude specs \
+  --exclude .worktrees \
+  --exclude .ralph \
+  --exclude .ralph-ui \
+  --exclude .planning \
+  --exclude .playwright-mcp \
+  --exclude .claude \
+  --exclude '*.log' \
+  --exclude '*.txt' \
+  --exclude '*.md' \
+  --exclude .DS_Store \
+  --exclude .flow \
   -e "ssh ${SSH_OPTS}" \
   ./ "${REMOTE_HOST}:${REMOTE_DIR}/"
 
-echo "Installing production dependencies on remote..."
+echo "Installing production dependencies and ralph CLI on remote..."
 ssh ${SSH_OPTS} "${REMOTE_HOST}" \
-  "cd ${REMOTE_DIR} && npm ci --omit=dev"
+  "cd ${REMOTE_DIR} && npm ci --omit=dev && npm install @ralph-orchestrator/ralph-cli"
+
+echo "Ensuring opencode CLI is installed..."
+ssh ${SSH_OPTS} "${REMOTE_HOST}" \
+  "command -v opencode >/dev/null 2>&1 || sudo npm install -g opencode-ai"
+
+echo "Installing opencode config..."
+ssh ${SSH_OPTS} "${REMOTE_HOST}" \
+  "mkdir -p ~/.config/opencode && cp ${REMOTE_DIR}/deploy/opencode.json ~/.config/opencode/opencode.json"
 
 echo "Installing systemd unit on remote..."
 ssh ${SSH_OPTS} "${REMOTE_HOST}" \
@@ -35,7 +54,7 @@ ssh ${SSH_OPTS} "${REMOTE_HOST}" \
 
 echo "Running cloud migrations..."
 ssh ${SSH_OPTS} "${REMOTE_HOST}" \
-  "cd ${REMOTE_DIR} && npm run db:migrate:cloud -w @ralph-ui/backend"
+  "cd ${REMOTE_DIR}/packages/backend && npm run db:migrate:cloud"
 
 echo "Enabling and restarting service..."
 ssh ${SSH_OPTS} "${REMOTE_HOST}" \

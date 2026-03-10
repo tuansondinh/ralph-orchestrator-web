@@ -22,14 +22,16 @@ const {
   setSupabaseSessionMock,
   resolveSupabaseBrowserConfigMock,
   getSupabaseBrowserClientMock,
-  runtimeCapabilitiesGetMock
+  runtimeCapabilitiesGetMock,
+  signUpMock
 } = vi.hoisted(() => ({
   getSupabaseClientMock: vi.fn(),
   getSupabaseAccessTokenMock: vi.fn(),
   setSupabaseSessionMock: vi.fn(),
   resolveSupabaseBrowserConfigMock: vi.fn(),
   getSupabaseBrowserClientMock: vi.fn(),
-  runtimeCapabilitiesGetMock: vi.fn()
+  runtimeCapabilitiesGetMock: vi.fn(),
+  signUpMock: vi.fn()
 }))
 
 vi.mock('@/lib/projectApi', () => ({
@@ -158,6 +160,7 @@ function mockAuthenticatedCloudSession() {
         }
       })),
       signInWithPassword: vi.fn(),
+      signUp: signUpMock,
       signOut: vi.fn(async () => ({
         error: null
       }))
@@ -178,7 +181,7 @@ function mockAuthenticatedCloudSession() {
       getSession: vi.fn(async () => ({
         data: { session }
       })),
-      onAuthStateChange: vi.fn((callback: Function) => {
+      onAuthStateChange: vi.fn((callback: (...args: unknown[]) => void) => {
         callback('INITIAL_SESSION', session)
         return {
           data: {
@@ -187,6 +190,7 @@ function mockAuthenticatedCloudSession() {
         }
       }),
       signInWithPassword: vi.fn(),
+      signUp: signUpMock,
       signOut: vi.fn(async () => ({ error: null }))
     }
   })
@@ -211,6 +215,7 @@ beforeEach(() => {
   resolveSupabaseBrowserConfigMock.mockReturnValue(null)
   getSupabaseBrowserClientMock.mockReturnValue(null)
   runtimeCapabilitiesGetMock.mockResolvedValue({ mode: 'local', auth: false })
+  signUpMock.mockResolvedValue({ data: { session: null, user: null }, error: null })
 
   vi.mocked(projectApi.list).mockImplementation(async () => projects)
   vi.mocked(projectApi.create).mockImplementation(async (input) => {
@@ -531,7 +536,7 @@ describe('App', () => {
     expect(screen.getAllByRole('link', { name: 'Global settings' }).length).toBeGreaterThan(0)
   })
 
-  it('hides terminal and preview tabs in cloud mode', async () => {
+  it('keeps terminal available in cloud mode while hiding preview', async () => {
     seedProjects([
       {
         id: 'alpha',
@@ -561,7 +566,7 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Alpha App' }))
 
     const projectSections = screen.getByRole('navigation', { name: 'Project sections' })
-    expect(within(projectSections).queryByRole('link', { name: 'Terminal' })).not.toBeInTheDocument()
+    expect(within(projectSections).getByRole('link', { name: 'Terminal' })).toBeInTheDocument()
     expect(within(projectSections).queryByRole('link', { name: 'Preview' })).not.toBeInTheDocument()
     expect(within(projectSections).getByRole('link', { name: 'Loops' })).toBeInTheDocument()
     expect(within(projectSections).getByRole('link', { name: 'Monitor' })).toBeInTheDocument()
@@ -587,6 +592,27 @@ describe('App', () => {
     expect(screen.getByLabelText('Email')).toBeInTheDocument()
     expect(screen.queryByText('Project workspaces')).not.toBeInTheDocument()
     expect(projectApi.list).not.toHaveBeenCalled()
+  })
+
+  it('renders a sign-up route for unauthenticated cloud users', async () => {
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    })
+    window.history.pushState({}, '', '/sign-up')
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Sign up' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign up' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/sign-in')
   })
 
   it('reorders projects in sidebar via drag and drop', async () => {
@@ -712,7 +738,7 @@ describe('App', () => {
     })
   })
 
-  it('falls back to loops when the remembered tab is hidden in cloud mode', async () => {
+  it('keeps the remembered terminal tab in cloud mode', async () => {
     seedProjects([
       {
         id: 'alpha',
@@ -747,11 +773,11 @@ describe('App', () => {
     render(<App />)
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe('/project/alpha/loops')
+      expect(window.location.pathname).toBe('/project/alpha/terminal')
     })
   })
 
-  it('redirects hidden project routes back to loops in cloud mode', async () => {
+  it('allows direct terminal routes in cloud mode', async () => {
     seedProjects([
       {
         id: 'alpha',
@@ -780,9 +806,9 @@ describe('App', () => {
     render(<App />)
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe('/project/alpha/loops')
+      expect(window.location.pathname).toBe('/project/alpha/terminal')
     })
-    expect(screen.queryByRole('button', { name: 'Terminal 1' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Terminal 1' })).toBeInTheDocument()
   })
 
   it('navigates between project tabs', async () => {

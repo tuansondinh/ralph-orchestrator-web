@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:cloud": "vite --mode cloud",
     "build": "tsc -p tsconfig.json && vite build",
+    "build:cloud": "tsc -p tsconfig.json && vite build --mode cloud",
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{ts,tsx}\" vite.config.ts vitest.config.ts",
     "test": "vitest run",

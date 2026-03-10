@@ -1,0 +1,4 @@
+[     337ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5174/favicon.ico:0
+[  203690ms] [ERROR] WebSocket connection to 'ws://localhost:5174/?token=dMrI7bfZgZiQ' failed:  @ http://localhost:5174/@vite/client:744
+[  209397ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:3003/trpc/capabilities:0
+[  209398ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:3003/trpc/capabilities:0

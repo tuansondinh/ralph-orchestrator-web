@@ -9,6 +9,7 @@ const {
   getSessionMock,
   onAuthStateChangeMock,
   signInWithPasswordMock,
+  signUpMock,
   signOutMock,
   unsubscribeMock
 } = vi.hoisted(() => ({
@@ -18,6 +19,7 @@ const {
   getSessionMock: vi.fn(),
   onAuthStateChangeMock: vi.fn(),
   signInWithPasswordMock: vi.fn(),
+  signUpMock: vi.fn(),
   signOutMock: vi.fn(),
   unsubscribeMock: vi.fn()
 }))
@@ -35,10 +37,6 @@ vi.mock('@/lib/runtimeCapabilities', () => ({
 
 vi.mock('@/lib/authSession', () => ({
   setAuthAccessToken: vi.fn()
-}))
-
-vi.mock('@/components/auth/SignInPage', () => ({
-  SignInPage: () => <div data-testid="sign-in-page">Sign In</div>
 }))
 
 function AuthHarness() {
@@ -75,6 +73,7 @@ describe('AuthProvider', () => {
       }
     })
     signInWithPasswordMock.mockResolvedValue({ error: null })
+    signUpMock.mockResolvedValue({ error: null })
     signOutMock.mockResolvedValue({ error: null })
 
     getSupabaseBrowserClientMock.mockReturnValue({
@@ -82,6 +81,7 @@ describe('AuthProvider', () => {
         getSession: getSessionMock,
         onAuthStateChange: onAuthStateChangeMock,
         signInWithPassword: signInWithPasswordMock,
+        signUp: signUpMock,
         signOut: signOutMock
       }
     })
@@ -146,7 +146,7 @@ describe('AuthProvider', () => {
     expect(screen.getByTestId('auth-mode')).toHaveTextContent('cloud')
   })
 
-  it('shows sign-in page when cloud mode has no session', async () => {
+  it('renders children with isAuthenticated=false when cloud mode has no session', async () => {
     resolveSupabaseBrowserConfigMock.mockReturnValue({
       url: 'https://test.supabase.co',
       anonKey: 'test-key'
@@ -172,7 +172,11 @@ describe('AuthProvider', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId('sign-in-page')).toBeInTheDocument()
+      expect(screen.getByTestId('auth-loading')).toHaveTextContent('ready')
     })
+
+    expect(screen.getByTestId('auth-authenticated')).toHaveTextContent('false')
+    expect(screen.getByTestId('auth-mode')).toHaveTextContent('cloud')
+    expect(screen.getByTestId('auth-user')).toHaveTextContent('anonymous')
   })
 })

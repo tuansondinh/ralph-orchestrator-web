@@ -83,6 +83,7 @@ The provided config proxies both normal HTTP traffic and `/ws` upgrades to the b
 ## 7. Configure Supabase and GitHub
 
 - In Supabase, create the project, enable email/password auth, and create at least one user who can sign in to the app.
+- If email confirmation is enabled in Supabase Auth, confirm that user from the Supabase dashboard before attempting the first sign-in.
 - In GitHub, create an OAuth App with the callback URL set to `https://your-domain.example/auth/github/callback` if nginx terminates traffic, or `http://<ec2-hostname>:3003/auth/github/callback` for direct backend access.
 
 ## 8. Verify the deployment

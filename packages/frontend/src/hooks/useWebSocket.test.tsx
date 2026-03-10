@@ -254,4 +254,19 @@ describe('resolveWebsocketUrl', () => {
       })
     ).toBe('ws://127.0.0.1:3001/ws')
   })
+
+  it('appends the Supabase access token when cloud auth is active', () => {
+    expect(
+      resolveWebsocketUrl(
+        {
+          DEV: false
+        },
+        {
+          protocol: 'https:',
+          host: 'ralph.example.com'
+        },
+        'token-123'
+      )
+    ).toBe('wss://ralph.example.com/ws?token=token-123')
+  })
 })

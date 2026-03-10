@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { getCachedAccessToken } from '@/lib/authSession'
 
 interface UseWebSocketOptions {
   channels: string[]
@@ -25,22 +26,27 @@ function resolveDefaultDevWebsocketUrl(
 
 export function resolveWebsocketUrl(
   env: RuntimeEnv = import.meta.env,
-  runtimeLocation: RuntimeLocation = window.location
+  runtimeLocation: RuntimeLocation = window.location,
+  accessToken?: string | null
 ) {
+  const search = accessToken
+    ? `?token=${encodeURIComponent(accessToken)}`
+    : ''
+
   if (env.DEV) {
     const backendOrigin = env.VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN
     if (typeof backendOrigin === 'string' && backendOrigin.trim().length > 0) {
       const origin = backendOrigin.replace(/\/$/, '')
       const host = origin.replace(/^https?:\/\//, '')
       const protocol = origin.startsWith('https://') ? 'wss' : 'ws'
-      return `${protocol}://${host}/ws`
+      return `${protocol}://${host}/ws${search}`
     }
 
-    return resolveDefaultDevWebsocketUrl(runtimeLocation)
+    return `${resolveDefaultDevWebsocketUrl(runtimeLocation)}${search}`
   }
 
   const protocol = runtimeLocation.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${runtimeLocation.host}/ws`
+  return `${protocol}//${runtimeLocation.host}/ws${search}`
 }
 
 function normalizeChannels(channels: string[]) {
@@ -126,7 +132,7 @@ export function useWebSocket({
 
       const attempt = reconnectAttemptRef.current
       setStatus(attempt > 0 ? 'reconnecting' : 'connecting')
-      const url = resolveWebsocketUrl()
+      const url = resolveWebsocketUrl(import.meta.env, window.location, getCachedAccessToken())
       console.debug('[ws] connect attempt', { attempt, url })
       const socket = new WebSocket(url)
       socketRef.current = socket

@@ -13,7 +13,6 @@ import {
   parseAllowedOrigins,
   parseRequestHosts
 } from '../lib/origin.js'
-import { verifySupabaseToken } from '../auth/supabaseAuth.js'
 import {
   allowsDangerousOperations,
   getDangerousOperationBlockMessage
@@ -38,6 +37,20 @@ interface TerminalResizeRequest {
 }
 
 type ClientMessage = SubscribeRequest | TerminalInputRequest | TerminalResizeRequest
+
+let verifySupabaseTokenLoader:
+  | Promise<typeof import('../auth/supabaseAuth.js').verifySupabaseToken>
+  | null = null
+
+async function loadVerifySupabaseToken() {
+  if (!verifySupabaseTokenLoader) {
+    verifySupabaseTokenLoader = import('../auth/supabaseAuth.js').then(
+      ({ verifySupabaseToken }) => verifySupabaseToken
+    )
+  }
+
+  return verifySupabaseTokenLoader
+}
 
 function safeSend(app: FastifyInstance, socket: websocket.WebSocket, message: unknown) {
   if (socket.readyState !== socket.OPEN) {
@@ -284,6 +297,7 @@ export async function registerWebsocket(app: FastifyInstance) {
     let cleaned = false
     let subscriptionUpdate = Promise.resolve()
     let sessionReady = app.runtimeConfig.mode !== 'cloud'
+    const pendingMessages: RawData[] = []
 
     const cleanup = (reason: 'close' | 'error') => {
       if (cleaned) {
@@ -313,6 +327,7 @@ export async function registerWebsocket(app: FastifyInstance) {
         }
 
         try {
+          const verifySupabaseToken = await loadVerifySupabaseToken()
           const user = await verifySupabaseToken(token)
           req.userId = user.id
           req.supabaseUser = user
@@ -325,6 +340,10 @@ export async function registerWebsocket(app: FastifyInstance) {
 
       sessionReady = true
       app.log.info('[WS] Client connected')
+
+      for (const raw of pendingMessages.splice(0)) {
+        handleMessage(raw)
+      }
     }
 
     const unsubscribeChannel = (channel: string) => {
@@ -555,8 +574,9 @@ export async function registerWebsocket(app: FastifyInstance) {
       }
     }
 
-    socket.on('message', (raw: RawData) => {
+    const handleMessage = (raw: RawData) => {
       if (!sessionReady) {
+        pendingMessages.push(raw)
         return
       }
 
@@ -616,7 +636,9 @@ export async function registerWebsocket(app: FastifyInstance) {
           })
         }
       }
-    })
+    }
+
+    socket.on('message', handleMessage)
 
     socket.on('close', () => cleanup('close'))
     socket.on('error', () => cleanup('error'))

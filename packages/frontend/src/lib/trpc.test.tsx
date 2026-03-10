@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveTrpcBaseUrl } from '@/lib/trpc'
+import { resolveTrpcBaseUrl, resolveTrpcHeaders } from '@/lib/trpc'
 
 describe('resolveTrpcBaseUrl', () => {
   it('defaults to 127.0.0.1 backend origin in dev when backend origin is not set', () => {
@@ -44,5 +44,15 @@ describe('resolveTrpcBaseUrl', () => {
 
   it('uses relative /trpc for non-local non-dev hosts', () => {
     expect(resolveTrpcBaseUrl({ DEV: false }, { hostname: 'ralph.example.com' })).toBe('/trpc')
+  })
+
+  it('adds a bearer token when frontend auth has a cached session', () => {
+    expect(resolveTrpcHeaders(() => 'token-123')).toEqual({
+      Authorization: 'Bearer token-123'
+    })
+  })
+
+  it('returns empty headers when there is no cached auth token', () => {
+    expect(resolveTrpcHeaders(() => null)).toEqual({})
   })
 })

@@ -16,6 +16,16 @@ const { websocketSendMock } = vi.hoisted(() => ({
   websocketSendMock: vi.fn(() => true)
 }))
 
+const {
+  getSupabaseClientMock,
+  getSupabaseAccessTokenMock,
+  setSupabaseSessionMock
+} = vi.hoisted(() => ({
+  getSupabaseClientMock: vi.fn(),
+  getSupabaseAccessTokenMock: vi.fn(),
+  setSupabaseSessionMock: vi.fn()
+}))
+
 vi.mock('@/lib/projectApi', () => ({
   projectApi: {
     list: vi.fn(),
@@ -26,6 +36,12 @@ vi.mock('@/lib/projectApi', () => ({
     updatePrompt: vi.fn(),
     selectDirectory: vi.fn()
   }
+}))
+
+vi.mock('@/lib/supabase', () => ({
+  getSupabaseClient: getSupabaseClientMock,
+  getSupabaseAccessToken: getSupabaseAccessTokenMock,
+  setSupabaseSession: setSupabaseSessionMock
 }))
 
 vi.mock('@/lib/capabilitiesApi', () => ({
@@ -94,6 +110,41 @@ function seedProjects(nextProjects: ProjectRecord[]) {
   projects = nextProjects
 }
 
+function mockAuthenticatedCloudSession() {
+  const session = {
+    access_token: 'token-123',
+    user: {
+      id: 'user-1',
+      email: 'dev@example.com'
+    }
+  }
+  const unsubscribe = vi.fn()
+
+  getSupabaseAccessTokenMock.mockReturnValue(session.access_token)
+  getSupabaseClientMock.mockReturnValue({
+    auth: {
+      getSession: vi.fn(async () => ({
+        data: {
+          session
+        }
+      })),
+      onAuthStateChange: vi.fn(() => ({
+        data: {
+          subscription: {
+            unsubscribe
+          }
+        }
+      })),
+      signInWithPassword: vi.fn(),
+      signOut: vi.fn(async () => ({
+        error: null
+      }))
+    }
+  })
+
+  return session
+}
+
 beforeEach(() => {
   resetCapabilitiesCache()
   resetLoopStore()
@@ -105,6 +156,9 @@ beforeEach(() => {
   window.localStorage.clear()
   document.documentElement.classList.remove('dark')
   window.history.pushState({}, '', '/')
+  getSupabaseClientMock.mockReturnValue(null)
+  getSupabaseAccessTokenMock.mockReturnValue(null)
+  setSupabaseSessionMock.mockReset()
 
   vi.mocked(projectApi.list).mockImplementation(async () => projects)
   vi.mocked(projectApi.create).mockImplementation(async (input) => {
@@ -448,6 +502,7 @@ describe('App', () => {
       localDirectoryPicker: false,
       mcp: false
     })
+    mockAuthenticatedCloudSession()
 
     render(<App />)
 
@@ -458,6 +513,28 @@ describe('App', () => {
     expect(within(projectSections).queryByRole('link', { name: 'Preview' })).not.toBeInTheDocument()
     expect(within(projectSections).getByRole('link', { name: 'Loops' })).toBeInTheDocument()
     expect(within(projectSections).getByRole('link', { name: 'Monitor' })).toBeInTheDocument()
+  })
+
+  it('redirects unauthenticated cloud users to sign-in before rendering the app shell', async () => {
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    })
+    vi.mocked(projectApi.list).mockRejectedValue(new Error('UNAUTHORIZED'))
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Email')).toBeInTheDocument()
+    expect(screen.queryByText('Project workspaces')).not.toBeInTheDocument()
+    expect(projectApi.list).not.toHaveBeenCalled()
   })
 
   it('reorders projects in sidebar via drag and drop', async () => {
@@ -606,6 +683,7 @@ describe('App', () => {
       localDirectoryPicker: false,
       mcp: false
     })
+    mockAuthenticatedCloudSession()
     window.localStorage.setItem(
       'ralph-ui.last-project-tabs',
       JSON.stringify({
@@ -644,6 +722,7 @@ describe('App', () => {
       localDirectoryPicker: false,
       mcp: false
     })
+    mockAuthenticatedCloudSession()
     window.history.pushState({}, '', '/project/alpha/terminal')
 
     render(<App />)
@@ -838,6 +917,8 @@ describe('App', () => {
 
   it('opens create-project dialog with Cmd+N and closes with Escape', async () => {
     render(<App />)
+
+    await screen.findByRole('heading', { name: 'No projects yet' })
 
     fireEvent.keyDown(window, { key: 'n', metaKey: true })
     expect(await screen.findByRole('heading', { name: 'Create new project' })).toBeInTheDocument()

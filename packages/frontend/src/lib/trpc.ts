@@ -1,6 +1,8 @@
 import { QueryClient } from '@tanstack/react-query'
 import { createTRPCProxyClient, httpLink } from '@trpc/client'
 import type { AppRouter } from '@ralph-ui/backend/trpc/router'
+import { notifyUnauthorized } from '@/lib/authEvents'
+import { getCachedAccessToken } from '@/lib/authSession'
 
 type RuntimeEnv = {
   DEV: boolean
@@ -54,13 +56,36 @@ export function resolveBackendUrl(
   return backendOrigin ? `${backendOrigin}${normalizedPath}` : normalizedPath
 }
 
+export function resolveTrpcHeaders(
+  getAccessToken: () => string | null = getCachedAccessToken
+) {
+  const accessToken = getAccessToken()
+  if (!accessToken) {
+    return {}
+  }
+
+  return {
+    Authorization: `Bearer ${accessToken}`
+  }
+}
+
 const trpcBaseUrl = resolveTrpcBaseUrl()
 
 export const queryClient = new QueryClient()
 export const trpcClient = createTRPCProxyClient<AppRouter>({
   links: [
     httpLink({
-      url: trpcBaseUrl
+      url: trpcBaseUrl,
+      headers() {
+        return resolveTrpcHeaders()
+      },
+      async fetch(url, options) {
+        const response = await globalThis.fetch(url, options)
+        if (response.status === 401) {
+          notifyUnauthorized()
+        }
+        return response
+      }
     })
   ]
 })

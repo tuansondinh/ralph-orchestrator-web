@@ -786,11 +786,17 @@ const settingsRouter = t.router({
         })
         .optional()
     )
-    .mutation(({ ctx, input }) =>
-      ctx.settingsService
+    .mutation(async ({ ctx, input }) => {
+      const updated = await ctx.settingsService
         .update(input ?? {})
         .catch((error) => asTRPCError(error))
-    ),
+
+      try {
+        await ctx.openCodeService?.updateModel(updated.chatProvider, updated.opencodeModel)
+      } catch {}
+
+      return updated
+    }),
   testBinary: t.procedure
     .input(
       z

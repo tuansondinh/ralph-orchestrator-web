@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmod, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appRouter } from '../src/trpc/router.js'
 import { createTestRuntime } from './test-helpers.js'
 import {
@@ -30,6 +30,7 @@ import { SettingsService } from '../src/services/SettingsService.js'
 import { HatsPresetService } from '../src/services/HatsPresetService.js'
 import { TaskService } from '../src/services/TaskService.js'
 import { createApp } from '../src/app.js'
+import type { OpenCodeService } from '../src/services/OpenCodeService.js'
 
 async function createTempDir(prefix: string) {
   return mkdtemp(join(tmpdir(), `ralph-ui-${prefix}-`))
@@ -138,6 +139,10 @@ describe('settings tRPC routes', () => {
     const monitoringService = new MonitoringService(connection.db, loopService)
     const previewService = new DevPreviewManager(connection.db, processManager)
 
+    const openCodeService = {
+      updateModel: vi.fn(async () => undefined)
+    } as Pick<OpenCodeService, 'updateModel'>
+
     const caller = appRouter.createCaller({
       runtime: createTestRuntime(),
       db: connection.db,
@@ -150,10 +155,11 @@ describe('settings tRPC routes', () => {
       presetService: new PresetService(),
       settingsService: new SettingsService(connection.db),
       hatsPresetService: new HatsPresetService(),
-      taskService: new TaskService(connection.db)
+      taskService: new TaskService(connection.db),
+      openCodeService
     })
 
-    return { caller, connection, tempDir, binaryPath }
+    return { caller, connection, tempDir, binaryPath, openCodeService }
   }
 
   it('returns defaults, persists updates, and validates binary versions', async () => {
@@ -163,6 +169,11 @@ describe('settings tRPC routes', () => {
     expect(initial.chatModel).toBe('gemini')
     expect(initial.chatProvider).toBe('anthropic')
     expect(initial.opencodeModel).toBe('claude-sonnet-4-20250514')
+    expect(initial.apiKeyStatus).toEqual({
+      anthropic: false,
+      openai: false,
+      google: false
+    })
     expect(initial.ralphBinaryPath).toBeNull()
     expect(initial.notifications).toEqual({
       loopComplete: true,
@@ -240,11 +251,27 @@ describe('settings tRPC routes', () => {
       openai: 'OPENAI_API_KEY',
       google: 'GOOGLE_API_KEY'
     })
+    expect(updated.apiKeyStatus).toEqual({
+      anthropic: false,
+      openai: false,
+      google: false
+    })
 
     const reloaded = await caller.settings.get()
     expect(reloaded.chatModel).toBe('claude')
     expect(reloaded.chatProvider).toBe('google')
     expect(reloaded.opencodeModel).toBe('gemini-2.5-pro')
+  })
+
+  it('updates the opencode model immediately after settings save', async () => {
+    const { caller, openCodeService } = await setupCaller()
+
+    await caller.settings.update({
+      chatProvider: 'openai',
+      opencodeModel: 'gpt-4o'
+    })
+
+    expect(openCodeService.updateModel).toHaveBeenCalledWith('openai', 'gpt-4o')
   })
 
   it('requires confirmation before clearing project/chat/loop/notification data', async () => {

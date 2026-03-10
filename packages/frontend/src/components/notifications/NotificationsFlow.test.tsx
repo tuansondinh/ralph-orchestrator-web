@@ -36,9 +36,42 @@ vi.mock('@/lib/notificationApi', () => ({
 
 vi.mock('@/lib/settingsApi', () => ({
   settingsApi: {
-    get: vi.fn()
+    get: vi.fn(),
+    getDefaultPreset: vi.fn(),
+    setDefaultPreset: vi.fn()
   }
 }))
+
+const baseSettings = {
+  chatModel: 'gemini' as const,
+  chatProvider: 'anthropic' as const,
+  opencodeModel: 'claude-sonnet-4-20250514',
+  providerEnvVarMap: {
+    anthropic: 'ANTHROPIC_API_KEY',
+    openai: 'OPENAI_API_KEY',
+    google: 'GOOGLE_API_KEY'
+  },
+  apiKeyStatus: {
+    anthropic: true,
+    openai: true,
+    google: true
+  },
+  ralphBinaryPath: null,
+  notifications: {
+    loopComplete: true,
+    loopFailed: true,
+    needsInput: true
+  },
+  preview: {
+    portStart: 3001,
+    portEnd: 3010,
+    baseUrl: 'http://localhost',
+    command: null
+  },
+  data: {
+    dbPath: '/tmp/ralph-ui/data.db'
+  }
+}
 
 class MockWebSocket {
   static instances: MockWebSocket[] = []
@@ -170,24 +203,9 @@ describe('notifications flow', () => {
       read: 1,
       createdAt: Date.now()
     }))
-    vi.mocked(settingsApi.get).mockResolvedValue({
-      chatModel: 'gemini',
-      ralphBinaryPath: null,
-      notifications: {
-        loopComplete: true,
-        loopFailed: true,
-        needsInput: true
-      },
-      preview: {
-        portStart: 3001,
-        portEnd: 3010,
-        baseUrl: 'http://localhost',
-        command: null
-      },
-      data: {
-        dbPath: '/tmp/ralph-ui/data.db'
-      }
-    })
+    vi.mocked(settingsApi.get).mockResolvedValue(baseSettings)
+    vi.mocked(settingsApi.getDefaultPreset).mockResolvedValue('hatless-baseline.yml')
+    vi.mocked(settingsApi.setDefaultPreset).mockResolvedValue('hatless-baseline.yml')
   })
 
   afterEach(() => {
@@ -262,21 +280,11 @@ describe('notifications flow', () => {
 
   it('suppresses loop complete toasts when disabled in settings', async () => {
     vi.mocked(settingsApi.get).mockResolvedValue({
-      chatModel: 'gemini',
-      ralphBinaryPath: null,
+      ...baseSettings,
       notifications: {
         loopComplete: false,
         loopFailed: true,
         needsInput: true
-      },
-      preview: {
-        portStart: 3001,
-        portEnd: 3010,
-        baseUrl: 'http://localhost',
-        command: null
-      },
-      data: {
-        dbPath: '/tmp/ralph-ui/data.db'
       }
     })
 

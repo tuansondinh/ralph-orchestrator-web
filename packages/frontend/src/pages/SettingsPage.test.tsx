@@ -31,6 +31,18 @@ vi.mock('@/lib/githubApi', () => ({
 
 const baseSettings = {
   chatModel: 'gemini' as const,
+  chatProvider: 'anthropic' as const,
+  opencodeModel: 'claude-sonnet-4-20250514',
+  providerEnvVarMap: {
+    anthropic: 'ANTHROPIC_API_KEY',
+    openai: 'OPENAI_API_KEY',
+    google: 'GOOGLE_API_KEY'
+  },
+  apiKeyStatus: {
+    anthropic: true,
+    openai: true,
+    google: true
+  },
   ralphBinaryPath: '/usr/local/bin/ralph',
   notifications: {
     loopComplete: true,
@@ -68,6 +80,8 @@ describe('SettingsPage', () => {
       ...baseSettings,
       ...input,
       chatModel: input.chatModel ?? baseSettings.chatModel,
+      chatProvider: input.chatProvider ?? baseSettings.chatProvider,
+      opencodeModel: input.opencodeModel ?? baseSettings.opencodeModel,
       notifications: {
         ...baseSettings.notifications,
         ...(input.notifications ?? {})
@@ -113,11 +127,19 @@ describe('SettingsPage', () => {
     fireEvent.change(screen.getByLabelText('AI model'), {
       target: { value: 'claude' }
     })
+    fireEvent.change(screen.getByLabelText('Chat provider'), {
+      target: { value: 'openai' }
+    })
+    fireEvent.change(screen.getByLabelText('Chat model'), {
+      target: { value: 'gpt-4o' }
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
 
     await waitFor(() => {
       expect(settingsApi.update).toHaveBeenCalledWith({
         chatModel: 'claude',
+        chatProvider: 'openai',
+        opencodeModel: 'gpt-4o',
         ralphBinaryPath: '/custom/bin/ralph',
         notifications: {
           loopComplete: false,
@@ -132,6 +154,45 @@ describe('SettingsPage', () => {
         }
       })
     })
+  })
+
+  it('renders chat settings fields with the current values', async () => {
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByRole('heading', { name: 'Chat' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Chat provider')).toHaveValue('anthropic')
+    expect(screen.getByLabelText('Chat model')).toHaveValue('claude-sonnet-4-20250514')
+    expect(screen.getByRole('option', { name: 'Anthropic' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'OpenAI' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Google' })).toBeInTheDocument()
+  })
+
+  it('shows an inline warning when the selected chat provider is missing an API key', async () => {
+    vi.mocked(settingsApi.get).mockResolvedValue({
+      ...baseSettings,
+      apiKeyStatus: {
+        anthropic: true,
+        openai: false,
+        google: true
+      }
+    })
+
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    )
+
+    await screen.findByLabelText('Chat provider')
+    fireEvent.change(screen.getByLabelText('Chat provider'), {
+      target: { value: 'openai' }
+    })
+
+    expect(await screen.findByText(/OPENAI_API_KEY environment variable is not set/i)).toBeInTheDocument()
   })
 
   it('tests the configured binary and shows success or failure feedback', async () => {

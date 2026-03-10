@@ -11,6 +11,8 @@ import { RalphProcessList } from '@/components/system/RalphProcessList'
 function toUpdateInput(settings: SettingsSnapshot): SettingsUpdateInput {
   return {
     chatModel: settings.chatModel,
+    chatProvider: settings.chatProvider,
+    opencodeModel: settings.opencodeModel,
     ralphBinaryPath: settings.ralphBinaryPath,
     notifications: { ...settings.notifications },
     preview: { ...settings.preview }
@@ -62,6 +64,12 @@ export function SettingsPage() {
   }
 
   const dbPathLabel = useMemo(() => settings?.data.dbPath ?? 'Unknown', [settings])
+  const selectedChatEnvVar = settings
+    ? settings.providerEnvVarMap?.[settings.chatProvider] ?? null
+    : null
+  const isChatApiKeyMissing = settings
+    ? settings.apiKeyStatus?.[settings.chatProvider] === false
+    : false
 
   const onSave = async () => {
     if (!settings) {
@@ -141,7 +149,7 @@ export function SettingsPage() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="text-sm text-zinc-400">
-          Configure Ralph binary path, notification behavior, and preview defaults.
+          Configure assistant, chat, Ralph binary, notification behavior, and preview defaults.
         </p>
       </header>
 
@@ -165,6 +173,52 @@ export function SettingsPage() {
             <option value="claude">Claude</option>
           </select>
         </label>
+      </section>
+
+      <section className="space-y-3 rounded-md border border-zinc-800 p-4">
+        <h2 className="text-lg font-semibold">Chat</h2>
+        <div className="grid max-w-2xl gap-3 md:grid-cols-2">
+          <label className="flex flex-col gap-1 text-sm" htmlFor="chat-provider">
+            Chat provider
+            <select
+              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
+              id="chat-provider"
+              onChange={(event) =>
+                updateSettings((current) => ({
+                  ...current,
+                  chatProvider: event.target.value as SettingsSnapshot['chatProvider']
+                }))
+              }
+              value={settings.chatProvider}
+            >
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="google">Google</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm" htmlFor="opencode-model">
+            Chat model
+            <input
+              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
+              id="opencode-model"
+              onChange={(event) =>
+                updateSettings((current) => ({
+                  ...current,
+                  opencodeModel: event.target.value
+                }))
+              }
+              type="text"
+              value={settings.opencodeModel}
+            />
+          </label>
+        </div>
+
+        {isChatApiKeyMissing && selectedChatEnvVar ? (
+          <p className="text-sm text-amber-300">
+            {selectedChatEnvVar} environment variable is not set. Chat may not work.
+          </p>
+        ) : null}
       </section>
 
       <section className="space-y-3 rounded-md border border-zinc-800 p-4">

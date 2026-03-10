@@ -26,6 +26,37 @@ vi.mock('@/lib/settingsApi', () => ({
   }
 }))
 
+const baseSettings = {
+  chatModel: 'gemini' as const,
+  chatProvider: 'anthropic' as const,
+  opencodeModel: 'claude-sonnet-4-20250514',
+  providerEnvVarMap: {
+    anthropic: 'ANTHROPIC_API_KEY',
+    openai: 'OPENAI_API_KEY',
+    google: 'GOOGLE_API_KEY'
+  },
+  apiKeyStatus: {
+    anthropic: true,
+    openai: true,
+    google: true
+  },
+  ralphBinaryPath: null,
+  notifications: {
+    loopComplete: true,
+    loopFailed: true,
+    needsInput: true
+  },
+  preview: {
+    portStart: 3001,
+    portEnd: 3010,
+    baseUrl: 'http://localhost',
+    command: null
+  },
+  data: {
+    dbPath: '/tmp/ralph-ui/data.db'
+  }
+}
+
 class MockBrowserNotification {
   static permission: NotificationPermission = 'default'
   static requestPermission = vi.fn(async () => 'granted' as NotificationPermission)
@@ -40,24 +71,7 @@ describe('useNotifications', () => {
     vi.stubGlobal('Notification', MockBrowserNotification as unknown as typeof Notification)
 
     vi.mocked(notificationApi.list).mockResolvedValue([])
-    vi.mocked(settingsApi.get).mockResolvedValue({
-      chatModel: 'gemini',
-      ralphBinaryPath: null,
-      notifications: {
-        loopComplete: true,
-        loopFailed: true,
-        needsInput: true
-      },
-      preview: {
-        portStart: 3001,
-        portEnd: 3010,
-        baseUrl: 'http://localhost',
-        command: null
-      },
-      data: {
-        dbPath: '/tmp/ralph-ui/data.db'
-      }
-    })
+    vi.mocked(settingsApi.get).mockResolvedValue(baseSettings)
   })
 
   afterEach(() => {

@@ -44,6 +44,7 @@ export interface SettingsSnapshot {
   chatProvider: ChatProvider
   opencodeModel: string
   providerEnvVarMap: typeof CHAT_PROVIDER_ENV_VAR_MAP
+  apiKeyStatus: Record<ChatProvider, boolean>
   ralphBinaryPath: string | null
   notifications: {
     loopComplete: boolean
@@ -161,6 +162,14 @@ function normalizeChatProvider(value: string | undefined): ChatProvider {
 function normalizeModelName(value: string | undefined, fallback: string) {
   const normalized = value?.trim()
   return normalized && normalized.length > 0 ? normalized : fallback
+}
+
+function getApiKeyStatus() {
+  return {
+    anthropic: Boolean(process.env[CHAT_PROVIDER_ENV_VAR_MAP.anthropic]),
+    openai: Boolean(process.env[CHAT_PROVIDER_ENV_VAR_MAP.openai]),
+    google: Boolean(process.env[CHAT_PROVIDER_ENV_VAR_MAP.google])
+  } satisfies Record<ChatProvider, boolean>
 }
 
 function normalizePreviewBaseUrl(raw: string, fallback = DEFAULT_PREVIEW_BASE_URL) {
@@ -288,6 +297,7 @@ export class SettingsService {
         DEFAULT_OPENCODE_MODEL
       ),
       providerEnvVarMap: CHAT_PROVIDER_ENV_VAR_MAP,
+      apiKeyStatus: getApiKeyStatus(),
       ralphBinaryPath: normalizePath(map.get(SETTING_KEYS.ralphBinaryPath)),
       notifications: {
         loopComplete: parseBoolean(map.get(SETTING_KEYS.notifyLoopComplete), true),

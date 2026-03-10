@@ -98,6 +98,11 @@ function createSettingsSnapshot(): SettingsSnapshot {
       openai: 'OPENAI_API_KEY',
       google: 'GOOGLE_API_KEY'
     } as const,
+    apiKeyStatus: {
+      anthropic: false,
+      openai: false,
+      google: false
+    },
     ralphBinaryPath: null,
     notifications: {
       loopComplete: true,

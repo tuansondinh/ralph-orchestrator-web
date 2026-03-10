@@ -35,3 +35,12 @@
 - Reasoning: The task requires an in-chat navigation affordance because `ProjectHeader` and `TabBar` are hidden on mobile, but broad tab-model changes belong to later chat-route work. Reusing the existing visible tab list keeps the drawer additive, consistent with current navigation labels, and avoids widening scope beyond the tab surface itself.
 - Reversibility: High. A later iteration can centralize drawer/tab definitions once chat becomes a first-class visible tab everywhere.
 - Timestamp (UTC ISO 8601): 2026-03-10T19:10:00Z
+
+## DEC-005
+- Decision: Handle the Task 9 settings contract mismatch and transitional payloads without renaming the existing backend fields.
+- Chosen Option: Keep the backend/frontend OpenCode settings contract as `chatProvider` plus `opencodeModel`, label the UI field as "Chat model", and make the page tolerate missing `providerEnvVarMap` / `apiKeyStatus` metadata instead of crashing.
+- Confidence: 78
+- Alternatives Considered: Rename the backend contract to `chatModel` for OpenCode immediately; require the new metadata fields unconditionally and fail hard on older payloads.
+- Reasoning: The repository already documented the additive `opencodeModel` contract in Task 2, and renaming it now would widen scope across backend, frontend, and chat code. The settings page still needs user-facing "Chat model" wording, but it should not crash if a stale backend process or partial mock returns the older snapshot shape during rollout. Defensive reads are additive and reversible.
+- Reversibility: High. A later cleanup phase can normalize the naming once the legacy assistant model field is retired everywhere.
+- Timestamp (UTC ISO 8601): 2026-03-10T00:00:00Z

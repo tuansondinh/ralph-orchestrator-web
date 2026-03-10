@@ -218,6 +218,9 @@ export class OpenCodeService {
 
   onEvent(callback: (event: OpenCodeEvent) => void) {
     this.events.on('event', callback)
+    return () => {
+      this.events.off('event', callback)
+    }
   }
 
   async updateModel(provider: string, model: string) {

@@ -395,6 +395,33 @@ describe('cloud websocket auth gating', () => {
     socket.close()
   })
 
+  it('allows authenticated cloud clients to subscribe to opencode-chat', async () => {
+    const { app, wsUrl, authClient } = await setupCloudApp()
+    vi.spyOn(app.openCodeService, 'getSnapshot').mockReturnValue({
+      sessionId: 'session-1',
+      messages: [],
+      status: 'idle',
+      pendingConfirmation: null
+    })
+
+    const socket = await connectWS(`${wsUrl}?access_token=valid-token-user-123`)
+    const nextMessage = createMessageWaiter(socket)
+
+    socket.send(JSON.stringify({ type: 'subscribe', channels: ['opencode-chat'] }))
+    socket.send(JSON.stringify({ type: 'chat:sync' }))
+
+    await expect(
+      nextMessage((message) => message.type === 'chat:snapshot')
+    ).resolves.toMatchObject({
+      type: 'chat:snapshot',
+      sessionId: 'session-1',
+      status: 'idle',
+      messages: []
+    })
+    expect(authClient.auth.getUser).toHaveBeenCalledWith('valid-token-user-123')
+    socket.close()
+  })
+
   it('rejects authenticated cloud subscriptions for another user project channel', async () => {
     const { app, wsUrl, foreignProjectId } = await setupCloudApp()
     const loop = await app.loopService.start(foreignProjectId, { prompt: 'exit-fast' })

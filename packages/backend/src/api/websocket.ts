@@ -17,7 +17,9 @@ import {
   allowsDangerousOperations,
   getDangerousOperationBlockMessage
 } from '../lib/safety.js'
-import { verifySupabaseToken } from '../auth/supabaseAuth.js'
+// Dynamic import to avoid top-level cloud dependency in local mode
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+type SupabaseAuth = typeof import('../auth/supabaseAuth.js')
 
 interface SubscribeRequest {
   type: 'subscribe'
@@ -162,6 +164,7 @@ async function authenticateCloudSocket(
     throw new Error('Authentication required')
   }
 
+  const { verifySupabaseToken } = await import('../auth/supabaseAuth.js') as SupabaseAuth
   const user = await verifySupabaseToken(token)
   request.userId = user.id
   request.supabaseUser = user

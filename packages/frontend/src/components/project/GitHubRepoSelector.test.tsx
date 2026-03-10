@@ -114,8 +114,8 @@ describe('GitHubRepoSelector', () => {
 
     await waitFor(() => {
       expect(projectApi.createFromGitHub).toHaveBeenCalledWith({
-        githubOwner: 'octocat',
-        githubRepo: 'hello-world',
+        owner: 'octocat',
+        repo: 'hello-world',
         defaultBranch: 'main'
       })
     })

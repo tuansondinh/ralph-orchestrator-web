@@ -246,6 +246,7 @@ describe('GitHub auth integration', () => {
       async close() {}
     }))
     apps.push(app)
+    await app.ready()
 
     const authClient = getMockAuthClient()
     authClient.auth.getUser.mockResolvedValue({
@@ -343,6 +344,7 @@ describe('GitHub auth integration', () => {
       async close() {}
     }))
     apps.push(app)
+    await app.ready()
 
     const authClient = getMockAuthClient()
     authClient.auth.getUser.mockResolvedValue({
@@ -438,6 +440,7 @@ describe('GitHub auth integration', () => {
       async close() {}
     }))
     apps.push(app)
+    await app.ready()
 
     const authClient = getMockAuthClient()
     authClient.auth.getUser.mockResolvedValue({

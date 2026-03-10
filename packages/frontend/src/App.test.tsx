@@ -19,11 +19,17 @@ const { websocketSendMock } = vi.hoisted(() => ({
 const {
   getSupabaseClientMock,
   getSupabaseAccessTokenMock,
-  setSupabaseSessionMock
+  setSupabaseSessionMock,
+  resolveSupabaseBrowserConfigMock,
+  getSupabaseBrowserClientMock,
+  runtimeCapabilitiesGetMock
 } = vi.hoisted(() => ({
   getSupabaseClientMock: vi.fn(),
   getSupabaseAccessTokenMock: vi.fn(),
-  setSupabaseSessionMock: vi.fn()
+  setSupabaseSessionMock: vi.fn(),
+  resolveSupabaseBrowserConfigMock: vi.fn(),
+  getSupabaseBrowserClientMock: vi.fn(),
+  runtimeCapabilitiesGetMock: vi.fn()
 }))
 
 vi.mock('@/lib/projectApi', () => ({
@@ -42,6 +48,22 @@ vi.mock('@/lib/supabase', () => ({
   getSupabaseClient: getSupabaseClientMock,
   getSupabaseAccessToken: getSupabaseAccessTokenMock,
   setSupabaseSession: setSupabaseSessionMock
+}))
+
+vi.mock('@/lib/supabaseBrowserClient', () => ({
+  resolveSupabaseBrowserConfig: resolveSupabaseBrowserConfigMock,
+  getSupabaseBrowserClient: getSupabaseBrowserClientMock
+}))
+
+vi.mock('@/lib/runtimeCapabilities', () => ({
+  runtimeCapabilitiesApi: {
+    get: runtimeCapabilitiesGetMock
+  }
+}))
+
+vi.mock('@/lib/authSession', () => ({
+  setAuthAccessToken: vi.fn(),
+  getAuthAccessToken: vi.fn(() => null)
 }))
 
 vi.mock('@/lib/capabilitiesApi', () => ({
@@ -142,6 +164,33 @@ function mockAuthenticatedCloudSession() {
     }
   })
 
+  // Mock the supabaseBrowserClient used by AuthProvider
+  resolveSupabaseBrowserConfigMock.mockReturnValue({
+    url: 'https://test.supabase.co',
+    anonKey: 'test-key'
+  })
+  runtimeCapabilitiesGetMock.mockResolvedValue({
+    mode: 'cloud',
+    auth: true
+  })
+  getSupabaseBrowserClientMock.mockReturnValue({
+    auth: {
+      getSession: vi.fn(async () => ({
+        data: { session }
+      })),
+      onAuthStateChange: vi.fn((callback: Function) => {
+        callback('INITIAL_SESSION', session)
+        return {
+          data: {
+            subscription: { unsubscribe }
+          }
+        }
+      }),
+      signInWithPassword: vi.fn(),
+      signOut: vi.fn(async () => ({ error: null }))
+    }
+  })
+
   return session
 }
 
@@ -159,6 +208,9 @@ beforeEach(() => {
   getSupabaseClientMock.mockReturnValue(null)
   getSupabaseAccessTokenMock.mockReturnValue(null)
   setSupabaseSessionMock.mockReset()
+  resolveSupabaseBrowserConfigMock.mockReturnValue(null)
+  getSupabaseBrowserClientMock.mockReturnValue(null)
+  runtimeCapabilitiesGetMock.mockResolvedValue({ mode: 'local', auth: false })
 
   vi.mocked(projectApi.list).mockImplementation(async () => projects)
   vi.mocked(projectApi.create).mockImplementation(async (input) => {

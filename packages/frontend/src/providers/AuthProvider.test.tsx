@@ -1,19 +1,20 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { notifyUnauthorized } from '@/lib/authEvents'
 import { AuthProvider, useAuth } from './AuthProvider'
 
 const {
-  getSupabaseClientMock,
-  setSupabaseSessionMock,
+  resolveSupabaseBrowserConfigMock,
+  getSupabaseBrowserClientMock,
+  runtimeCapabilitiesGetMock,
   getSessionMock,
   onAuthStateChangeMock,
   signInWithPasswordMock,
   signOutMock,
   unsubscribeMock
 } = vi.hoisted(() => ({
-  getSupabaseClientMock: vi.fn(),
-  setSupabaseSessionMock: vi.fn(),
+  resolveSupabaseBrowserConfigMock: vi.fn(),
+  getSupabaseBrowserClientMock: vi.fn(),
+  runtimeCapabilitiesGetMock: vi.fn(),
   getSessionMock: vi.fn(),
   onAuthStateChangeMock: vi.fn(),
   signInWithPasswordMock: vi.fn(),
@@ -21,80 +22,62 @@ const {
   unsubscribeMock: vi.fn()
 }))
 
-vi.mock('@/lib/supabase', () => ({
-  getSupabaseClient: getSupabaseClientMock,
-  getSupabaseAccessToken: vi.fn(() => null),
-  setSupabaseSession: setSupabaseSessionMock
+vi.mock('@/lib/supabaseBrowserClient', () => ({
+  resolveSupabaseBrowserConfig: resolveSupabaseBrowserConfigMock,
+  getSupabaseBrowserClient: getSupabaseBrowserClientMock
+}))
+
+vi.mock('@/lib/runtimeCapabilities', () => ({
+  runtimeCapabilitiesApi: {
+    get: runtimeCapabilitiesGetMock
+  }
+}))
+
+vi.mock('@/lib/authSession', () => ({
+  setAuthAccessToken: vi.fn()
+}))
+
+vi.mock('@/components/auth/SignInPage', () => ({
+  SignInPage: () => <div data-testid="sign-in-page">Sign In</div>
 }))
 
 function AuthHarness() {
-  const { user, isLoading, signIn, signOut, isConfigured, getAccessToken } = useAuth()
+  const { user, isLoading, isAuthenticated, accessToken, mode } = useAuth()
   const userEmail = user?.email ?? 'anonymous'
 
   return (
     <div>
       <p data-testid="auth-loading">{isLoading ? 'loading' : 'ready'}</p>
       <p data-testid="auth-user">{userEmail}</p>
-      <p data-testid="auth-configured">{String(isConfigured)}</p>
-      <p data-testid="auth-token">{getAccessToken() ?? 'none'}</p>
-      <button
-        onClick={() => {
-          void signIn('dev@example.com', 'secret')
-        }}
-        type="button"
-      >
-        Sign in
-      </button>
-      <button
-        onClick={() => {
-          void signOut()
-        }}
-        type="button"
-      >
-        Sign out
-      </button>
+      <p data-testid="auth-authenticated">{String(isAuthenticated)}</p>
+      <p data-testid="auth-token">{accessToken ?? 'none'}</p>
+      <p data-testid="auth-mode">{mode}</p>
     </div>
   )
 }
 
 describe('AuthProvider', () => {
-  let authStateChangeHandler:
-    | ((event: string, session: { access_token: string; user: { email: string } } | null) => void)
-    | null = null
-
   afterEach(() => {
     cleanup()
   })
 
   beforeEach(() => {
     vi.clearAllMocks()
-    authStateChangeHandler = null
 
     getSessionMock.mockResolvedValue({
-      data: {
-        session: null
-      }
+      data: { session: null }
     })
-    onAuthStateChangeMock.mockImplementation((callback) => {
-      authStateChangeHandler = callback
+    onAuthStateChangeMock.mockImplementation((callback: Function) => {
       return {
         data: {
-          subscription: {
-            unsubscribe: unsubscribeMock
-          }
+          subscription: { unsubscribe: unsubscribeMock }
         }
       }
     })
-    signInWithPasswordMock.mockResolvedValue({
-      error: null
-    })
-    signOutMock.mockImplementation(async () => {
-      authStateChangeHandler?.('SIGNED_OUT', null)
-      return {
-        error: null
-      }
-    })
-    getSupabaseClientMock.mockReturnValue({
+    signInWithPasswordMock.mockResolvedValue({ error: null })
+    signOutMock.mockResolvedValue({ error: null })
+
+    getSupabaseBrowserClientMock.mockReturnValue({
       auth: {
         getSession: getSessionMock,
         onAuthStateChange: onAuthStateChangeMock,
@@ -104,15 +87,47 @@ describe('AuthProvider', () => {
     })
   })
 
+  it('renders in local mode when supabase config is absent', async () => {
+    resolveSupabaseBrowserConfigMock.mockReturnValue(null)
+
+    render(
+      <AuthProvider>
+        <AuthHarness />
+      </AuthProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('auth-loading')).toHaveTextContent('ready')
+    })
+
+    expect(screen.getByTestId('auth-mode')).toHaveTextContent('local')
+    expect(screen.getByTestId('auth-authenticated')).toHaveTextContent('true')
+  })
+
   it('loads the initial session and exposes the authenticated user and access token', async () => {
+    resolveSupabaseBrowserConfigMock.mockReturnValue({
+      url: 'https://test.supabase.co',
+      anonKey: 'test-key'
+    })
+    runtimeCapabilitiesGetMock.mockResolvedValue({
+      mode: 'cloud',
+      auth: true
+    })
     getSessionMock.mockResolvedValue({
       data: {
         session: {
           access_token: 'token-123',
-          user: {
-            email: 'dev@example.com'
-          }
+          user: { email: 'dev@example.com' }
         }
+      }
+    })
+    onAuthStateChangeMock.mockImplementation((callback: Function) => {
+      callback('INITIAL_SESSION', {
+        access_token: 'token-123',
+        user: { email: 'dev@example.com' }
+      })
+      return {
+        data: { subscription: { unsubscribe: unsubscribeMock } }
       }
     })
 
@@ -121,8 +136,6 @@ describe('AuthProvider', () => {
         <AuthHarness />
       </AuthProvider>
     )
-
-    expect(screen.getByTestId('auth-loading')).toHaveTextContent('loading')
 
     await waitFor(() => {
       expect(screen.getByTestId('auth-loading')).toHaveTextContent('ready')
@@ -130,44 +143,25 @@ describe('AuthProvider', () => {
 
     expect(screen.getByTestId('auth-user')).toHaveTextContent('dev@example.com')
     expect(screen.getByTestId('auth-token')).toHaveTextContent('token-123')
-    expect(setSupabaseSessionMock).toHaveBeenCalledWith({
-      access_token: 'token-123',
-      user: {
-        email: 'dev@example.com'
-      }
-    })
+    expect(screen.getByTestId('auth-mode')).toHaveTextContent('cloud')
   })
 
-  it('forwards email/password sign-in requests to Supabase auth', async () => {
-    render(
-      <AuthProvider>
-        <AuthHarness />
-      </AuthProvider>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId('auth-loading')).toHaveTextContent('ready')
+  it('shows sign-in page when cloud mode has no session', async () => {
+    resolveSupabaseBrowserConfigMock.mockReturnValue({
+      url: 'https://test.supabase.co',
+      anonKey: 'test-key'
     })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
-
-    await waitFor(() => {
-      expect(signInWithPasswordMock).toHaveBeenCalledWith({
-        email: 'dev@example.com',
-        password: 'secret'
-      })
+    runtimeCapabilitiesGetMock.mockResolvedValue({
+      mode: 'cloud',
+      auth: true
     })
-  })
-
-  it('signs out when the frontend receives a global unauthorized event', async () => {
     getSessionMock.mockResolvedValue({
-      data: {
-        session: {
-          access_token: 'token-123',
-          user: {
-            email: 'dev@example.com'
-          }
-        }
+      data: { session: null }
+    })
+    onAuthStateChangeMock.mockImplementation((callback: Function) => {
+      callback('INITIAL_SESSION', null)
+      return {
+        data: { subscription: { unsubscribe: unsubscribeMock } }
       }
     })
 
@@ -178,17 +172,7 @@ describe('AuthProvider', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId('auth-user')).toHaveTextContent('dev@example.com')
+      expect(screen.getByTestId('sign-in-page')).toBeInTheDocument()
     })
-
-    act(() => {
-      notifyUnauthorized()
-    })
-
-    await waitFor(() => {
-      expect(signOutMock).toHaveBeenCalledTimes(1)
-      expect(screen.getByTestId('auth-user')).toHaveTextContent('anonymous')
-    })
-    expect(setSupabaseSessionMock).toHaveBeenLastCalledWith(null)
   })
 })

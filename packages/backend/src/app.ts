@@ -36,6 +36,7 @@ import { RalphProcessService } from './services/RalphProcessService.js'
 import { ProjectService } from './services/ProjectService.js'
 import { PresetService } from './services/PresetService.js'
 import { HatsPresetService } from './services/HatsPresetService.js'
+import { SopService } from './services/SopService.js'
 import { OpenCodeService } from './services/OpenCodeService.js'
 import { TaskService } from './services/TaskService.js'
 import { RalphMcpServer } from './mcp/RalphMcpServer.js'
@@ -210,6 +211,7 @@ export function createApp(options: CreateAppOptions = {}) {
   const processManager = new ProcessManager({ logger: app.log })
   const presetService = new PresetService()
   const hatsPresetService = new HatsPresetService()
+  const sopService = new SopService()
   const ralphProcessService = new RalphProcessService()
   const settingsService = new SettingsService(repositories)
   const resolveConfiguredBinary =
@@ -269,7 +271,8 @@ export function createApp(options: CreateAppOptions = {}) {
           settingsService,
           ralphProcessService,
           hatsPresetService,
-          chatService
+          chatService,
+          sopService
         })
       : createUnavailableService<RalphMcpServer>('RalphMcpServer')
   const configuredAllowedOrigins = parseAllowedOrigins(

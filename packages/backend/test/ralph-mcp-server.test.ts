@@ -212,6 +212,10 @@ function createDependencies(): RalphMcpServerDependencies {
       getSession: vi.fn(async () => waitingPlanSession),
       sendMessage: vi.fn(async () => undefined),
       getHistory: vi.fn(async () => [])
+    },
+    sopService: {
+      getPlanGuide: vi.fn(async () => '# PDD Guide'),
+      getTaskGuide: vi.fn(async () => '# Task Guide')
     }
   }
 }

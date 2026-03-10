@@ -144,6 +144,10 @@ export interface RalphMcpServerDependencies {
     sendMessage: (sessionId: string, message: string) => Promise<void>
     getHistory: (sessionId: string) => Promise<ChatMessageSummary[]>
   }
+  sopService: {
+    getPlanGuide: () => Promise<string>
+    getTaskGuide: () => Promise<string>
+  }
 }
 
 export class RalphMcpServer {

@@ -161,6 +161,8 @@ describe('settings tRPC routes', () => {
 
     const initial = await caller.settings.get()
     expect(initial.chatModel).toBe('gemini')
+    expect(initial.chatProvider).toBe('anthropic')
+    expect(initial.opencodeModel).toBe('claude-sonnet-4-20250514')
     expect(initial.ralphBinaryPath).toBeNull()
     expect(initial.notifications).toEqual({
       loopComplete: true,
@@ -177,6 +179,8 @@ describe('settings tRPC routes', () => {
 
     const updated = await caller.settings.update({
       chatModel: 'openai',
+      chatProvider: 'openai',
+      opencodeModel: 'gpt-4o',
       ralphBinaryPath: binaryPath,
       notifications: {
         loopComplete: false,
@@ -192,6 +196,8 @@ describe('settings tRPC routes', () => {
     })
 
     expect(updated.chatModel).toBe('openai')
+    expect(updated.chatProvider).toBe('openai')
+    expect(updated.opencodeModel).toBe('gpt-4o')
     expect(updated.ralphBinaryPath).toBe(binaryPath)
     expect(updated.notifications.loopComplete).toBe(false)
     expect(updated.notifications.needsInput).toBe(false)
@@ -204,6 +210,8 @@ describe('settings tRPC routes', () => {
 
     const reloaded = await caller.settings.get()
     expect(reloaded.chatModel).toBe('openai')
+    expect(reloaded.chatProvider).toBe('openai')
+    expect(reloaded.opencodeModel).toBe('gpt-4o')
     expect(reloaded).toEqual(updated)
 
     const versionResult = await caller.settings.testBinary({ path: binaryPath })
@@ -213,6 +221,30 @@ describe('settings tRPC routes', () => {
     await expect(
       caller.settings.testBinary({ path: join(tempDir, 'missing-ralph') })
     ).rejects.toThrow(/binary/i)
+  })
+
+  it('keeps legacy chatModel settings while exposing opencode provider env requirements', async () => {
+    const { caller } = await setupCaller()
+
+    const updated = await caller.settings.update({
+      chatModel: 'claude',
+      chatProvider: 'google',
+      opencodeModel: 'gemini-2.5-pro'
+    })
+
+    expect(updated.chatModel).toBe('claude')
+    expect(updated.chatProvider).toBe('google')
+    expect(updated.opencodeModel).toBe('gemini-2.5-pro')
+    expect(updated.providerEnvVarMap).toEqual({
+      anthropic: 'ANTHROPIC_API_KEY',
+      openai: 'OPENAI_API_KEY',
+      google: 'GOOGLE_API_KEY'
+    })
+
+    const reloaded = await caller.settings.get()
+    expect(reloaded.chatModel).toBe('claude')
+    expect(reloaded.chatProvider).toBe('google')
+    expect(reloaded.opencodeModel).toBe('gemini-2.5-pro')
   })
 
   it('requires confirmation before clearing project/chat/loop/notification data', async () => {

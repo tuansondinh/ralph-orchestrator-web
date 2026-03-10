@@ -7,6 +7,7 @@ import {
   allowsDangerousOperations,
   getDangerousOperationBlockMessage
 } from '../lib/safety.js'
+import { CHAT_PROVIDERS } from '../lib/chatProviderConfig.js'
 
 const t = initTRPC.context<Context>().create()
 const CHAT_BACKENDS = [
@@ -19,6 +20,7 @@ const CHAT_BACKENDS = [
   'opencode'
 ] as const
 const chatBackendSchema = z.enum(CHAT_BACKENDS)
+const chatProviderSchema = z.enum(CHAT_PROVIDERS)
 const chatSessionMutationInputSchema = z.object({
   projectId: z.string().min(1),
   type: z.enum(['plan', 'task']),
@@ -753,6 +755,8 @@ const settingsRouter = t.router({
       z
         .object({
           chatModel: z.enum(['gemini', 'openai', 'claude']).optional(),
+          chatProvider: chatProviderSchema.optional(),
+          opencodeModel: z.string().trim().min(1).optional(),
           ralphBinaryPath: z.string().optional().nullable(),
           appearance: z
             .object({

@@ -3,6 +3,12 @@ import type { RepositoryBundle, SettingsRepository } from '../db/repositories/co
 import { resolveRepositoryBundle, type RepositoryBundleSource } from '../db/repositories/index.js'
 import { resolveRalphBinary } from '../lib/ralph.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
+import {
+  CHAT_PROVIDER_ENV_VAR_MAP,
+  DEFAULT_CHAT_PROVIDER,
+  DEFAULT_OPENCODE_MODEL,
+  type ChatProvider
+} from '../lib/chatProviderConfig.js'
 
 const DEFAULT_PORT_START = 3001
 const DEFAULT_PORT_END = 3010
@@ -10,6 +16,8 @@ const DEFAULT_PREVIEW_BASE_URL = 'http://localhost'
 const DEFAULT_PRESET_FILENAME = 'hatless-baseline.yml'
 
 const SETTING_KEYS = {
+  chatProvider: 'opencode.provider',
+  opencodeModel: 'opencode.model',
   chatModel: 'chat.model',
   ralphBinaryPath: 'ralph.binaryPath',
   notifyLoopComplete: 'notifications.loopComplete.enabled',
@@ -33,6 +41,9 @@ export interface PreviewSettingsSnapshot {
 
 export interface SettingsSnapshot {
   chatModel: ChatModel
+  chatProvider: ChatProvider
+  opencodeModel: string
+  providerEnvVarMap: typeof CHAT_PROVIDER_ENV_VAR_MAP
   ralphBinaryPath: string | null
   notifications: {
     loopComplete: boolean
@@ -52,6 +63,8 @@ export interface SettingsSnapshot {
 
 export interface SettingsUpdateInput {
   chatModel?: ChatModel
+  chatProvider?: ChatProvider
+  opencodeModel?: string
   ralphBinaryPath?: string | null
   notifications?: {
     loopComplete?: boolean
@@ -131,6 +144,23 @@ function normalizeChatModel(value: string | undefined): ChatModel {
   }
 
   return 'gemini'
+}
+
+function normalizeChatProvider(value: string | undefined): ChatProvider {
+  if (!value) {
+    return DEFAULT_CHAT_PROVIDER
+  }
+
+  if (value in CHAT_PROVIDER_ENV_VAR_MAP) {
+    return value as ChatProvider
+  }
+
+  return DEFAULT_CHAT_PROVIDER
+}
+
+function normalizeModelName(value: string | undefined, fallback: string) {
+  const normalized = value?.trim()
+  return normalized && normalized.length > 0 ? normalized : fallback
 }
 
 function normalizePreviewBaseUrl(raw: string, fallback = DEFAULT_PREVIEW_BASE_URL) {
@@ -252,6 +282,12 @@ export class SettingsService {
 
     return {
       chatModel: normalizeChatModel(map.get(SETTING_KEYS.chatModel)),
+      chatProvider: normalizeChatProvider(map.get(SETTING_KEYS.chatProvider)),
+      opencodeModel: normalizeModelName(
+        map.get(SETTING_KEYS.opencodeModel),
+        DEFAULT_OPENCODE_MODEL
+      ),
+      providerEnvVarMap: CHAT_PROVIDER_ENV_VAR_MAP,
       ralphBinaryPath: normalizePath(map.get(SETTING_KEYS.ralphBinaryPath)),
       notifications: {
         loopComplete: parseBoolean(map.get(SETTING_KEYS.notifyLoopComplete), true),
@@ -273,6 +309,17 @@ export class SettingsService {
   async update(input: SettingsUpdateInput): Promise<SettingsSnapshot> {
     if (input.chatModel !== undefined) {
       await this.upsert(SETTING_KEYS.chatModel, input.chatModel)
+    }
+
+    if (input.chatProvider !== undefined) {
+      await this.upsert(SETTING_KEYS.chatProvider, input.chatProvider)
+    }
+
+    if (input.opencodeModel !== undefined) {
+      await this.upsert(
+        SETTING_KEYS.opencodeModel,
+        normalizeModelName(input.opencodeModel, DEFAULT_OPENCODE_MODEL)
+      )
     }
 
     if (input.preview?.portStart !== undefined) {

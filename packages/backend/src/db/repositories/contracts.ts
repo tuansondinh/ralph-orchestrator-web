@@ -127,6 +127,8 @@ export interface ProjectRepository {
   create(project: ProjectRecord): Promise<ProjectRecord>
   update(id: string, updates: ProjectUpdate): Promise<ProjectRecord>
   delete(id: string): Promise<void>
+  findByUserId?(userId: string): Promise<ProjectRecord[]>
+  findByGitHubRepo?(userId: string, owner: string, repo: string): Promise<ProjectRecord | null>
 }
 
 export interface LoopRunRepository {

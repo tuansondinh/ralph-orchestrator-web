@@ -1,45 +1,73 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { MemoryRouter } from 'react-router-dom'
 import { ChatOverlay } from '@/components/chat/ChatOverlay'
-import { resetChatOverlayStore, useChatOverlayStore } from '@/stores/chatOverlayStore'
-import { settingsApi } from '@/lib/settingsApi'
+import { ChatView } from '@/components/chat/ChatView'
+import { ChatSendContext } from '@/providers/ChatSessionProvider'
+import { resetChatSessionStore, useChatSessionStore } from '@/stores/chatSessionStore'
+import { resetProjectStore, useProjectStore } from '@/stores/projectStore'
+import type { ChatMessage, PendingConfirmation } from '@/types/chat'
 
-vi.mock('@/lib/settingsApi', () => ({
-  settingsApi: {
-    get: vi.fn()
-  }
+vi.mock('@/hooks/useCapabilities', () => ({
+  useCapabilities: vi.fn(() => ({
+    capabilities: null
+  }))
 }))
 
-describe('ChatOverlay', () => {
-  function LocationProbe() {
-    const location = useLocation()
-    return <p data-testid="location-path">{`${location.pathname}${location.search}`}</p>
+vi.mock('@/hooks/useMediaQuery', () => ({
+  useMediaQuery: vi.fn(() => false)
+}))
+
+function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
+  return {
+    id: 'message-1',
+    role: 'assistant',
+    content: 'Default message',
+    timestamp: 1_773_132_000_000,
+    isStreaming: false,
+    ...overrides
   }
+}
+
+function makePendingConfirmation(
+  overrides: Partial<PendingConfirmation> = {}
+): PendingConfirmation {
+  return {
+    permissionId: 'permission-1',
+    toolName: 'start_loop',
+    description: 'Start the loop for project-1',
+    args: {
+      projectId: 'project-1'
+    },
+    ...overrides
+  }
+}
+
+describe('ChatOverlay', () => {
+  const send = vi.fn(() => true)
 
   beforeEach(() => {
-    vi.restoreAllMocks()
+    vi.clearAllMocks()
     vi
       .spyOn(globalThis.crypto, 'randomUUID')
       .mockReturnValue('11111111-1111-4111-8111-111111111111')
-    resetChatOverlayStore()
-    vi.mocked(settingsApi.get).mockResolvedValue({
-      chatModel: 'openai',
-      ralphBinaryPath: null,
-      notifications: {
-        loopComplete: true,
-        loopFailed: true,
-        needsInput: true
-      },
-      preview: {
-        portStart: 3001,
-        portEnd: 3010,
-        baseUrl: 'http://localhost',
-        command: null
-      },
-      data: {
-        dbPath: '/tmp/ralph.db'
-      }
+    resetChatSessionStore()
+    resetProjectStore()
+    useProjectStore.setState({
+      projects: [
+        {
+          id: 'project-1',
+          name: 'Project One',
+          path: '/tmp/project-one',
+          type: 'node',
+          ralphConfig: '.ralph',
+          createdAt: 1_773_132_000_000,
+          updatedAt: 1_773_132_000_000
+        }
+      ],
+      activeProjectId: 'project-1',
+      isLoading: false,
+      error: null
     })
   })
 
@@ -47,8 +75,18 @@ describe('ChatOverlay', () => {
     cleanup()
   })
 
-  it('renders collapsed by default and toggles open/close from button clicks', () => {
-    render(<ChatOverlay />)
+  function renderOverlay() {
+    return render(
+      <MemoryRouter initialEntries={['/project/project-1/chat']}>
+        <ChatSendContext.Provider value={send}>
+          <ChatOverlay />
+        </ChatSendContext.Provider>
+      </MemoryRouter>
+    )
+  }
+
+  it('renders collapsed by default and toggles open and closed from the launcher button', () => {
+    renderOverlay()
 
     expect(screen.getByRole('button', { name: 'Open chat assistant' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Ralph Assistant' })).not.toBeInTheDocument()
@@ -59,163 +97,92 @@ describe('ChatOverlay', () => {
     expect(screen.getByRole('button', { name: 'Close chat assistant' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Close chat assistant' }))
+
     expect(screen.queryByRole('heading', { name: 'Ralph Assistant' })).not.toBeInTheDocument()
   })
 
-  it('renders user and streaming assistant messages from store updates', () => {
-    useChatOverlayStore.setState({
-      isOpen: true,
+  it('renders shared-session messages and omits the removed model selector', () => {
+    useChatSessionStore.setState({
       messages: [
-        {
+        makeMessage({
           id: 'user-1',
           role: 'user',
-          content: 'List projects',
-          timestamp: Date.now()
-        }
+          content: 'Show me the projects'
+        }),
+        makeMessage({
+          id: 'assistant-1',
+          role: 'assistant',
+          content: '# Projects\n\n- Alpha'
+        })
       ]
     })
 
-    render(<ChatOverlay />)
-    expect(screen.getByText('List projects')).toBeInTheDocument()
-
-    act(() => {
-      useChatOverlayStore.getState().appendStreamChunk('Working')
-      useChatOverlayStore.getState().appendStreamChunk(' now')
-    })
-
-    expect(screen.getByText('Working now')).toBeInTheDocument()
-  })
-
-  it('loads model from settings when opened and updates selected model from header dropdown', async () => {
-    render(<ChatOverlay />)
-
+    renderOverlay()
     fireEvent.click(screen.getByRole('button', { name: 'Open chat assistant' }))
 
-    await waitFor(() => {
-      expect(useChatOverlayStore.getState().selectedModel).toBe('openai')
-    })
-
-    const modelSelector = screen.getByLabelText('Chat model')
-    expect(modelSelector).toHaveValue('openai')
-
-    fireEvent.change(modelSelector, {
-      target: { value: 'claude' }
-    })
-
-    expect(useChatOverlayStore.getState().selectedModel).toBe('claude')
+    expect(screen.getByTestId('chat-message-user')).toHaveTextContent('Show me the projects')
+    expect(screen.getByTestId('chat-message-assistant')).toHaveTextContent('Projects')
+    expect(screen.getByText('Alpha')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Chat model')).not.toBeInTheDocument()
   })
 
-  it('renders deep-link for tool results and closes overlay on click after navigating', async () => {
-    useChatOverlayStore.setState({
-      isOpen: true,
+  it('shows inline confirmation cards and routes confirmation through the shared session hook', () => {
+    useChatSessionStore.setState({
+      pendingConfirmation: makePendingConfirmation()
+    })
+
+    renderOverlay()
+    fireEvent.click(screen.getByRole('button', { name: 'Open chat assistant' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    expect(send).toHaveBeenCalledWith({
+      type: 'chat:confirm',
+      permissionId: 'permission-1',
+      confirmed: true
+    })
+    expect(useChatSessionStore.getState().pendingConfirmation).toBeNull()
+  })
+
+  it('sends messages through the shared session hook and renders the optimistic user message', () => {
+    renderOverlay()
+    fireEvent.click(screen.getByRole('button', { name: 'Open chat assistant' }))
+
+    fireEvent.change(screen.getByLabelText('Message'), {
+      target: { value: 'Run a status check' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    expect(send).toHaveBeenCalledWith({
+      type: 'chat:send',
+      message: 'Run a status check'
+    })
+    expect(screen.getByTestId('chat-message-user')).toHaveTextContent('Run a status check')
+  })
+
+  it('shows the same shared transcript in the chat tab and desktop bubble at the same time', () => {
+    useChatSessionStore.setState({
       messages: [
-        {
-          id: 'tool-1',
-          role: 'tool',
-          content: 'Showing 50 lines',
-          toolCall: {
-            id: 'tool-1',
-            name: 'get_loop_output',
-            link: '/project/project-1/loops?loopId=loop-1'
-          },
-          timestamp: Date.now()
-        }
+        makeMessage({
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'Shared history'
+        })
       ]
     })
 
     render(
       <MemoryRouter initialEntries={['/project/project-1/chat']}>
-        <Routes>
-          <Route
-            path="*"
-            element={
-              <>
-                <ChatOverlay />
-                <LocationProbe />
-              </>
-            }
-          />
-        </Routes>
+        <ChatSendContext.Provider value={send}>
+          <div>
+            <ChatView projectId="project-1" />
+            <ChatOverlay />
+          </div>
+        </ChatSendContext.Provider>
       </MemoryRouter>
     )
 
-    expect(screen.getByRole('link', { name: 'View details' })).toHaveAttribute(
-      'href',
-      '/project/project-1/loops?loopId=loop-1'
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Open chat assistant' }))
 
-    fireEvent.click(screen.getByRole('link', { name: 'View details' }))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('location-path')).toHaveTextContent(
-        '/project/project-1/loops?loopId=loop-1'
-      )
-      expect(useChatOverlayStore.getState().isOpen).toBe(false)
-    })
-  })
-
-  it('formats list_projects tool output into a readable project list', () => {
-    useChatOverlayStore.setState({
-      isOpen: true,
-      messages: [
-        {
-          id: 'tool-list-projects',
-          role: 'tool',
-          content: JSON.stringify([
-            {
-              id: 'project-1',
-              name: 'check4recycling',
-              path: '/Users/sonwork/Workspace/check4recycling',
-              type: 'node',
-              ralphConfig: 'ralph.yml'
-            },
-            {
-              id: 'project-2',
-              name: 'ralph-orchestrator-web',
-              path: '/Users/sonwork/Workspace/ralph-orchestrator-web',
-              type: 'node',
-              ralphConfig: 'ralph.yml'
-            }
-          ]),
-          toolCall: {
-            id: 'tool-list-projects',
-            name: 'list_projects'
-          },
-          timestamp: Date.now()
-        }
-      ]
-    })
-
-    render(<ChatOverlay />)
-
-    expect(screen.getByText('Found 2 projects:')).toBeInTheDocument()
-    expect(screen.getByText('check4recycling')).toBeInTheDocument()
-    expect(screen.getByText('/Users/sonwork/Workspace/check4recycling')).toBeInTheDocument()
-    expect(screen.getByText('ralph-orchestrator-web')).toBeInTheDocument()
-    expect(screen.getByText('/Users/sonwork/Workspace/ralph-orchestrator-web')).toBeInTheDocument()
-  })
-
-  it('formats generic tool output as pretty JSON', () => {
-    useChatOverlayStore.setState({
-      isOpen: true,
-      messages: [
-        {
-          id: 'tool-generic',
-          role: 'tool',
-          content: '{"ok":true,"nested":{"count":2}}',
-          toolCall: {
-            id: 'tool-generic',
-            name: 'get_monitoring'
-          },
-          timestamp: Date.now()
-        }
-      ]
-    })
-
-    render(<ChatOverlay />)
-
-    expect(screen.getByText('get_monitoring')).toBeInTheDocument()
-    expect(screen.getByText(/"nested": {/)).toBeInTheDocument()
-    expect(screen.getByText(/"count": 2/)).toBeInTheDocument()
+    expect(screen.getAllByText('Shared history')).toHaveLength(2)
   })
 })

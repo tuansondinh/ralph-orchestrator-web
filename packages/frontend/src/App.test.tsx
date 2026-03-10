@@ -358,12 +358,12 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Create Project' })).toBeInTheDocument()
   })
 
-  it('does not render a floating chat assistant button', async () => {
+  it('renders a floating chat assistant button', async () => {
     render(<App />)
 
     await screen.findByRole('heading', { name: 'No projects yet' })
 
-    expect(screen.queryByRole('button', { name: 'Open chat assistant' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open chat assistant' })).toBeInTheDocument()
   })
 
   it('renders developer-focused empty homepage content', async () => {

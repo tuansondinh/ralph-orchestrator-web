@@ -12,6 +12,7 @@ import { AppErrorBoundary } from '@/components/errors/AppErrorBoundary'
 import { AppShell } from '@/components/layout/AppShell'
 import { NotificationCenter } from '@/components/notifications/NotificationCenter'
 import { NotificationToast } from '@/components/notifications/NotificationToast'
+import { ChatOverlay } from '@/components/chat/ChatOverlay'
 import { EmptyState } from '@/components/project/EmptyState'
 import { ProjectHomeState } from '@/components/project/ProjectHomeState'
 import { ProjectSwitcherDialog } from '@/components/project/ProjectSwitcherDialog'
@@ -388,6 +389,9 @@ export function AppShellRoutes({
           projects={projects}
         />
         <NotificationToast onDismiss={dismissToast} toasts={toasts} />
+        <div className="hidden md:block">
+          <ChatOverlay />
+        </div>
       </AppShell>
     </ChatSessionProvider>
   )

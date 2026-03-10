@@ -43,6 +43,11 @@ const baseSettings = {
     openai: true,
     google: true
   },
+  storedApiKeyStatus: {
+    anthropic: false,
+    openai: false,
+    google: false
+  },
   ralphBinaryPath: '/usr/local/bin/ralph',
   notifications: {
     loopComplete: true,
@@ -82,6 +87,28 @@ describe('SettingsPage', () => {
       chatModel: input.chatModel ?? baseSettings.chatModel,
       chatProvider: input.chatProvider ?? baseSettings.chatProvider,
       opencodeModel: input.opencodeModel ?? baseSettings.opencodeModel,
+      storedApiKeyStatus: {
+        ...baseSettings.storedApiKeyStatus,
+        ...(input.providerApiKeys
+          ? Object.fromEntries(
+              Object.entries(input.providerApiKeys).map(([provider, value]) => [
+                provider,
+                value !== null
+              ])
+            )
+          : {})
+      },
+      apiKeyStatus: {
+        ...baseSettings.apiKeyStatus,
+        ...(input.providerApiKeys
+          ? Object.fromEntries(
+              Object.entries(input.providerApiKeys).map(([provider, value]) => [
+                provider,
+                value !== null
+              ])
+            )
+          : {})
+      },
       notifications: {
         ...baseSettings.notifications,
         ...(input.notifications ?? {})
@@ -124,22 +151,25 @@ describe('SettingsPage', () => {
     fireEvent.change(screen.getByLabelText('Preview port end'), {
       target: { value: '4200' }
     })
-    fireEvent.change(screen.getByLabelText('AI model'), {
-      target: { value: 'claude' }
-    })
-    fireEvent.change(screen.getByLabelText('Chat provider'), {
+    fireEvent.change(screen.getByLabelText('Provider'), {
       target: { value: 'openai' }
     })
-    fireEvent.change(screen.getByLabelText('Chat model'), {
+    fireEvent.change(screen.getByLabelText('Model'), {
       target: { value: 'gpt-4o' }
+    })
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'openai-key' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
 
     await waitFor(() => {
       expect(settingsApi.update).toHaveBeenCalledWith({
-        chatModel: 'claude',
+        chatModel: 'openai',
         chatProvider: 'openai',
         opencodeModel: 'gpt-4o',
+        providerApiKeys: {
+          openai: 'openai-key'
+        },
         ralphBinaryPath: '/custom/bin/ralph',
         notifications: {
           loopComplete: false,
@@ -163,9 +193,9 @@ describe('SettingsPage', () => {
       </MemoryRouter>
     )
 
-    expect(await screen.findByRole('heading', { name: 'Chat' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Chat provider')).toHaveValue('anthropic')
-    expect(screen.getByLabelText('Chat model')).toHaveValue('claude-sonnet-4-20250514')
+    expect(await screen.findByRole('heading', { name: 'Assistant' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Provider')).toHaveValue('anthropic')
+    expect(screen.getByLabelText('Model')).toHaveValue('claude-sonnet-4-20250514')
     expect(screen.getByRole('option', { name: 'Anthropic' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'OpenAI' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Google' })).toBeInTheDocument()
@@ -187,12 +217,56 @@ describe('SettingsPage', () => {
       </MemoryRouter>
     )
 
-    await screen.findByLabelText('Chat provider')
-    fireEvent.change(screen.getByLabelText('Chat provider'), {
+    await screen.findByLabelText('Provider')
+    fireEvent.change(screen.getByLabelText('Provider'), {
       target: { value: 'openai' }
     })
 
-    expect(await screen.findByText(/OPENAI_API_KEY environment variable is not set/i)).toBeInTheDocument()
+    expect(await screen.findByText(/No stored key or OPENAI_API_KEY environment variable is configured/i)).toBeInTheDocument()
+  })
+
+  it('shows when a stored API key is configured and allows clearing it', async () => {
+    vi.mocked(settingsApi.get).mockResolvedValue({
+      ...baseSettings,
+      apiKeyStatus: {
+        anthropic: true,
+        openai: true,
+        google: true
+      },
+      storedApiKeyStatus: {
+        anthropic: false,
+        openai: true,
+        google: false
+      }
+    })
+
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    )
+
+    await screen.findByLabelText('Provider')
+    fireEvent.change(screen.getByLabelText('Provider'), {
+      target: { value: 'openai' }
+    })
+
+    expect(
+      await screen.findByText(/A stored API key is already configured for this provider/i)
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Clear the stored API key for this provider on save'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => {
+      expect(settingsApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerApiKeys: {
+            openai: null
+          }
+        })
+      )
+    })
   })
 
   it('tests the configured binary and shows success or failure feedback', async () => {

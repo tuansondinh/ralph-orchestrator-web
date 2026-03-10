@@ -36,6 +36,27 @@ describe('useChatSession', () => {
     ])
   })
 
+  it('adds an error instead of an optimistic message when chat is disconnected', () => {
+    const send = vi.fn(() => false)
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <ChatSendContext.Provider value={send}>{children}</ChatSendContext.Provider>
+    )
+
+    const { result } = renderHook(() => useChatSession(), { wrapper })
+
+    act(() => {
+      result.current.sendMessage('test')
+    })
+
+    expect(send).toHaveBeenCalledWith({ type: 'chat:send', message: 'test' })
+    expect(useChatSessionStore.getState().messages).toEqual([
+      expect.objectContaining({
+        role: 'assistant',
+        content: 'Chat is disconnected. Reconnect and try again.'
+      })
+    ])
+  })
+
   it('sends confirmation responses and clears pendingConfirmation locally', () => {
     const send = vi.fn(() => true)
     const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -61,5 +82,33 @@ describe('useChatSession', () => {
       confirmed: true
     })
     expect(useChatSessionStore.getState().pendingConfirmation).toBeNull()
+  })
+
+  it('keeps pending confirmation in place when confirm cannot be sent', () => {
+    const send = vi.fn(() => false)
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <ChatSendContext.Provider value={send}>{children}</ChatSendContext.Provider>
+    )
+
+    useChatSessionStore.getState().setPendingConfirmation({
+      permissionId: 'permission-1',
+      toolName: 'start_loop',
+      description: 'Approve start_loop',
+      args: { loopId: 'loop-1' }
+    })
+
+    const { result } = renderHook(() => useChatSession(), { wrapper })
+
+    act(() => {
+      result.current.confirmAction('permission-1', true)
+    })
+
+    expect(useChatSessionStore.getState().pendingConfirmation).toMatchObject({
+      permissionId: 'permission-1'
+    })
+    expect(useChatSessionStore.getState().messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      content: 'Chat is disconnected. Reconnect and try again.'
+    })
   })
 })

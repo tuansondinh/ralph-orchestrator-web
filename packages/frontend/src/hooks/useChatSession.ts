@@ -15,6 +15,16 @@ export function useChatSession() {
     status,
     pendingConfirmation,
     sendMessage(text: string) {
+      const sent = send({
+        type: 'chat:send',
+        message: text
+      })
+      if (!sent) {
+        useChatSessionStore.getState().addError(
+          'Chat is disconnected. Reconnect and try again.'
+        )
+        return
+      }
       useChatSessionStore.getState().addMessage({
         id: globalThis.crypto.randomUUID(),
         role: 'user',
@@ -22,17 +32,19 @@ export function useChatSession() {
         timestamp: Date.now(),
         isStreaming: false
       })
-      send({
-        type: 'chat:send',
-        message: text
-      })
     },
     confirmAction(permissionId: string, confirmed: boolean) {
-      send({
+      const sent = send({
         type: 'chat:confirm',
         permissionId,
         confirmed
       })
+      if (!sent) {
+        useChatSessionStore.getState().addError(
+          'Chat is disconnected. Reconnect and try again.'
+        )
+        return
+      }
       useChatSessionStore.getState().setPendingConfirmation(null)
     }
   }

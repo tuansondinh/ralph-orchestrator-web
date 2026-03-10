@@ -838,15 +838,37 @@ export async function registerWebsocket(app: FastifyInstance) {
       }
 
       if (message.type === 'chat:send') {
-        await app.openCodeService.sendMessage(message.message)
+        try {
+          await app.openCodeService.sendMessage(message.message)
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : 'Unable to send chat message.'
+          safeSend(app, socket, {
+            type: 'chat:error',
+            error: errorMessage
+          })
+        }
         return
       }
 
       if (message.type === 'chat:confirm') {
-        await app.openCodeService.confirmPermission(
-          message.permissionId,
-          message.confirmed
-        )
+        try {
+          await app.openCodeService.confirmPermission(
+            message.permissionId,
+            message.confirmed
+          )
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : 'Unable to confirm chat action.'
+          safeSend(app, socket, {
+            type: 'chat:error',
+            error: errorMessage
+          })
+        }
         return
       }
 

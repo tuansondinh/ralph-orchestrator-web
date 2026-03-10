@@ -40,6 +40,11 @@ const baseSettings = {
     openai: true,
     google: true
   },
+  storedApiKeyStatus: {
+    anthropic: false,
+    openai: false,
+    google: false
+  },
   ralphBinaryPath: null,
   notifications: {
     loopComplete: true,

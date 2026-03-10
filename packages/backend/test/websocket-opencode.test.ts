@@ -235,4 +235,49 @@ describe('opencode websocket channel', () => {
     chatClient.close()
     otherClient.close()
   })
+
+  it('returns chat:error when OpenCode send or confirm fails', async () => {
+    const harness = await setupLocalApp()
+    vi.spyOn(harness.app.openCodeService, 'sendMessage').mockRejectedValue(
+      new Error('OpenCode unavailable')
+    )
+    vi.spyOn(harness.app.openCodeService, 'confirmPermission').mockRejectedValue(
+      new Error('Permission session expired')
+    )
+
+    const chatClient = await connectWS(harness.wsUrl)
+    const nextMessage = createMessageWaiter(chatClient)
+
+    chatClient.send(JSON.stringify({ type: 'subscribe', channels: ['opencode-chat'] }))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    chatClient.send(JSON.stringify({ type: 'chat:send', message: 'hello' }))
+
+    await expect(
+      nextMessage((message) => message.type === 'chat:error')
+    ).resolves.toMatchObject({
+      type: 'chat:error',
+      error: 'OpenCode unavailable'
+    })
+
+    chatClient.send(
+      JSON.stringify({
+        type: 'chat:confirm',
+        permissionId: 'perm-1',
+        confirmed: true
+      })
+    )
+
+    await expect(
+      nextMessage(
+        (message) =>
+          message.type === 'chat:error' && message.error === 'Permission session expired'
+      )
+    ).resolves.toMatchObject({
+      type: 'chat:error',
+      error: 'Permission session expired'
+    })
+
+    chatClient.close()
+  })
 })

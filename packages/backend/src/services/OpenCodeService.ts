@@ -15,7 +15,6 @@ import {
   type Session
 } from '@opencode-ai/sdk'
 import {
-  CHAT_PROVIDER_ENV_VAR_MAP,
   DEFAULT_CHAT_PROVIDER,
   DEFAULT_OPENCODE_MODEL,
   type ChatProvider
@@ -31,7 +30,7 @@ import type {
 
 interface OpenCodeServiceOptions {
   mcpEndpointUrl: string
-  settingsService: Pick<SettingsService, 'get'>
+  settingsService: Pick<SettingsService, 'get' | 'getProviderApiKey'>
   dataDir?: string
   createOpencode?: (options?: ServerOptions) => Promise<{
     client: OpencodeClient
@@ -83,7 +82,7 @@ function getModelIdentifier(provider: string, model: string) {
 }
 
 export class OpenCodeService {
-  private readonly settingsService: Pick<SettingsService, 'get'>
+  private readonly settingsService: Pick<SettingsService, 'get' | 'getProviderApiKey'>
   private readonly mcpEndpointUrl: string
   private readonly dataDir?: string
   private readonly createOpencodeFactory: NonNullable<OpenCodeServiceOptions['createOpencode']>
@@ -232,7 +231,7 @@ export class OpenCodeService {
     }
 
     await this.client.config.update({
-      body: this.buildConfig()
+      body: await this.buildConfig()
     })
   }
 
@@ -242,7 +241,9 @@ export class OpenCodeService {
     this.currentModel = settings.opencodeModel
 
     const created = await this.createOpencodeFactory({
-      config: this.buildConfig()
+      config: await this.buildConfig(),
+      // Avoid collisions with stale local OpenCode daemons that may still own the SDK default port.
+      port: 0
     })
 
     this.client = created.client
@@ -257,11 +258,10 @@ export class OpenCodeService {
     }
   }
 
-  private buildConfig(): Config {
-    const apiKeyEnvVar =
-      CHAT_PROVIDER_ENV_VAR_MAP[this.currentProvider] ??
-      CHAT_PROVIDER_ENV_VAR_MAP[DEFAULT_CHAT_PROVIDER]
-    const apiKey = process.env[apiKeyEnvVar]
+  private async buildConfig(): Promise<Config> {
+    const apiKey =
+      (await this.settingsService.getProviderApiKey(this.currentProvider)) ??
+      (await this.settingsService.getProviderApiKey(DEFAULT_CHAT_PROVIDER))
 
     return {
       model: getModelIdentifier(this.currentProvider, this.currentModel),

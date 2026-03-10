@@ -174,6 +174,11 @@ describe('settings tRPC routes', () => {
       openai: false,
       google: false
     })
+    expect(initial.storedApiKeyStatus).toEqual({
+      anthropic: false,
+      openai: false,
+      google: false
+    })
     expect(initial.ralphBinaryPath).toBeNull()
     expect(initial.notifications).toEqual({
       loopComplete: true,
@@ -192,6 +197,9 @@ describe('settings tRPC routes', () => {
       chatModel: 'openai',
       chatProvider: 'openai',
       opencodeModel: 'gpt-4o',
+      providerApiKeys: {
+        openai: 'openai-key'
+      },
       ralphBinaryPath: binaryPath,
       notifications: {
         loopComplete: false,
@@ -209,6 +217,8 @@ describe('settings tRPC routes', () => {
     expect(updated.chatModel).toBe('openai')
     expect(updated.chatProvider).toBe('openai')
     expect(updated.opencodeModel).toBe('gpt-4o')
+    expect(updated.apiKeyStatus.openai).toBe(true)
+    expect(updated.storedApiKeyStatus.openai).toBe(true)
     expect(updated.ralphBinaryPath).toBe(binaryPath)
     expect(updated.notifications.loopComplete).toBe(false)
     expect(updated.notifications.needsInput).toBe(false)
@@ -256,6 +266,11 @@ describe('settings tRPC routes', () => {
       openai: false,
       google: false
     })
+    expect(updated.storedApiKeyStatus).toEqual({
+      anthropic: false,
+      openai: false,
+      google: false
+    })
 
     const reloaded = await caller.settings.get()
     expect(reloaded.chatModel).toBe('claude')
@@ -272,6 +287,24 @@ describe('settings tRPC routes', () => {
     })
 
     expect(openCodeService.updateModel).toHaveBeenCalledWith('openai', 'gpt-4o')
+  })
+
+  it('clears a stored provider API key when requested', async () => {
+    const { caller } = await setupCaller()
+
+    const updated = await caller.settings.update({
+      providerApiKeys: {
+        anthropic: 'anthropic-key'
+      }
+    })
+    expect(updated.storedApiKeyStatus.anthropic).toBe(true)
+
+    const cleared = await caller.settings.update({
+      providerApiKeys: {
+        anthropic: null
+      }
+    })
+    expect(cleared.storedApiKeyStatus.anthropic).toBe(false)
   })
 
   it('requires confirmation before clearing project/chat/loop/notification data', async () => {

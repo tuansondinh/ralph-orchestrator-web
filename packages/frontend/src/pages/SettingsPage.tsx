@@ -8,11 +8,23 @@ import {
 import { GitHubConnectCard } from '@/components/settings/GitHubConnectCard'
 import { RalphProcessList } from '@/components/system/RalphProcessList'
 
-function toUpdateInput(settings: SettingsSnapshot): SettingsUpdateInput {
+const PROVIDER_TO_ASSISTANT_MODEL = {
+  anthropic: 'claude',
+  openai: 'openai',
+  google: 'gemini'
+} as const satisfies Record<SettingsSnapshot['chatProvider'], SettingsSnapshot['chatModel']>
+
+function toUpdateInput(
+  settings: SettingsSnapshot,
+  options?: {
+    providerApiKeys?: SettingsUpdateInput['providerApiKeys']
+  }
+): SettingsUpdateInput {
   return {
-    chatModel: settings.chatModel,
+    chatModel: PROVIDER_TO_ASSISTANT_MODEL[settings.chatProvider],
     chatProvider: settings.chatProvider,
     opencodeModel: settings.opencodeModel,
+    providerApiKeys: options?.providerApiKeys,
     ralphBinaryPath: settings.ralphBinaryPath,
     notifications: { ...settings.notifications },
     preview: { ...settings.preview }
@@ -26,6 +38,8 @@ function parsePort(value: string, fallback: number) {
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<SettingsSnapshot | null>(null)
+  const [chatApiKeyInput, setChatApiKeyInput] = useState('')
+  const [clearStoredApiKey, setClearStoredApiKey] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [binaryMessage, setBinaryMessage] = useState<string | null>(null)
@@ -40,6 +54,8 @@ export function SettingsPage() {
       .then((result) => {
         if (!cancelled) {
           setSettings(result)
+          setChatApiKeyInput('')
+          setClearStoredApiKey(false)
         }
       })
       .catch((error: unknown) => {
@@ -70,6 +86,9 @@ export function SettingsPage() {
   const isChatApiKeyMissing = settings
     ? settings.apiKeyStatus?.[settings.chatProvider] === false
     : false
+  const hasStoredChatApiKey = settings
+    ? settings.storedApiKeyStatus?.[settings.chatProvider] === true
+    : false
 
   const onSave = async () => {
     if (!settings) {
@@ -81,8 +100,20 @@ export function SettingsPage() {
     setSaveMessage(null)
 
     try {
-      const updated = await settingsApi.update(toUpdateInput(settings))
+      const providerApiKeys =
+        clearStoredApiKey || chatApiKeyInput.trim().length > 0
+          ? {
+              [settings.chatProvider]: clearStoredApiKey ? null : chatApiKeyInput.trim()
+            }
+          : undefined
+      const updated = await settingsApi.update(
+        toUpdateInput(settings, {
+          providerApiKeys
+        })
+      )
       setSettings(updated)
+      setChatApiKeyInput('')
+      setClearStoredApiKey(false)
       setSaveMessage('Settings saved.')
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to save settings')
@@ -155,38 +186,20 @@ export function SettingsPage() {
 
       <section className="space-y-3 rounded-md border border-zinc-800 p-4">
         <h2 className="text-lg font-semibold">Assistant</h2>
-        <label className="flex max-w-sm flex-col gap-1 text-sm" htmlFor="chat-model">
-          AI model
-          <select
-            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
-            id="chat-model"
-            onChange={(event) =>
-              updateSettings((current) => ({
-                ...current,
-                chatModel: event.target.value as SettingsSnapshot['chatModel']
-              }))
-            }
-            value={settings.chatModel}
-          >
-            <option value="gemini">Gemini</option>
-            <option value="openai">OpenAI (GPT-4o)</option>
-            <option value="claude">Claude</option>
-          </select>
-        </label>
-      </section>
-
-      <section className="space-y-3 rounded-md border border-zinc-800 p-4">
-        <h2 className="text-lg font-semibold">Chat</h2>
         <div className="grid max-w-2xl gap-3 md:grid-cols-2">
           <label className="flex flex-col gap-1 text-sm" htmlFor="chat-provider">
-            Chat provider
+            Provider
             <select
               className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
               id="chat-provider"
               onChange={(event) =>
                 updateSettings((current) => ({
                   ...current,
-                  chatProvider: event.target.value as SettingsSnapshot['chatProvider']
+                  chatProvider: event.target.value as SettingsSnapshot['chatProvider'],
+                  chatModel:
+                    PROVIDER_TO_ASSISTANT_MODEL[
+                      event.target.value as SettingsSnapshot['chatProvider']
+                    ]
                 }))
               }
               value={settings.chatProvider}
@@ -198,7 +211,7 @@ export function SettingsPage() {
           </label>
 
           <label className="flex flex-col gap-1 text-sm" htmlFor="opencode-model">
-            Chat model
+            Model
             <input
               className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
               id="opencode-model"
@@ -214,9 +227,48 @@ export function SettingsPage() {
           </label>
         </div>
 
+        <div className="max-w-2xl space-y-3">
+          <label className="flex flex-col gap-1 text-sm" htmlFor="chat-api-key">
+            API key
+            <input
+              className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
+              id="chat-api-key"
+              onChange={(event) => {
+                setChatApiKeyInput(event.target.value)
+                if (clearStoredApiKey) {
+                  setClearStoredApiKey(false)
+                }
+              }}
+              placeholder={
+                hasStoredChatApiKey
+                  ? 'Stored key configured. Enter a new key to replace it.'
+                  : `Paste ${selectedChatEnvVar ?? 'provider'} here to store it in Ralph settings.`
+              }
+              type="password"
+              value={chatApiKeyInput}
+            />
+          </label>
+
+          <label className="flex items-center gap-2 text-sm text-zinc-300">
+            <input
+              checked={clearStoredApiKey}
+              onChange={(event) => setClearStoredApiKey(event.target.checked)}
+              type="checkbox"
+            />
+            Clear the stored API key for this provider on save
+          </label>
+
+          {hasStoredChatApiKey ? (
+            <p className="text-sm text-zinc-400">
+              A stored API key is already configured for this provider.
+            </p>
+          ) : null}
+        </div>
+
         {isChatApiKeyMissing && selectedChatEnvVar ? (
           <p className="text-sm text-amber-300">
-            {selectedChatEnvVar} environment variable is not set. Chat may not work.
+            No stored key or {selectedChatEnvVar} environment variable is configured. Assistant
+            responses will fail until one is set.
           </p>
         ) : null}
       </section>

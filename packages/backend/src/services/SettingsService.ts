@@ -19,6 +19,9 @@ const SETTING_KEYS = {
   chatProvider: 'opencode.provider',
   opencodeModel: 'opencode.model',
   chatModel: 'chat.model',
+  anthropicApiKey: 'opencode.apiKey.anthropic',
+  openaiApiKey: 'opencode.apiKey.openai',
+  googleApiKey: 'opencode.apiKey.google',
   ralphBinaryPath: 'ralph.binaryPath',
   notifyLoopComplete: 'notifications.loopComplete.enabled',
   notifyLoopFailed: 'notifications.loopFailed.enabled',
@@ -45,6 +48,7 @@ export interface SettingsSnapshot {
   opencodeModel: string
   providerEnvVarMap: typeof CHAT_PROVIDER_ENV_VAR_MAP
   apiKeyStatus: Record<ChatProvider, boolean>
+  storedApiKeyStatus: Record<ChatProvider, boolean>
   ralphBinaryPath: string | null
   notifications: {
     loopComplete: boolean
@@ -66,6 +70,7 @@ export interface SettingsUpdateInput {
   chatModel?: ChatModel
   chatProvider?: ChatProvider
   opencodeModel?: string
+  providerApiKeys?: Partial<Record<ChatProvider, string | null>>
   ralphBinaryPath?: string | null
   notifications?: {
     loopComplete?: boolean
@@ -164,11 +169,34 @@ function normalizeModelName(value: string | undefined, fallback: string) {
   return normalized && normalized.length > 0 ? normalized : fallback
 }
 
-function getApiKeyStatus() {
+function settingKeyForProviderApiKey(provider: ChatProvider) {
+  switch (provider) {
+    case 'anthropic':
+      return SETTING_KEYS.anthropicApiKey
+    case 'openai':
+      return SETTING_KEYS.openaiApiKey
+    case 'google':
+      return SETTING_KEYS.googleApiKey
+  }
+}
+
+function getStoredApiKeyStatus(map: Map<string, string>) {
   return {
-    anthropic: Boolean(process.env[CHAT_PROVIDER_ENV_VAR_MAP.anthropic]),
-    openai: Boolean(process.env[CHAT_PROVIDER_ENV_VAR_MAP.openai]),
-    google: Boolean(process.env[CHAT_PROVIDER_ENV_VAR_MAP.google])
+    anthropic: Boolean(normalizePath(map.get(SETTING_KEYS.anthropicApiKey))),
+    openai: Boolean(normalizePath(map.get(SETTING_KEYS.openaiApiKey))),
+    google: Boolean(normalizePath(map.get(SETTING_KEYS.googleApiKey)))
+  } satisfies Record<ChatProvider, boolean>
+}
+
+function getApiKeyStatus(storedApiKeyStatus: Record<ChatProvider, boolean>) {
+  return {
+    anthropic:
+      storedApiKeyStatus.anthropic ||
+      Boolean(process.env[CHAT_PROVIDER_ENV_VAR_MAP.anthropic]),
+    openai:
+      storedApiKeyStatus.openai || Boolean(process.env[CHAT_PROVIDER_ENV_VAR_MAP.openai]),
+    google:
+      storedApiKeyStatus.google || Boolean(process.env[CHAT_PROVIDER_ENV_VAR_MAP.google])
   } satisfies Record<ChatProvider, boolean>
 }
 
@@ -273,6 +301,7 @@ export class SettingsService {
 
   async get(): Promise<SettingsSnapshot> {
     const map = await this.readMap()
+    const storedApiKeyStatus = getStoredApiKeyStatus(map)
     const configuredPreviewStart = parseInteger(
       map.get(SETTING_KEYS.previewPortStart),
       DEFAULT_PORT_START
@@ -297,7 +326,8 @@ export class SettingsService {
         DEFAULT_OPENCODE_MODEL
       ),
       providerEnvVarMap: CHAT_PROVIDER_ENV_VAR_MAP,
-      apiKeyStatus: getApiKeyStatus(),
+      apiKeyStatus: getApiKeyStatus(storedApiKeyStatus),
+      storedApiKeyStatus,
       ralphBinaryPath: normalizePath(map.get(SETTING_KEYS.ralphBinaryPath)),
       notifications: {
         loopComplete: parseBoolean(map.get(SETTING_KEYS.notifyLoopComplete), true),
@@ -330,6 +360,19 @@ export class SettingsService {
         SETTING_KEYS.opencodeModel,
         normalizeModelName(input.opencodeModel, DEFAULT_OPENCODE_MODEL)
       )
+    }
+
+    if (input.providerApiKeys) {
+      for (const provider of Object.keys(input.providerApiKeys) as ChatProvider[]) {
+        const apiKey = input.providerApiKeys[provider]
+        const settingKey = settingKeyForProviderApiKey(provider)
+        const normalized = normalizePath(apiKey)
+        if (normalized) {
+          await this.upsert(settingKey, normalized)
+        } else if (apiKey !== undefined) {
+          await this.remove(settingKey)
+        }
+      }
     }
 
     if (input.preview?.portStart !== undefined) {
@@ -523,6 +566,17 @@ export class SettingsService {
     }
 
     return { cleared: true as const }
+  }
+
+  async getProviderApiKey(provider: ChatProvider): Promise<string | null> {
+    const map = await this.readMap()
+    const stored = normalizePath(map.get(settingKeyForProviderApiKey(provider)))
+    if (stored) {
+      return stored
+    }
+
+    const envVar = CHAT_PROVIDER_ENV_VAR_MAP[provider]
+    return normalizePath(process.env[envVar])
   }
 
   private async readMap() {

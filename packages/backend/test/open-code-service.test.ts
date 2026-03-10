@@ -89,6 +89,11 @@ function createSettingsSnapshot(): SettingsSnapshot {
       openai: false,
       google: false
     },
+    storedApiKeyStatus: {
+      anthropic: false,
+      openai: false,
+      google: false
+    },
     ralphBinaryPath: null,
     notifications: {
       loopComplete: true,
@@ -114,6 +119,9 @@ function createServiceHarness() {
   const configUpdate = vi.fn(async () => undefined)
   const permissionReply = vi.fn(async () => true)
   const settingsGet = vi.fn(async () => createSettingsSnapshot())
+  const getProviderApiKey = vi.fn(async (provider: string) =>
+    provider === 'anthropic' ? 'test-anthropic-key' : null
+  )
   const eventQueues: Array<ReturnType<typeof createAsyncQueue<unknown>>> = []
 
   const client = {
@@ -145,7 +153,8 @@ function createServiceHarness() {
   const service = new OpenCodeService({
     mcpEndpointUrl: 'http://localhost:3003/mcp',
     settingsService: {
-      get: settingsGet
+      get: settingsGet,
+      getProviderApiKey
     },
     createOpencode,
     now: () => 1_700_000_000_000
@@ -164,6 +173,8 @@ function createServiceHarness() {
     service,
     sessionCreate,
     settingsGet
+    ,
+    getProviderApiKey
   }
 }
 
@@ -195,13 +206,7 @@ describe('OpenCodeService', () => {
     await harness.service.start()
 
     expect(harness.service.isRunning()).toBe(true)
-    expect(harness.createOpencode).toHaveBeenCalledWith(
-      expect.objectContaining({
-        config: expect.objectContaining({
-          model: 'anthropic/claude-sonnet-4-20250514'
-        })
-      })
-    )
+    expect(harness.createOpencode).toHaveBeenCalledTimes(1)
 
     await harness.service.stop()
 

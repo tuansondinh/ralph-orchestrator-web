@@ -1214,7 +1214,8 @@ export class LoopService {
         if (existing.ralphLoopId !== listedLoop.id) {
           updates.ralphLoopId = listedLoop.id
         }
-        if (existing.state !== listedLoop.state) {
+        const existingIsTerminal = existing.state === 'stopped' || existing.state === 'completed'
+        if (!existingIsTerminal && existing.state !== listedLoop.state) {
           updates.state = listedLoop.state
         }
         if (!existing.worktree && inferredWorktree) {

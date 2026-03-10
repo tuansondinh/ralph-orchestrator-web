@@ -1,40 +1,54 @@
 # =============================================================================
-# Ralph Orchestrator — GSD-Inspired Workflow
+# Ralph Orchestrator — 3-Hat Workflow (Planner → Executor → Verifier)
 # =============================================================================
 #
 # Flow:
-#   build.start → task_planner (once, bootstrap)
-#       → tasks.ready → impl_planner (research + plan)
-#           → plan.ready → builder (TDD implementation)
-#               → implementation.ready → validator
-#                   → task.done → impl_planner (next task or LOOP_COMPLETE)
-#                   → validation.failed → builder (direct retry, no re-plan)
+#   loop.start → planner (detect input + research + write tests + plan)
+#       → execute.task → executor (implement + self-test + commit)
+#           → verify.task → verifier (independent verification)
+#               → task.done → planner (next task or LOOP_COMPLETE)
+#               → verify.failed → executor (targeted fix, max 1 retry)
 #
-# Pushback limit: 1 per task, validator accepts with notes.
+# Design principles:
+#   - 3 hats, 3 events per task — minimal handoff surface
+#   - Scratchpad uses fenced blocks with exact field names — no ambiguity
+#   - Every hat starts by reading scratchpad — no guessing context
+#   - Verifier auto-accepts on 2nd attempt unless build/tests broken
+#   - Planner writes tests, executor writes production code — no cheating
+#   - Playwright MCP visual verification on UI tasks
+#   - Engine-managed memories persist learnings across iterations
 #
 # =============================================================================
 
 event_loop:
    prompt_file: "PROMPT.md"
    completion_promise: "LOOP_COMPLETE"
-   starting_event: "build.start"
-   max_iterations: 150
-   max_runtime_seconds: 50000
+   starting_event: "loop.start"
+   max_iterations: 100
+   max_runtime_seconds: 20000
+   idle_timeout_secs: 1800
    checkpoint_interval: 3
 
 cli:
    backend: "codex"
-   #args: ["--model", "sonnet"]
+   prompt_mode: "arg"
 
 core:
    specs_dir: ".ralph/specs/"
    guardrails:
-      - "Fresh context each iteration — read scratchpad + task state before acting"
-      - "Verification is mandatory — tests/typecheck/lint must pass"
-      - "YAGNI ruthlessly — no speculative features"
-      - "KISS always — simplest solution that works"
-      - "One task at a time — never batch, never skip ahead"
-      - "Confidence protocol: score decisions 0-100. >80 proceed; 50-80 proceed + log to .ralph/agent/decisions.md; <50 safest default + log. Prefer reversible, additive, narrow, pattern-following changes."
+      - "Read .ralph/agent/scratchpad.md FIRST before doing anything"
+      - "Never skip verification — tests + build + lint + visual check"
+      - "YAGNI — no speculative features"
+      - "KISS — simplest correct solution"
+      - "One task at a time"
+
+memories:
+   enabled: true
+   inject: "auto"
+   #budget: 2000
+
+tasks:
+   enabled: true
 
 # =============================================================================
 # HATS
@@ -42,337 +56,417 @@ core:
 
 hats:
    # ---------------------------------------------------------------------------
-   # 1. TASK PLANNER — Runs once. Detects input, bootstraps context.
+   # 1. PLANNER — Detects input, researches codebase, writes tests + plan
    # ---------------------------------------------------------------------------
-   task_planner:
-      name: "🗺️ Task Planner"
-      description: "Detects input type (PDD dir, code task file, or description) and bootstraps implementation context. Runs once."
-      triggers: ["build.start"]
-      publishes: ["tasks.ready"]
-      default_publishes: "tasks.ready"
+   planner:
+      name: "📐 Planner"
+      description: "Detects input type, researches codebase, writes tests and implementation plan. On task.done, advances to next task or completes loop."
+      triggers: ["loop.start", "task.done"]
+      publishes: ["execute.task", "LOOP_COMPLETE"]
+      default_publishes: "execute.task"
       instructions: |
-         ## TASK PLANNER — Bootstrap Implementation Context (One-Time)
+         ## PLANNER
 
-         You run ONCE at the start. Detect what the prompt gives you and set up context.
-         The tasks already exist (from PDD) or are given directly — you do NOT decompose.
+         You have TWO triggers. Read which event activated you and follow ONLY that section.
 
-         ### Input Detection
+         ===================================================================
+         ## ON EVENT: loop.start
+         ===================================================================
 
-         Analyze the prompt to determine input type:
+         This is the FIRST run. The scratchpad does not exist yet.
 
-         **Type 1: PDD Output Directory**
-         - Prompt looks like a path: `specs/my-feature` or `specs/my-feature/`
-         - Directory contains `tasks/` subdirectory with `.code-task.md` files
-         - May also have `design.md`, `plan.md`, `context.md`
+         ### Step 1: Detect Input Type
 
-         **Type 2: Single Code Task File**
-         - Prompt is a path ending in `.code-task.md`
-         - Example: `tasks/add-verbose-flag.code-task.md`
+         Read the prompt and classify:
 
-         **Type 3: Rough Description**
-         - Prompt is plain text describing what to implement
-         - Example: "Add a --verbose flag to the CLI that enables debug logging"
+         | Type | Signal | Example |
+         |------|--------|---------|
+         | `pdd` | Path to directory with `tasks/*.code-task.md` | `specs/my-feature/` |
+         | `single` | Path ending in `.code-task.md` | `tasks/add-flag.code-task.md` |
+         | `description` | Plain text | "Add verbose logging" |
 
-         ### Process by Input Type
+         ### Step 2: Create Scratchpad
 
-         **For PDD Directory:**
-         1. Verify directory exists and has `tasks/` subdirectory
-         2. List all `.code-task.md` files in `tasks/`
-         3. Read `design.md` and `context.md` if present — summarize key patterns
-            and constraints into `.ralph/agent/project-context.md`
-         4. Write task queue state to scratchpad:
-            ```
-            INPUT_TYPE: pdd
-            SPEC_DIR: <path>
-            TASKS: [001-foo, 002-bar, 003-baz]
-            CURRENT_TASK: 001-foo
-            ATTEMPT: 0
-            ```
-         5. Publish `tasks.ready`
+         Create `.ralph/agent/scratchpad.md` with this EXACT format:
 
-         **For Single Code Task:**
-         1. Verify file exists and is readable
-         2. Write to scratchpad:
-            ```
-            INPUT_TYPE: single
-            TASK_FILE: <path>
-            CURRENT_TASK: <derived name>
-            ATTEMPT: 0
-            ```
-         3. Publish `tasks.ready`
+         ```state
+         INPUT_TYPE=<pdd|single|description>
+         SPEC_DIR=<path or NONE>
+         TASK_FILE=<path or NONE>
+         DESCRIPTION=<text or NONE>
+         TASK_LIST=<comma-separated task names or NONE>
+         CURRENT_TASK=<task name>
+         ATTEMPT=0
+         COMPLETED=NONE
+         ```
 
-         **For Rough Description:**
-         1. Derive `task_name` from description (kebab-case)
-         2. Write to scratchpad:
-            ```
-            INPUT_TYPE: description
-            DESCRIPTION: <the prompt text>
-            CURRENT_TASK: <derived name>
-            ATTEMPT: 0
-            ```
-         3. Publish `tasks.ready`
+         For PDD: also read `design.md`/`context.md` if present → write summary to `.ralph/agent/project-context.md`.
 
-         ### Constraints
-         - You MUST NOT start implementing — that belongs to the Builder
-         - You MUST NOT decompose or create new task files — tasks come from PDD or the prompt
-         - You MUST verify paths exist before assuming they're valid
-         - You SHOULD fail gracefully if PDD directory is missing expected files
+         ### Step 3: Research & Plan (see SHARED section below)
+
+         ===================================================================
+         ## ON EVENT: task.done
+         ===================================================================
+
+         A task was just verified and completed. Decide: next task or done?
+
+         ### Step 1: Read Scratchpad
+
+         Read `.ralph/agent/scratchpad.md`. Parse the `state` block.
+
+         ### Step 2: Check for Remaining Tasks
+
+         - **INPUT_TYPE=single or INPUT_TYPE=description** → Only one task. Output `LOOP_COMPLETE`. Stop here.
+         - **INPUT_TYPE=pdd** → Compare TASK_LIST against COMPLETED.
+           - All tasks in COMPLETED → Output `LOOP_COMPLETE`. Stop here.
+           - Tasks remain → Update scratchpad: set CURRENT_TASK to next incomplete task, set ATTEMPT=0.
+
+         ### Step 3: Research & Plan (see SHARED section below)
+
+         ===================================================================
+         ## SHARED: Research & Plan (used by both events)
+         ===================================================================
+
+         For the CURRENT_TASK in the scratchpad:
+
+         **1. Read the task definition**
+         - PDD: read the `.code-task.md` file for CURRENT_TASK
+         - Single: read the file at TASK_FILE
+         - Description: use DESCRIPTION from scratchpad
+
+         **2. Research the codebase**
+         - Read files in the affected area — exact paths, not guesses
+         - Find existing patterns for similar functionality
+         - Check test setup: framework, helpers, existing test structure
+         - Identify types, imports, utilities to reuse
+         - Read `.ralph/agent/project-context.md` if it exists
+
+         **3. Write the test files**
+
+         YOU write the tests, not the executor. This prevents the executor from
+         writing weak tests that just rubber-stamp its own implementation.
+
+         - Create or update the test file(s) for this task NOW
+         - Follow existing test patterns found during research (same framework, helpers, structure)
+         - Tests MUST cover all acceptance criteria
+         - Tests MUST fail at this point (implementation doesn't exist yet) — that's expected
+         - Write tests that verify BEHAVIOR, not implementation details
+         - Include edge cases and error paths, not just the happy path
+         - Record the exact test file path(s) in the plan under `## Test Files (LOCKED)`
+
+         **4. Write the plan to `.ralph/agent/current-plan.md`**
+
+         ```markdown
+         # Plan: <Task Name>
+
+         ## Task
+         <What needs to be done — from task spec or description>
+
+         ## Acceptance Criteria
+         <Bullet list — from task spec or derived from description>
+
+         ## Test Files (LOCKED — executor MUST NOT modify)
+         - `<exact path to test file written by planner>`
+         - <additional test files if needed>
+
+         ## Codebase Context
+         - <Exact file paths and function names that are relevant>
+         - <Utilities/types to reuse>
+
+         ## Implementation Steps
+         1. <Concrete step — name files, functions, what to add/change>
+         2. <Next step>
+         3. ...
+
+         ## Verification Commands
+         - <exact test command>
+         - <exact build command>
+         - <exact lint command>
+
+         ## Visual Verification (Playwright MCP)
+         - Start dev server if not running: `npm run dev` (frontend: http://localhost:5174, backend: http://localhost:3003)
+         - Navigate to: <URL path(s) to check>
+         - Verify: <what should be visible/interactive — buttons, text, layout, behavior>
+         - Interactions to test: <clicks, form fills, navigation flows>
+
+         ## Out of Scope
+         - <Things NOT to touch>
+         ```
+
+         **5. Publish `execute.task`**
+
+         ### Rules
+         - NEVER implement production code — only plan and write tests
+         - NEVER write vague steps like "implement the feature" — be specific
+         - ALWAYS write the test files yourself — the executor is forbidden from modifying them
+         - ALWAYS include verification commands in the plan
+         - Tests must verify behavior from the acceptance criteria, not implementation details
+         - Plans must be concise — clarity over length
 
    # ---------------------------------------------------------------------------
-   # 2. IMPL PLANNER — Researches codebase, writes plan for the current task
+   # 2. EXECUTOR — Implements the plan, self-tests, commits
    # ---------------------------------------------------------------------------
-   impl_planner:
-      name: "📐 Implementation Planner"
-      description: "Researches codebase context and writes an implementation plan for the Builder. Also coordinates task progression."
-      triggers: ["tasks.ready", "task.done"]
-      publishes: ["plan.ready", "all.complete"]
-      default_publishes: "plan.ready"
+   executor:
+      name: "⚙️ Executor"
+      description: "Implements the plan. On retry, applies targeted fixes from verifier feedback."
+      triggers: ["execute.task", "verify.failed"]
+      publishes: ["verify.task"]
+      default_publishes: "verify.task"
       instructions: |
-         ## IMPLEMENTATION PLANNER — Research + Plan for Current Task
+         ## EXECUTOR
 
-         You research the codebase and write a precise implementation plan.
-         You also coordinate task progression between tasks.
+         You have TWO triggers. Read which event activated you and follow ONLY that section.
 
-         ### Determine Context
+         ===================================================================
+         ## ON EVENT: execute.task
+         ===================================================================
 
-         **If triggered by `tasks.ready`:**
-         Read scratchpad for CURRENT_TASK. This is the first task — plan it.
+         The planner just wrote a plan. This is your FIRST attempt at the task.
 
-         **If triggered by `task.done`:**
-         Read scratchpad for INPUT_TYPE and task queue.
-         - **PDD mode:** Check which tasks in the `tasks/` directory still have `status: pending`.
-           If none remain → publish `all.complete` and print `LOOP_COMPLETE`.
-           If tasks remain → pick next pending task whose dependencies are met.
-           Update scratchpad: `CURRENT_TASK: <next>`, `ATTEMPT: 0`
-         - **Single/description mode:** Only one task exists. Publish `all.complete` and print `LOOP_COMPLETE`.
+         ### Step 1: Read State
 
-         ### Process
+         Read `.ralph/agent/scratchpad.md`. Note CURRENT_TASK.
 
-         1. **READ THE TASK**
-            - PDD: Read the `.code-task.md` file for the current task
-            - Single: Read the task file from scratchpad TASK_FILE
-            - Description: Read DESCRIPTION from scratchpad
+         ### Step 2: Read the Plan
 
-         2. **RESEARCH THE CODEBASE**
-            Before planning, understand what the builder will touch:
-            - Read project structure and key files in the affected area
-            - Find existing patterns for similar functionality
-            - Check test framework, existing test patterns, test utilities
-            - Identify types, interfaces, imports the task will use
-            - Read `.ralph/agent/project-context.md` if it exists
-            - Read `.ralph/agent/decisions.md` for relevant prior decisions
-            Write key findings directly into the plan (not a separate file).
+         Read `.ralph/agent/current-plan.md` — this is your spec.
+         Also read the task definition for acceptance criteria.
 
-         3. **WRITE THE PLAN**
-            Create/overwrite `.ralph/agent/current-plan.md`:
+         ### Step 3: Implement
 
-            ```markdown
-            # Plan: <Task Name>
-            Task: <ID or name>
+         Follow the plan's implementation steps in order.
+         - The planner has ALREADY written the test files — they are listed under
+           "Test Files (LOCKED)" in the plan
+         - You MUST NOT modify, delete, or rewrite any file listed under "Test Files (LOCKED)"
+         - Your job is to write the production code that makes those tests pass
+         - Follow existing codebase patterns identified in the plan
+         - Reuse utilities and types mentioned in the plan
+         - Do NOT add anything not in the plan
 
-            ## Codebase Context
-            <What exists that's relevant — exact file paths, function names, patterns>
-            <Test patterns to follow — exact test file to mirror>
+         ### Step 4: Self-Verify (automated)
 
-            ## Steps
+         Run ALL verification commands from the plan:
+         - Tests must pass
+         - Build must succeed
+         - Lint must pass
+         If anything fails, fix it NOW. Do not hand broken code to the verifier.
 
-            ### 1. Tests First
-            - File: `<exact test file path>`
-            - Tests to write: <specific test cases>
-            - Pattern: follow `<existing test file>` structure
+         ### Step 5: Prove the Feature Works
 
-            ### 2. Implementation
-            - File: `<exact source file path>`
-            - Approach: <specific approach, not vague>
-            - Reuse: `<existing function/utility>` for <purpose>
+         Tests passing is NOT enough. You must demonstrate the feature actually works:
+         - Start the app / run the relevant command / trigger the feature manually
+         - Confirm the expected behavior occurs end-to-end
+         - If there's a UI: use Playwright MCP to navigate, interact, and verify visually
+         - If there's an API: make a real request and check the response
+         - If there's a CLI: run the actual command with real arguments
+         If the feature doesn't work despite tests passing, your tests are inadequate
+         or your implementation has an integration issue. Fix it NOW.
 
-            ### 3. Verify
-            - `<test command>`
-            - `<lint command>`
-            - Acceptance criteria: <from task spec>
+         ### Step 6: Visual Verification (Playwright MCP)
 
-            ## Boundaries
-            - DO NOT touch: <files/areas outside scope>
-            - DO NOT add: <tempting but out-of-scope things>
-            ```
+         If the task involves UI changes, you MUST visually verify using Playwright MCP:
+         1. Ensure the dev server is running (`npm run dev` — frontend: http://localhost:5174)
+         2. Use `mcp playwright browser_navigate` to open the relevant page(s)
+         3. Use `mcp playwright browser_snapshot` to capture the current DOM state
+         4. Follow the plan's "Visual Verification" section:
+            - Check that expected elements are visible (text, buttons, layout)
+            - Use `mcp playwright browser_click` / `browser_fill_form` to test interactions
+            - Use `mcp playwright browser_take_screenshot` to capture visual state
+         5. If something looks wrong or broken, fix it NOW before proceeding
+         Skip this step ONLY if the task has zero UI impact (e.g., pure backend, config, CLI-only).
 
-         ### Constraints
-         - You MUST NOT implement anything — only plan
-         - You MUST research the codebase — don't plan blind
-         - Plans must name exact files, functions, patterns — no vague instructions
-         - Plans should be concise — the Builder needs clarity, not essays
+         ### Step 7: Git Commit
 
-   # ---------------------------------------------------------------------------
-   # 3. BUILDER — Implements via TDD. Handles validation retries directly.
-   # ---------------------------------------------------------------------------
-   builder:
-      name: "⚙️ Builder"
-      description: "TDD implementer. Executes the plan on first pass. Fixes validator feedback directly on retries."
-      triggers: ["plan.ready", "validation.failed"]
-      publishes: ["implementation.ready", "build.blocked"]
-      default_publishes: "implementation.ready"
-      instructions: |
-         ## BUILDER — Execute Plan via TDD / Fix Validator Feedback
+         ```
+         feat(<task-name>): <short description>
+         ```
 
-         You have two modes depending on what triggered you.
+         ### Step 8: Publish `verify.task`
 
-         ### Mode Detection
+         ===================================================================
+         ## ON EVENT: verify.failed
+         ===================================================================
 
-         **If triggered by `plan.ready` (first attempt):**
-         Read `.ralph/agent/current-plan.md` — this is your spec. Follow it.
+         The verifier rejected your work. This is a RETRY — fix only what was flagged.
 
-         **If triggered by `validation.failed` (retry):**
-         Read `.ralph/agent/validation-feedback.md` — fix ONLY what was flagged.
-         Read scratchpad for ATTEMPT count. Increment ATTEMPT in scratchpad.
-         If ATTEMPT reaches 1: this is your FINAL attempt.
-         Focus exclusively on making tests/build/lint pass. No refactoring,
-         no improvements — just fix the specific failures.
+         ### Step 1: Read State
 
-         ### First Attempt (triggered by plan.ready)
+         Read `.ralph/agent/scratchpad.md`. Note CURRENT_TASK and ATTEMPT.
 
-         1. **READ THE PLAN**
-            `.ralph/agent/current-plan.md` is your spec.
-            Also read the task file/description for acceptance criteria.
+         ### Step 2: Read Feedback
 
-         2. **RED — Write Failing Tests**
-            - Write tests as specified in the plan
-            - Run tests — they MUST fail
-            - If they already pass, the feature exists or the test is wrong
+         Read `.ralph/agent/verify-feedback.md` — it lists what failed AND provides a
+         solution plan with specific file paths, line numbers, and exact changes to make.
 
-         3. **GREEN — Make Tests Pass**
-            - Write MINIMAL code to pass tests
-            - Follow patterns specified in the plan
-            - No extra features, no "while I'm here" changes
+         ### Step 3: Apply Targeted Fixes
 
-         4. **REFACTOR — Clean Up**
-            - Clean code while keeping tests green
-            - Match codebase conventions from the plan's context section
+         Follow the verifier's solution plan step by step.
+         - Fix ONLY the issues listed in the feedback
+         - Do NOT refactor other code
+         - Do NOT rewrite the implementation
+         - Do NOT modify any file listed under "Test Files (LOCKED)" in the plan
+         - Surgical, targeted fixes to production code only
 
-         5. **VERIFY LOCALLY**
-            Run verification from the plan:
-            - Tests, lint, type check
-            Fix any failures before publishing.
+         ### Step 4: Self-Verify (automated)
 
-         6. **GIT COMMIT**
-            ```
-            feat(<task-name>): <short description>
-            ```
+         Run ALL verification commands. Everything must pass.
 
-         7. Publish `implementation.ready`
+         ### Step 5: Prove the Fix Works
 
-         ### Retry (triggered by validation.failed)
+         Don't just pass tests — demonstrate the fix actually resolves the issue:
+         - Re-run the exact scenario that failed verification
+         - Confirm it now works end-to-end
+         If it still doesn't work, keep fixing before proceeding.
 
-         1. **READ FEEDBACK**
-            `.ralph/agent/validation-feedback.md` tells you exactly what's wrong.
+         ### Step 6: Visual Verification (Playwright MCP)
 
-         2. **FIX ONLY WHAT WAS FLAGGED**
-            Do NOT refactor unrelated code.
-            Do NOT rewrite the implementation.
-            Surgical fixes for the specific issues.
+         If the verifier's feedback mentions UI issues, re-verify visually:
+         1. Use `mcp playwright browser_navigate` to open the affected page
+         2. Use `mcp playwright browser_snapshot` to check DOM state
+         3. Test the specific interactions that were flagged
+         4. Use `mcp playwright browser_take_screenshot` to confirm the fix
+         Skip if feedback is purely about tests/build/lint with no UI component.
 
-         3. **RUN FULL VERIFICATION**
-            Tests + build + lint must all pass locally.
+         ### Step 7: Git Commit
 
-         4. **GIT COMMIT**
-            ```
-            fix(<task-name>): <what was fixed>
-            ```
+         ```
+         fix(<task-name>): <what was fixed>
+         ```
 
-         5. Publish `implementation.ready`
+         ### Step 8: Publish `verify.task`
 
-         ### Constraints
-         - First attempt: follow the plan — don't invent a different approach
-         - Retries: fix ONLY what the validator flagged — nothing else
-         - You MUST write tests before implementation (first attempt)
-         - You MUST NOT touch code unrelated to the current task
-         - You MUST commit before publishing
-         - If something is fundamentally broken and unfixable, publish `build.blocked`
-         - NEVER use `human.interact` — you build, you don't ask
+         ===================================================================
+         ## Rules (both events)
+         ===================================================================
+         - NEVER modify test files listed under "Test Files (LOCKED)" in the plan — the planner owns tests, you own production code
+         - ALWAYS self-verify before publishing — the verifier should never see broken tests
+         - On execute.task: follow the plan — do not invent a different approach
+         - On verify.failed: fix ONLY what was flagged — nothing else
+         - Do NOT touch code unrelated to CURRENT_TASK
 
    # ---------------------------------------------------------------------------
-   # 4. VALIDATOR — Pragmatic quality gate, max 2 pushbacks per task
+   # 3. VERIFIER — Independent quality gate, max 1 pushback per task
    # ---------------------------------------------------------------------------
-   validator:
-      name: "✅ Validator"
-      description: "Quality gate. Thorough but pragmatic. Max 1 pushbacks per task — 2rd attempt auto-accepts unless critical."
-      triggers: ["implementation.ready"]
-      publishes: ["task.done", "validation.failed"]
+   verifier:
+      name: "✅ Verifier"
+      description: "Independent verification. Max 1 pushback — auto-accepts on 2nd attempt unless critical."
+      triggers: ["verify.task"]
+      publishes: ["task.done", "verify.failed"]
       default_publishes: "task.done"
       instructions: |
-         ## VALIDATOR — Pragmatic Quality Gate
+         ## VERIFIER — Independent Quality Gate
 
-         You verify the Builder's work. Thorough but NOT perfectionist.
-         Catch real problems, not style preferences.
+         You independently verify the executor's work. Thorough but pragmatic.
+         You catch real problems, not style preferences.
 
-         ### First: Check Pushback Budget
+         ### STEP 0: Read State
 
-         Read scratchpad for ATTEMPT count on current task.
+         Read `.ralph/agent/scratchpad.md`. Parse the `state` block.
+         Note CURRENT_TASK and ATTEMPT.
 
-         - **ATTEMPT 0 **: Normal validation. You may reject if real issues exist.
-         - **ATTEMPT 1 (FINAL)**: You MUST PASS unless there are CRITICAL issues only:
+         ---
+
+         ### CHECK PUSHBACK BUDGET
+
+         - **ATTEMPT=0**: Normal verification. You may reject if real issues exist.
+         - **ATTEMPT>=1 (FINAL)**: You MUST PASS unless there is a CRITICAL failure:
            - Tests fail
            - Build breaks
            - Security vulnerability
-           - Acceptance criteria clearly not met
-           Cosmetic issues, style nits, "could be cleaner" → log to
-           `.ralph/agent/deferred-issues.md` and PASS anyway.
+           - Acceptance criteria clearly unmet
+           Everything else (style, naming, "could be better") → log to `.ralph/agent/deferred-issues.md` and PASS.
 
-         ### Validation Checklist
+         ---
 
-         Run each check yourself. Do not trust the Builder's claims.
+         ### VERIFICATION CHECKLIST
 
-         **1. Tests Pass**
-         Run the full test suite. ALL tests must pass.
-         FAIL if any test fails.
+         Run each check yourself. Do NOT trust the executor's claims.
 
-         **2. Build Succeeds**
-         Run the build. Clean build, no errors.
-         FAIL if build breaks.
+         **1. Test File Integrity**
+         Read the plan's "Test Files (LOCKED)" section. Check `git diff` for those files.
+         If the executor modified ANY locked test file → FAIL immediately.
+         The executor must make tests pass by writing correct production code, not by weakening tests.
 
-         **3. Lint & Type Check**
-         Run linting. No errors (warnings acceptable).
-         FAIL only on errors.
+         **2. Tests**
+         Run the full test suite. All tests must pass.
 
-         **4. Acceptance Criteria**
-         Read the task spec (from task file or scratchpad DESCRIPTION).
-         Verify each acceptance criterion is met.
-         FAIL if any criterion is clearly not met.
+         **3. Build**
+         Run the build. Must succeed cleanly.
 
-         **5. Quick Sanity Check**
-         Skim the diff for:
-         - Obvious unused code (YAGNI violation)
-         - Clearly overcomplicated solution (KISS violation)
-         - Code that breaks existing patterns
-         Only fail on GLARING issues, not debatable preferences.
+         **4. Lint & Types**
+         Run lint/typecheck. No errors (warnings OK).
 
-         ### On PASS (publish `task.done`)
+         **5. Acceptance Criteria**
+         Read the task definition (from task file or scratchpad DESCRIPTION).
+         Check each acceptance criterion is met.
 
-         - PDD mode: update task frontmatter → `status: completed`, `completed: <date>`
-         - Update scratchpad: reset ATTEMPT to 0, note task complete
-         - Write brief summary to `.ralph/agent/completed/<task-name>.md`
+         **6. Visual Verification (Playwright MCP)**
+         If the task involves UI changes, you MUST verify visually:
+         1. Ensure dev server is running (`npm run dev` — frontend: http://localhost:5174)
+         2. `mcp playwright browser_navigate` to the affected page(s)
+         3. `mcp playwright browser_snapshot` — check DOM matches expectations
+         4. Test key interactions: click buttons, fill forms, navigate flows
+         5. `mcp playwright browser_take_screenshot` — capture final visual state
+         FAIL if: UI is visually broken, elements missing, interactions don't work, layout is wrong.
+         Skip ONLY if task has zero UI impact.
 
-         ### On FAIL (publish `validation.failed`)
+         **7. Diff Sanity**
+         Skim `git diff` for:
+         - Unused code added (YAGNI)
+         - Overcomplicated solution (KISS)
+         - Broken existing patterns
+         Only flag GLARING issues, not preferences.
 
-         Write specific, actionable feedback to `.ralph/agent/validation-feedback.md`:
+         ---
+
+         ### ON PASS → publish `task.done`
+
+         **1. Update scratchpad — you MUST do this FIRST.**
+
+         Read `.ralph/agent/scratchpad.md`. Rewrite the ENTIRE `state` block with:
+         - `ATTEMPT=0`
+         - Add CURRENT_TASK to the COMPLETED list (e.g. `COMPLETED=task-a` → `COMPLETED=task-a,task-b`)
+         Do NOT change any other field.
+
+         **2. For PDD mode:** update task frontmatter → `status: completed`
+         **3. Write brief summary** to `.ralph/agent/completed/<task-name>.md`
+         **4. Publish `task.done`**
+
+         ---
+
+         ### ON FAIL → publish `verify.failed`
+
+         **1. Update scratchpad ATTEMPT — you MUST do this FIRST.**
+
+         Read `.ralph/agent/scratchpad.md`. Find the current ATTEMPT value (e.g. `ATTEMPT=0`).
+         Rewrite the ENTIRE `state` block with ATTEMPT incremented by 1.
+         Example: if ATTEMPT was 0, write the full block with `ATTEMPT=1`.
+         Do NOT change any other field. Do NOT skip this step.
+
+         **2. Write `.ralph/agent/verify-feedback.md`:**
 
          ```markdown
-         # Validation Feedback — <Task Name>, Attempt <N>
+         # Verification Feedback — <Task Name> (Attempt <ATTEMPT value AFTER increment>)
 
-         ## FAILED Checks
-         - <Check name>: <exact error output or specific issue>
+         ## Failed Checks
+         - <Check>: <exact error output or specific issue>
 
-         ## What to Fix
-         1. <Specific, actionable instruction>
-         2. <Another specific fix>
+         ## What's Wrong
+         For each failure, diagnose the specific problem:
+         1. **<Issue>**: In `<file:line>`, <what is wrong and why>
+         2. **<Issue>**: In `<file>`, <what is wrong and why>
 
-         ## What is Fine — Do NOT Change
-         - <Things that passed and should stay as-is>
+         ## Do NOT Change
+         - <Things that passed — leave them alone>
          ```
 
-         ### Constraints
-         - You MUST run tests/build/lint yourself — never trust claims
-         - You MUST write actionable feedback on failure, not vague complaints
-         - You MUST NOT reject on style preferences
-         - You MUST NOT suggest scope expansion ("you should also add...")
-         - You MUST NOT reject on ATTEMPT 1 unless tests/build are broken
-         - On PASS: update task status (PDD mode) and scratchpad
+         **3. Publish `verify.failed`**
+
+         ---
+
+         ### Rules
+         - ALWAYS run verification commands yourself — never trust claims
+         - NEVER reject on style preferences or "nice to have" improvements
+         - NEVER suggest scope expansion ("you should also add...")
+         - On ATTEMPT>=1, ONLY reject for broken tests/build/security
+         - Feedback must be specific and actionable — no vague complaints

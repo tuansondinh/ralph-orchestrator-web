@@ -90,3 +90,27 @@ Validator outcome: fail and hand back to Builder. Minimum fixes are to make back
 
 2026-03-10T20:53:00Z Builder validator follow-up complete for task-10.
 Fixed the remaining validator issues without broadening scope: removed the dead `createDeferred` helper and simplified the JSON output fixture in `packages/backend/test/open-code-service.test.ts` so backend lint is green again, and exposed `Chat` as a visible project tab by adding it back to `packages/frontend/src/lib/projectTabs.ts`. Turned the navigation requirement RED first by updating `packages/frontend/src/App.test.tsx` to require a visible Chat link and successful in-app navigation to the chat screen, then made the minimal implementation change to satisfy it. Verification passed with `npm run lint -w @ralph-ui/backend`, `npm run lint -w @ralph-ui/frontend`, `npm run typecheck -w @ralph-ui/backend`, `npm run typecheck -w @ralph-ui/frontend`, `npm test -w @ralph-ui/backend`, `npm test -w @ralph-ui/frontend`, `npm run build -w @ralph-ui/backend`, and `npm run build -w @ralph-ui/frontend` (same non-fatal Vite chunk-size warning on the frontend build). Manual Playwright validation against `http://localhost:5174/project/e9d4bd12-7545-4d58-9b08-edbacc635ad2/loops` confirmed the project nav now shows a `Chat` tab and clicking it stays on `/project/e9d4bd12-7545-4d58-9b08-edbacc635ad2/chat` with the Chat UI rendered.
+
+2026-03-10T20:56:00Z Validator pass for implementation.ready/chat-loop-control.
+Validation rerun completed successfully. Runtime ready-task queue was empty and all code-task frontmatter under `specs/chat-loop-control/tasks/` is `status: completed`. Automated verification rerun:
+- `npm run lint -w @ralph-ui/backend`: pass
+- `npm run lint -w @ralph-ui/frontend`: pass
+- `npm run typecheck -w @ralph-ui/backend`: pass
+- `npm run typecheck -w @ralph-ui/frontend`: pass
+- `npm test -w @ralph-ui/backend`: pass
+- `npm test -w @ralph-ui/frontend`: pass
+- `npm run build -w @ralph-ui/backend`: pass
+- `npm run build -w @ralph-ui/frontend`: pass with the same non-fatal Vite chunk-size warning for the main frontend bundle
+
+Targeted manual/live validation on the running local app also passed:
+- `http://127.0.0.1:3003/health`: reachable
+- `http://localhost:5174`: reachable
+- Direct navigation to `/project/e9d4bd12-7545-4d58-9b08-edbacc635ad2/chat` stayed on `/chat` and rendered the Chat UI
+- Desktop project navigation showed a visible `Chat` tab, and clicking it from `/loops` returned to `/chat` without redirecting back to `/loops`
+- Mobile viewport validation at 390x844 showed the chat-only layout with no project header/tab bar, plus the hamburger button opened drawer navigation links for the project tabs
+- Global `/settings` rendered the new Chat provider/model controls
+
+Code-quality review found no new YAGNI/KISS/idiomatic blockers in the implemented OpenCode chat path. Dirty worktree state exists outside this validation scope (`ralph.yml`, `ralph copy.yml`, `not_sure_ralph.yml`, and untracked `packages/backend/test/opencode-spike.test.ts`) and was left untouched.
+
+2026-03-10T20:57:00Z Ralph closure for validation.passed/chat-loop-control.
+Reviewed the runtime ready-task queue with `ralph tools task ready --format json` and confirmed it is empty, so there is no further delegation work for this objective. The OpenCode chat-loop-control objective is complete based on the validator's full automated and manual acceptance pass, and the loop can terminate with a completion event.

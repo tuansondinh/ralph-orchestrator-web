@@ -358,7 +358,6 @@ export function AppShellRoutes({
                   }
                   index
                 />
-                <Route element={<Navigate replace to="../loops" />} path="chat" />
                 <Route element={<ProjectPage />} path=":tab" />
               </Route>
               <Route element={<SettingsPage />} path="/settings" />

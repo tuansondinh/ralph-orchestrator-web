@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { AppShellRoutes } from '@/AppShellRoutes'
 import { resetProjectStore } from '@/stores/projectStore'
 
@@ -62,7 +62,11 @@ vi.mock('@/components/project/ProjectSwitcherDialog', () => ({
 }))
 
 vi.mock('@/pages/ProjectPage', () => ({
-  ProjectPage: () => <div>project page</div>
+  ProjectPage: () => {
+    const location = useLocation()
+
+    return <div data-testid="project-page-path">{location.pathname}</div>
+  }
 }))
 
 vi.mock('@/pages/SettingsPage', () => ({
@@ -113,5 +117,27 @@ describe('AppShellRoutes', () => {
     )
 
     expect(screen.getByRole('button', { name: 'Open chat assistant' })).toBeInTheDocument()
+  })
+
+  it('preserves the direct chat route instead of redirecting to loops', () => {
+    render(
+      <MemoryRouter initialEntries={['/project/project-1/chat']}>
+        <AppShellRoutes
+          capabilities={{
+            mode: 'local',
+            database: true,
+            auth: false,
+            localProjects: true,
+            githubProjects: false,
+            terminal: true,
+            preview: true,
+            localDirectoryPicker: true,
+            mcp: true
+          }}
+        />
+      </MemoryRouter>
+    )
+
+    expect(screen.getByTestId('project-page-path')).toHaveTextContent('/project/project-1/chat')
   })
 })

@@ -27,6 +27,7 @@ import {
 import type { ProjectRecord } from '@/lib/projectApi'
 import { ProjectPage } from '@/pages/ProjectPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { ChatSessionProvider } from '@/providers/ChatSessionProvider'
 import { useProjectStore } from '@/stores/projectStore'
 import { Sidebar } from '@/components/layout/Sidebar'
 
@@ -280,7 +281,8 @@ export function AppShellRoutes({
   }
 
   return (
-    <AppShell
+    <ChatSessionProvider>
+      <AppShell
       headerActions={
         <div className="flex flex-wrap items-center justify-end gap-3">
           <NotificationCenter
@@ -316,25 +318,25 @@ export function AppShellRoutes({
           reconnectAttempt={reconnectAttempt}
         />
       }
-    >
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3">
-          {notificationPermission === 'default' ? (
-            <button
-              className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
-              onClick={() => {
-                void requestPermission()
-              }}
-              type="button"
-            >
-              Enable notifications
-            </button>
-          ) : null}
-        </div>
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
+          <div className="flex flex-wrap items-center gap-3">
+            {notificationPermission === 'default' ? (
+              <button
+                className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
+                onClick={() => {
+                  void requestPermission()
+                }}
+                type="button"
+              >
+                Enable notifications
+              </button>
+            ) : null}
+          </div>
 
-        <AppErrorBoundary resetKey={location.pathname}>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <Routes>
+          <AppErrorBoundary resetKey={location.pathname}>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <Routes>
               <Route
                 element={
                   <HomePage
@@ -373,19 +375,20 @@ export function AppShellRoutes({
                 }
                 path="*"
               />
-            </Routes>
-          </div>
-        </AppErrorBoundary>
-      </div>
+              </Routes>
+            </div>
+          </AppErrorBoundary>
+        </div>
 
-      <ProjectSwitcherDialog
-        activeProjectId={activeProjectId}
-        onClose={() => setIsQuickSwitcherOpen(false)}
-        onSelect={handleProjectSelect}
-        open={isQuickSwitcherOpen}
-        projects={projects}
-      />
-      <NotificationToast onDismiss={dismissToast} toasts={toasts} />
-    </AppShell>
+        <ProjectSwitcherDialog
+          activeProjectId={activeProjectId}
+          onClose={() => setIsQuickSwitcherOpen(false)}
+          onSelect={handleProjectSelect}
+          open={isQuickSwitcherOpen}
+          projects={projects}
+        />
+        <NotificationToast onDismiss={dismissToast} toasts={toasts} />
+      </AppShell>
+    </ChatSessionProvider>
   )
 }

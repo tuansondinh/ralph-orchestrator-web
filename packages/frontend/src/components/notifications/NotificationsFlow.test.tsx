@@ -115,6 +115,25 @@ const seedProject: ProjectRecord = {
 }
 
 describe('notifications flow', () => {
+  async function findSocketForChannel(channel: string) {
+    await waitFor(() => {
+      expect(
+        MockWebSocket.instances.some((socket) =>
+          socket.sent.some((payload) => payload.includes(`"${channel}"`))
+        )
+      ).toBe(true)
+    })
+
+    const socket = MockWebSocket.instances.find((candidate) =>
+      candidate.sent.some((payload) => payload.includes(`"${channel}"`))
+    )
+    if (!socket) {
+      throw new Error(`Missing websocket subscription for ${channel}`)
+    }
+
+    return socket
+  }
+
   beforeEach(() => {
     resetProjectStore()
     resetLoopStore()
@@ -184,8 +203,7 @@ describe('notifications flow', () => {
       expect(vi.mocked(settingsApi.get).mock.calls.length).toBeGreaterThanOrEqual(2)
     })
 
-    const socket = MockWebSocket.instances[0]
-    expect(socket).toBeDefined()
+    const socket = await findSocketForChannel('notifications')
     socket?.emitMessage({
       type: 'notification',
       channel: 'notifications',
@@ -223,7 +241,7 @@ describe('notifications flow', () => {
       expect(vi.mocked(settingsApi.get).mock.calls.length).toBeGreaterThanOrEqual(2)
     })
 
-    const socket = MockWebSocket.instances[0]
+    const socket = await findSocketForChannel('notifications')
     socket?.emitMessage({
       type: 'notification',
       channel: 'notifications',

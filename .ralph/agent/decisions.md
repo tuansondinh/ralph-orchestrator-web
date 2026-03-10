@@ -26,3 +26,12 @@
 - Reasoning: The current `ProjectPage` logic collapses `chat` to `loops`, which makes the mobile chat layout branch unreachable and defeats the task's acceptance criteria. Preserving the chat route locally is the narrowest reversible change that enables the layout behavior without pulling Task 7/8 navigation work into this iteration.
 - Reversibility: High. Later chat-tab work can centralize chat visibility once the full tab experience is intentionally enabled.
 - Timestamp (UTC ISO 8601): 2026-03-10T19:03:13Z
+
+## DEC-004
+- Decision: Scope the Task 7 chat drawer navigation without changing the global project tab model.
+- Chosen Option: Build the hamburger drawer inside `ChatView` using the existing visible project tabs plus the current project name, and keep chat-route visibility/navigation rules outside this iteration unchanged.
+- Confidence: 76
+- Alternatives Considered: Promote `chat` into the shared tab model now; add a separate chat-specific navigation source just for mobile.
+- Reasoning: The task requires an in-chat navigation affordance because `ProjectHeader` and `TabBar` are hidden on mobile, but broad tab-model changes belong to later chat-route work. Reusing the existing visible tab list keeps the drawer additive, consistent with current navigation labels, and avoids widening scope beyond the tab surface itself.
+- Reversibility: High. A later iteration can centralize drawer/tab definitions once chat becomes a first-class visible tab everywhere.
+- Timestamp (UTC ISO 8601): 2026-03-10T19:10:00Z

@@ -20,7 +20,7 @@ Requirements for the v0.9 Polish milestone. Each maps to roadmap phases.
 
 ### Per-User Configuration
 
-- [ ] **USER-01**: Each cloud user can configure their own API keys (Anthropic, OpenAI, Google) stored per user ID
+- [ ] **USER-01**: Each cloud user can configure their own API keys (Anthropic, OpenAI, Google) stored per user ID for opencode. for the chat and the ralph loop
 - [ ] **USER-02**: API keys are scoped to the authenticated user and not shared across users
 
 ### Chat Polish

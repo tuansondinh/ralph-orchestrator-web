@@ -11,9 +11,10 @@ type ChatSend = (message: Record<string, unknown>) => boolean
 
 interface BackendChatMessage {
   id: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'thinking'
   content: string
   createdAt: number
+  streaming?: boolean
 }
 
 type BackendSocketMessage =
@@ -44,7 +45,7 @@ function normalizeMessage(message: BackendChatMessage): ChatMessage {
     role: message.role,
     content: message.content,
     timestamp: message.createdAt,
-    isStreaming: false
+    isStreaming: message.streaming ?? false
   }
 }
 

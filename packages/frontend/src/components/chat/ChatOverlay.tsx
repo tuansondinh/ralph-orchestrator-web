@@ -7,7 +7,7 @@ import { useChatSession } from '@/hooks/useChatSession'
 export function ChatOverlay() {
   const [inputValue, setInputValue] = useState('')
   const [isOpen, setIsOpen] = useState(false)
-  const { messages, isStreaming, pendingConfirmation, sendMessage, confirmAction } =
+  const { messages, isStreaming, pendingConfirmation, sendMessage, confirmAction, restartChat } =
     useChatSession()
 
   const handleSend = () => {
@@ -42,14 +42,23 @@ export function ChatOverlay() {
           <div>
             <h2 className="text-sm font-semibold text-zinc-100">Ralph Assistant</h2>
           </div>
-          <button
-            aria-label="Close chat assistant"
-            className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-200 transition hover:bg-zinc-800"
-            onClick={() => setIsOpen(false)}
-            type="button"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-200 transition hover:bg-zinc-800"
+              onClick={restartChat}
+              type="button"
+            >
+              Restart chat
+            </button>
+            <button
+              aria-label="Close chat assistant"
+              className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-200 transition hover:bg-zinc-800"
+              onClick={() => setIsOpen(false)}
+              type="button"
+            >
+              Close
+            </button>
+          </div>
         </header>
 
         <div className="min-h-0 flex-1 overflow-hidden">

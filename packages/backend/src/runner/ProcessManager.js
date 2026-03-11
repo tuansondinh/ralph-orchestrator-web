@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 const NOOP_LOGGER = {
     debug: () => { },
@@ -24,32 +24,12 @@ function buildExpectTtyBridgeScript(command, args) {
         'set timeout -1',
         `spawn -noecho ${[command, ...args].map(toTclLiteral).join(' ')}`,
         'interact',
-        'set wait_result [wait]',
-        'set exit_code [lindex $wait_result 3]',
-        'if {$exit_code eq ""} {',
-        '  exit 0',
+        'lassign [wait] pid spawnid osError exitCode',
+        'if {$osError == 0} {',
+        '  exit $exitCode',
         '}',
-        'exit $exit_code'
+        'exit 1'
     ].join('\n');
-}
-function hasBinary(binary, env) {
-    const result = spawnSync('sh', ['-lc', `command -v '${binary.replace(/'/g, `'\\''`)}' >/dev/null 2>&1`], {
-        env,
-        stdio: 'ignore'
-    });
-    return result.status === 0;
-}
-function resolveSpawnSpec(command, args, tty, env) {
-    if (!tty) {
-        return { spawnCommand: command, spawnArgs: args };
-    }
-    if (hasBinary('expect', env)) {
-        return {
-            spawnCommand: 'expect',
-            spawnArgs: ['-c', buildExpectTtyBridgeScript(command, args)]
-        };
-    }
-    return { spawnCommand: command, spawnArgs: args };
 }
 export class ProcessManager {
     killGraceMs;
@@ -87,6 +67,7 @@ export class ProcessManager {
             data: text,
             timestamp: this.now()
         });
+        console.log(`[ProcessManager] Output chunk: processId=${managed.handle.id} stream=${stream} bytes=${text.length} preview="${truncateOutput(text, 100).replace(/\n/g, '\\n')}"`);
         this.logger.debug({
             processId: managed.handle.id,
             stream,
@@ -127,7 +108,8 @@ export class ProcessManager {
     async spawn(projectId, command, args, opts = {}) {
         const env = { ...process.env, ...opts.env };
         const tty = Boolean(opts.tty);
-        const { spawnCommand, spawnArgs } = resolveSpawnSpec(command, args, tty, env);
+        const spawnCommand = tty ? 'expect' : command;
+        const spawnArgs = tty ? ['-c', buildExpectTtyBridgeScript(command, args)] : args;
         const id = this.idFactory();
         let closeResolved = false;
         let resolveClose;
@@ -175,6 +157,7 @@ export class ProcessManager {
             killGraceMs: opts.killGraceMs ?? this.killGraceMs
         };
         this.processes.set(id, managed);
+        console.log(`[ProcessManager] Spawned process: processId=${id} pid=${handle.pid} tty=${tty} command=${command} args=${JSON.stringify(args).slice(0, 200)}`);
         this.logger.info({
             projectId,
             processId: id,
@@ -187,9 +170,11 @@ export class ProcessManager {
         child.stdout.on('data', (data) => this.emitOutput(managed, 'stdout', data));
         child.stderr.on('data', (data) => this.emitOutput(managed, 'stderr', data));
         child.once('error', (error) => {
+            console.log(`[ProcessManager] Process error: processId=${id} error=${error.message}`);
             this.markProcessError(id, managed, error);
         });
         child.once('close', (code) => {
+            console.log(`[ProcessManager] Process closed: processId=${id} exitCode=${code}`);
             this.markProcessClosed(id, managed, code);
         });
         return { ...handle, args: [...handle.args] };

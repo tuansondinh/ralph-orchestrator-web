@@ -2,9 +2,10 @@ export type ChatStatus = 'idle' | 'busy' | 'error'
 
 export interface ChatMessage {
   id: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'thinking'
   content: string
   createdAt: number
+  streaming?: boolean
 }
 
 export interface PendingConfirmation {

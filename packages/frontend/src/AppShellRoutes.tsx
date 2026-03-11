@@ -284,103 +284,103 @@ export function AppShellRoutes({
   return (
     <ChatSessionProvider>
       <AppShell
-      headerActions={
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <NotificationCenter
-            notifications={notifications}
-            onSelect={handleNotificationSelect}
-            panelAlign="right"
-            unreadCount={unreadCount}
+        headerActions={
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <NotificationCenter
+              notifications={notifications}
+              onSelect={handleNotificationSelect}
+              panelAlign="right"
+              unreadCount={unreadCount}
+            />
+            {capabilities.auth && auth ? (
+              <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm">
+                <span className="max-w-[220px] truncate text-zinc-200">
+                  {auth.userEmail ?? 'Signed in'}
+                </span>
+                <button
+                  className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
+                  onClick={() => {
+                    void auth.onSignOut()
+                  }}
+                  type="button"
+                >
+                  Sign out
+                </button>
+              </div>
+            ) : null}
+          </div>
+        }
+        sidebar={
+          <Sidebar
+            connectionStatus={connectionStatus}
+            onProjectCreated={handleProjectCreated}
+            onProjectDelete={handleProjectDelete}
+            onProjectSelect={handleProjectSelect}
+            reconnectAttempt={reconnectAttempt}
           />
-          {capabilities.auth && auth ? (
-            <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-sm">
-              <span className="max-w-[220px] truncate text-zinc-200">
-                {auth.userEmail ?? 'Signed in'}
-              </span>
+        }
+        navigationKey={location.pathname}
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
+          <div className="flex flex-wrap items-center gap-3">
+            {notificationPermission === 'default' ? (
               <button
-                className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
+                className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
                 onClick={() => {
-                  void auth.onSignOut()
+                  void requestPermission()
                 }}
                 type="button"
               >
-                Sign out
+                Enable notifications
               </button>
-            </div>
-          ) : null}
-        </div>
-      }
-      sidebar={
-        <Sidebar
-          connectionStatus={connectionStatus}
-          onProjectCreated={handleProjectCreated}
-          onProjectDelete={handleProjectDelete}
-          onProjectSelect={handleProjectSelect}
-          reconnectAttempt={reconnectAttempt}
-        />
-      }
-      navigationKey={location.pathname}
-    >
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3">
-          {notificationPermission === 'default' ? (
-            <button
-              className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
-              onClick={() => {
-                void requestPermission()
-              }}
-              type="button"
-            >
-              Enable notifications
-            </button>
-          ) : null}
-        </div>
+            ) : null}
+          </div>
 
-        <AppErrorBoundary resetKey={location.pathname}>
-          <div
-            className="min-h-0 flex-1 overflow-hidden"
-            data-testid="app-route-content"
-          >
-            <Routes>
-              <Route
-                element={
-                  <div className="h-full overflow-y-auto pr-1">
-                    <HomePage
-                      onProjectCreated={handleProjectCreated}
-                      onProjectSelect={handleProjectSelect}
-                    />
-                  </div>
-                }
-                path="/"
-              />
-              <Route element={<Navigate replace to="/" />} path="/sign-in" />
-              <Route path="/project/:id">
+          <AppErrorBoundary resetKey={location.pathname}>
+            <div
+              className="min-h-0 flex-1 overflow-hidden"
+              data-testid="app-route-content"
+            >
+              <Routes>
                 <Route
                   element={
-                    <ProjectIndexRedirect
-                      capabilities={capabilities}
-                      lastProjectTabById={lastProjectTabById}
-                    />
+                    <div className="h-full overflow-y-auto pr-1">
+                      <HomePage
+                        onProjectCreated={handleProjectCreated}
+                        onProjectSelect={handleProjectSelect}
+                      />
+                    </div>
                   }
-                  index
+                  path="/"
                 />
-                <Route element={<ProjectPage />} path=":tab" />
-              </Route>
-              <Route element={<SettingsPage />} path="/settings" />
-              <Route
-                element={
-                  <section className="h-full overflow-y-auto space-y-3 pr-1">
-                    <h1 className="text-2xl font-semibold">Not found</h1>
-                    <Link
-                      className="text-sm text-zinc-300 underline underline-offset-4"
-                      to="/"
-                    >
-                      Go to dashboard
-                    </Link>
-                  </section>
-                }
-                path="*"
-              />
+                <Route element={<Navigate replace to="/" />} path="/sign-in" />
+                <Route path="/project/:id">
+                  <Route
+                    element={
+                      <ProjectIndexRedirect
+                        capabilities={capabilities}
+                        lastProjectTabById={lastProjectTabById}
+                      />
+                    }
+                    index
+                  />
+                  <Route element={<ProjectPage />} path=":tab" />
+                </Route>
+                <Route element={<SettingsPage />} path="/settings" />
+                <Route
+                  element={
+                    <section className="h-full overflow-y-auto space-y-3 pr-1">
+                      <h1 className="text-2xl font-semibold">Not found</h1>
+                      <Link
+                        className="text-sm text-zinc-300 underline underline-offset-4"
+                        to="/"
+                      >
+                        Go to dashboard
+                      </Link>
+                    </section>
+                  }
+                  path="*"
+                />
               </Routes>
             </div>
           </AppErrorBoundary>

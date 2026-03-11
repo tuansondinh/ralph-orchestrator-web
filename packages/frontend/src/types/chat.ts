@@ -1,4 +1,4 @@
-export type ChatMessageRole = 'user' | 'assistant' | 'tool'
+export type ChatMessageRole = 'user' | 'assistant' | 'thinking' | 'tool'
 export type ChatSessionStatus = 'idle' | 'busy' | 'error' | 'disconnected'
 
 export interface ChatToolCall {

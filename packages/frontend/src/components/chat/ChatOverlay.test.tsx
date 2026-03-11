@@ -159,6 +159,25 @@ describe('ChatOverlay', () => {
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('Run a status check')
   })
 
+  it('restarts chat from the overlay header action', () => {
+    useChatSessionStore.setState({
+      messages: [
+        makeMessage({
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'Shared history'
+        })
+      ]
+    })
+
+    renderOverlay()
+    fireEvent.click(screen.getByRole('button', { name: 'Open chat assistant' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Restart chat' }))
+
+    expect(send).toHaveBeenCalledWith({ type: 'chat:restart' })
+    expect(useChatSessionStore.getState().messages).toEqual([])
+  })
+
   it('shows the same shared transcript in the chat tab and desktop bubble at the same time', () => {
     useChatSessionStore.setState({
       messages: [

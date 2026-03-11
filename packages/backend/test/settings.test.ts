@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmod, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appRouter } from '../src/trpc/router.js'
 import { createTestRuntime } from './test-helpers.js'
 import {
@@ -89,8 +89,35 @@ describe('settings tRPC routes', () => {
   const tempDirs: string[] = []
   const connections: DatabaseConnection[] = []
   const managers: ProcessManager[] = []
+  const providerEnvKeys = [
+    'ANTHROPIC_API_KEY',
+    'OPENAI_API_KEY',
+    'GOOGLE_API_KEY',
+    'GOOGLE_GENERATIVE_AI_API_KEY'
+  ] as const
+  let previousProviderEnv: Partial<Record<(typeof providerEnvKeys)[number], string | undefined>> =
+    {}
+
+  beforeEach(() => {
+    previousProviderEnv = Object.fromEntries(
+      providerEnvKeys.map((key) => [key, process.env[key]])
+    ) as Partial<Record<(typeof providerEnvKeys)[number], string | undefined>>
+
+    for (const key of providerEnvKeys) {
+      delete process.env[key]
+    }
+  })
 
   afterEach(async () => {
+    for (const key of providerEnvKeys) {
+      const value = previousProviderEnv[key]
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+
     while (managers.length > 0) {
       await managers.pop()?.shutdown()
     }

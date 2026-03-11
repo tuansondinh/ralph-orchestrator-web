@@ -675,8 +675,11 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Email')).toBeInTheDocument()
-    expect(screen.getByTestId('pixel-cat')).toHaveClass('pointer-events-none', '-right-14', 'sm:-right-20')
+    expect(screen.getByLabelText('Email')).toHaveAttribute('autocomplete', 'username')
+    expect(screen.getByLabelText('Email')).toHaveAttribute('name', 'username')
+    expect(screen.getByLabelText('Password')).toHaveAttribute('autocomplete', 'current-password')
+    expect(screen.getByLabelText('Password')).toHaveAttribute('name', 'password')
+    expect(screen.queryByTestId('pixel-cat')).not.toBeInTheDocument()
     expect(screen.queryByText('Project workspaces')).not.toBeInTheDocument()
     expect(projectApi.list).not.toHaveBeenCalled()
   })
@@ -699,6 +702,8 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: 'Sign up' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign up' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Email')).toHaveAttribute('autocomplete', 'username')
+    expect(screen.getByLabelText('Password')).toHaveAttribute('autocomplete', 'new-password')
     expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/sign-in')
   })
 
@@ -885,7 +890,7 @@ describe('App', () => {
     })
   })
 
-  it('keeps the PixelCat offset away from authenticated header actions', async () => {
+  it('does not render the PixelCat in the authenticated header', async () => {
     seedProjects([
       {
         id: 'alpha',
@@ -914,7 +919,7 @@ describe('App', () => {
 
     expect(await screen.findByText('dev@example.com')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
-    expect(screen.getByTestId('pixel-cat')).toHaveClass('pointer-events-none', '-right-14', 'sm:-right-20')
+    expect(screen.queryByTestId('pixel-cat')).not.toBeInTheDocument()
   })
 
   it('allows direct terminal routes in cloud mode', async () => {

@@ -34,30 +34,61 @@ const initialState = {
   pendingConfirmation: null as PendingConfirmation | null
 }
 
-function createStreamingAssistantMessage(content: string): ChatMessage {
+const CLAUDE_CODE_IDENTITY_PATTERN =
+  /^(?:(?:hi|hello)\s*[,.! ]*)?i(?:'| a)m claude code, anthropic'?s official cli for claude\b/i
+
+const RALPH_ASSISTANT_IDENTITY_MESSAGE =
+  "I'm Ralph Assistant, built into Ralph Orchestrator. I help with software engineering tasks in this workspace. What would you like to work on today?"
+
+function normalizeAssistantContent(content: string) {
+  const trimmed = content.trim()
+  if (!trimmed) {
+    return content
+  }
+
+  if (CLAUDE_CODE_IDENTITY_PATTERN.test(trimmed)) {
+    return RALPH_ASSISTANT_IDENTITY_MESSAGE
+  }
+
+  return content
+}
+
+function normalizeMessage(message: ChatMessage): ChatMessage {
+  if (message.role !== 'assistant') {
+    return message
+  }
+
   return {
+    ...message,
+    content: normalizeAssistantContent(message.content)
+  }
+}
+
+function createStreamingAssistantMessage(content: string): ChatMessage {
+  return normalizeMessage({
     id: globalThis.crypto.randomUUID(),
     role: 'assistant',
     content,
     timestamp: Date.now(),
     isStreaming: true
-  }
+  })
 }
 
 export const useChatSessionStore = create<ChatSessionState>((set) => ({
   ...initialState,
   addMessage: (message) =>
     set((state) => {
-      if (message.role === 'assistant') {
+      if (message.role === 'assistant' || message.role === 'thinking') {
         // 1) Deduplicate by message ID (handles repeated message.updated SDK events)
         const existingByIdIndex = state.messages.findIndex(
           (candidate) => candidate.id === message.id
         )
         if (existingByIdIndex >= 0) {
           let messages = [...state.messages]
-          messages[existingByIdIndex] = { ...message, isStreaming: false }
-          // Also remove orphan streaming message created from deltas
+          messages[existingByIdIndex] = normalizeMessage(message)
+          // Also remove orphan assistant streaming message created from deltas
           if (
+            message.role === 'assistant' &&
             state.currentStreamingIndex >= 0 &&
             state.currentStreamingIndex !== existingByIdIndex &&
             state.currentStreamingIndex < messages.length &&
@@ -66,35 +97,51 @@ export const useChatSessionStore = create<ChatSessionState>((set) => ({
             const orphanIdx = state.currentStreamingIndex
             messages = messages.filter((_, i) => i !== orphanIdx)
           }
-          return { messages, isStreaming: false, currentStreamingIndex: -1 }
-        }
-
-        // 2) Use tracked streaming index (survives finalizeCurrent race)
-        if (
-          state.currentStreamingIndex >= 0 &&
-          state.currentStreamingIndex < state.messages.length
-        ) {
-          const target = state.messages[state.currentStreamingIndex]
-          if (target?.role === 'assistant') {
-            const messages = [...state.messages]
-            messages[state.currentStreamingIndex] = { ...message, isStreaming: false }
-            return { messages, isStreaming: false, currentStreamingIndex: -1 }
+          return {
+            messages,
+            isStreaming:
+              message.role === 'assistant' ? Boolean(message.isStreaming) : state.isStreaming,
+            currentStreamingIndex:
+              message.role === 'assistant' && !message.isStreaming ? -1 : state.currentStreamingIndex
           }
         }
 
-        // 3) Fallback: find a streaming message by flag
-        const streamingIndex = state.messages.findIndex(
-          (candidate) => candidate.role === 'assistant' && candidate.isStreaming
-        )
-        if (streamingIndex >= 0) {
-          const messages = [...state.messages]
-          messages[streamingIndex] = { ...message, isStreaming: false }
-          return { messages, isStreaming: false, currentStreamingIndex: -1 }
+        if (message.role === 'assistant') {
+          // 2) Use tracked streaming index (survives finalizeCurrent race)
+          if (
+            state.currentStreamingIndex >= 0 &&
+            state.currentStreamingIndex < state.messages.length
+          ) {
+            const target = state.messages[state.currentStreamingIndex]
+            if (target?.role === 'assistant') {
+              const messages = [...state.messages]
+              messages[state.currentStreamingIndex] = normalizeMessage(message)
+              return {
+                messages,
+                isStreaming: Boolean(message.isStreaming),
+                currentStreamingIndex: message.isStreaming ? state.currentStreamingIndex : -1
+              }
+            }
+          }
+
+          // 3) Fallback: find a streaming message by flag
+          const streamingIndex = state.messages.findIndex(
+            (candidate) => candidate.role === 'assistant' && candidate.isStreaming
+          )
+          if (streamingIndex >= 0) {
+            const messages = [...state.messages]
+            messages[streamingIndex] = normalizeMessage(message)
+            return {
+              messages,
+              isStreaming: Boolean(message.isStreaming),
+              currentStreamingIndex: message.isStreaming ? streamingIndex : -1
+            }
+          }
         }
       }
 
       return {
-        messages: [...state.messages, message],
+        messages: [...state.messages, normalizeMessage(message)],
         isStreaming:
           message.role === 'assistant' ? Boolean(message.isStreaming) : state.isStreaming
       }
@@ -108,7 +155,7 @@ export const useChatSessionStore = create<ChatSessionState>((set) => ({
         if (candidate?.role === 'assistant' && candidate.isStreaming) {
           messages[index] = {
             ...candidate,
-            content: `${candidate.content}${text}`,
+            content: normalizeAssistantContent(`${candidate.content}${text}`),
             isStreaming: true
           }
           return {
@@ -155,7 +202,7 @@ export const useChatSessionStore = create<ChatSessionState>((set) => ({
     }),
   hydrateFromSnapshot: (snapshot) =>
     set({
-      messages: snapshot.messages,
+      messages: snapshot.messages.map(normalizeMessage),
       sessionId: snapshot.sessionId,
       status: snapshot.status,
       pendingConfirmation: snapshot.pendingConfirmation,
@@ -177,7 +224,7 @@ export const useChatSessionStore = create<ChatSessionState>((set) => ({
         {
           id: globalThis.crypto.randomUUID(),
           role: 'assistant',
-          content: error,
+          content: normalizeAssistantContent(error),
           timestamp: Date.now(),
           isStreaming: false
         }

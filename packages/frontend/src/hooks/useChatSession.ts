@@ -46,6 +46,24 @@ export function useChatSession() {
         return
       }
       useChatSessionStore.getState().setPendingConfirmation(null)
+    },
+    restartChat() {
+      const sent = send({
+        type: 'chat:restart'
+      })
+      if (!sent) {
+        useChatSessionStore.getState().addError(
+          'Chat is disconnected. Reconnect and try again.'
+        )
+        return
+      }
+
+      useChatSessionStore.getState().hydrateFromSnapshot({
+        sessionId: null,
+        messages: [],
+        status: 'idle',
+        pendingConfirmation: null
+      })
     }
   }
 }

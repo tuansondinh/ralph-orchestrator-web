@@ -111,4 +111,33 @@ describe('useChatSession', () => {
       content: 'Chat is disconnected. Reconnect and try again.'
     })
   })
+
+  it('clears the local transcript and sends chat:restart', () => {
+    const send = vi.fn(() => true)
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <ChatSendContext.Provider value={send}>{children}</ChatSendContext.Provider>
+    )
+
+    useChatSessionStore.getState().addMessage({
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Old transcript',
+      timestamp: 1,
+      isStreaming: false
+    })
+
+    const { result } = renderHook(() => useChatSession(), { wrapper })
+
+    act(() => {
+      result.current.restartChat()
+    })
+
+    expect(send).toHaveBeenCalledWith({ type: 'chat:restart' })
+    expect(useChatSessionStore.getState()).toMatchObject({
+      sessionId: null,
+      messages: [],
+      status: 'idle',
+      pendingConfirmation: null
+    })
+  })
 })

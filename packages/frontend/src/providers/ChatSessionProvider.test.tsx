@@ -92,6 +92,16 @@ describe('ChatSessionProvider', () => {
     }
 
     act(() => {
+      options.onMessage({
+        type: 'chat:message',
+        message: {
+          id: 'thinking-1',
+          role: 'thinking',
+          content: 'Inspecting files',
+          createdAt: 9,
+          streaming: true
+        }
+      })
       options.onMessage({ type: 'chat:delta', text: 'hello' })
       options.onMessage({ type: 'chat:delta', text: ' world' })
       options.onMessage({
@@ -122,18 +132,32 @@ describe('ChatSessionProvider', () => {
       },
       isStreaming: false
     })
-    expect(useChatSessionStore.getState().messages).toEqual([
-      expect.objectContaining({
-        id: 'assistant-1',
-        role: 'assistant',
-        content: 'done',
-        timestamp: 10
-      }),
-      expect.objectContaining({
-        role: 'tool',
-        content: '- demo'
-      })
-    ])
+    expect(useChatSessionStore.getState().messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'thinking-1',
+          role: 'thinking',
+          content: 'Inspecting files',
+          timestamp: 9,
+          isStreaming: true
+        }),
+        expect.objectContaining({
+          role: 'tool',
+          toolCall: {
+            name: 'list_projects',
+            args: {},
+            state: 'completed'
+          },
+          content: '- demo'
+        }),
+        expect.objectContaining({
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'done',
+          timestamp: 10
+        })
+      ])
+    )
   })
 
   it('hydrates the entire store from chat:snapshot events', () => {
@@ -156,6 +180,13 @@ describe('ChatSessionProvider', () => {
         pendingConfirmation: null,
         messages: [
           {
+            id: 'thinking-1',
+            role: 'thinking',
+            content: 'Planning',
+            createdAt: 11,
+            streaming: false
+          },
+          {
             id: 'user-1',
             role: 'user',
             content: 'hello',
@@ -171,6 +202,13 @@ describe('ChatSessionProvider', () => {
       pendingConfirmation: null
     })
     expect(useChatSessionStore.getState().messages).toEqual([
+      expect.objectContaining({
+        id: 'thinking-1',
+        role: 'thinking',
+        content: 'Planning',
+        timestamp: 11,
+        isStreaming: false
+      }),
       expect.objectContaining({
         id: 'user-1',
         role: 'user',

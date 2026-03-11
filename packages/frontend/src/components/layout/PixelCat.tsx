@@ -1,12 +1,18 @@
-export function PixelCat() {
+export function PixelCat({
+  className = '',
+  sizeClassName = 'h-[84px] w-[126px] sm:h-[98px] sm:w-[147px]'
+}: {
+  className?: string
+  sizeClassName?: string
+}) {
   return (
     <div
       aria-hidden="true"
-      className="ralph-pixel-cat-wrap pointer-events-none fixed top-1.5 -right-14 z-40 origin-top-right select-none sm:top-2 sm:-right-20"
+      className={`ralph-pixel-cat-wrap pointer-events-none shrink-0 select-none ${className}`.trim()}
       data-testid="pixel-cat"
     >
       <svg
-        className="ralph-pixel-cat h-[84px] w-[126px] sm:h-[98px] sm:w-[147px]"
+        className={`ralph-pixel-cat ${sizeClassName}`.trim()}
         shapeRendering="crispEdges"
         viewBox="0 0 96 64"
         xmlns="http://www.w3.org/2000/svg"

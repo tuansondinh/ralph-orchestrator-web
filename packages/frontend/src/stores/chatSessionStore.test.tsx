@@ -79,6 +79,34 @@ describe('chatSessionStore', () => {
     expect(useChatSessionStore.getState().isStreaming).toBe(false)
   })
 
+  it('updates thinking messages by id without duplicating them', () => {
+    useChatSessionStore.getState().addMessage(
+      makeMessage({
+        id: 'thinking-1',
+        role: 'thinking',
+        content: 'Inspecting',
+        isStreaming: true
+      })
+    )
+    useChatSessionStore.getState().addMessage(
+      makeMessage({
+        id: 'thinking-1',
+        role: 'thinking',
+        content: 'Inspecting files',
+        isStreaming: false
+      })
+    )
+
+    expect(useChatSessionStore.getState().messages).toEqual([
+      expect.objectContaining({
+        id: 'thinking-1',
+        role: 'thinking',
+        content: 'Inspecting files',
+        isStreaming: false
+      })
+    ])
+  })
+
   it('hydrateFromSnapshot replaces all existing state atomically', () => {
     useChatSessionStore.getState().addMessage(makeMessage({ id: 'stale-message' }))
     useChatSessionStore
@@ -104,6 +132,50 @@ describe('chatSessionStore', () => {
       messages: [],
       isStreaming: false
     })
+  })
+
+  it('normalizes stale Claude Code assistant identity text from snapshots', () => {
+    useChatSessionStore.getState().hydrateFromSnapshot(
+      makeSnapshot({
+        messages: [
+          makeMessage({
+            id: 'assistant-1',
+            role: 'assistant',
+            content:
+              "I'm Claude Code, Anthropic's official CLI for Claude. What would you like to work on today?"
+          })
+        ]
+      })
+    )
+
+    expect(useChatSessionStore.getState().messages).toEqual([
+      expect.objectContaining({
+        id: 'assistant-1',
+        role: 'assistant',
+        content:
+          "I'm Ralph Assistant, built into Ralph Orchestrator. I help with software engineering tasks in this workspace. What would you like to work on today?"
+      })
+    ])
+  })
+
+  it('normalizes finalized assistant messages that identify as Claude Code', () => {
+    useChatSessionStore.getState().addMessage(
+      makeMessage({
+        id: 'assistant-2',
+        role: 'assistant',
+        content:
+          "I'm Claude Code, Anthropic's official CLI for Claude. I'm an interactive coding agent."
+      })
+    )
+
+    expect(useChatSessionStore.getState().messages).toEqual([
+      expect.objectContaining({
+        id: 'assistant-2',
+        role: 'assistant',
+        content:
+          "I'm Ralph Assistant, built into Ralph Orchestrator. I help with software engineering tasks in this workspace. What would you like to work on today?"
+      })
+    ])
   })
 
   it('addError appends an assistant error message and updates status', () => {

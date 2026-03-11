@@ -24,9 +24,24 @@ const STOP_ATTEMPTS = 3;
 const STOP_WAIT_MS_PER_ATTEMPT = 700;
 const PROJECT_RECONCILE_MIN_INTERVAL_MS = 2_000;
 const DEFAULT_OUTPUT_BUFFER_LINES = 500;
+const DEFAULT_RUNTIME_HEALTH_CHECK_INTERVAL_MS = 30_000;
 const OUTPUT_EVENT_PREFIX = 'loop-output:';
 const STATE_EVENT_PREFIX = 'loop-state:';
 const execFile = promisify(execFileCallback);
+function isProcessAliveByPid(pid) {
+    if (!Number.isInteger(pid) || pid <= 0) {
+        return false;
+    }
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch (error) {
+        return !(error instanceof Error &&
+            'code' in error &&
+            error.code === 'ESRCH');
+    }
+}
 async function stopLoopWithCli(input) {
     try {
         await execFile(input.binaryPath, ['loops', 'stop', '--loop-id', input.loopId], {
@@ -92,24 +107,13 @@ function quoteShellArg(value) {
 function buildRunCommand(binaryPath, options) {
     const runArgs = buildRunArgs(options);
     const command = [binaryPath, ...runArgs].map(quoteShellArg).join(' ');
-    return `${command} 2>&1`;
+    const fullCmd = `${command} 2>&1`;
+    console.log(`[LoopService] buildRunCommand: ${fullCmd}`);
+    return fullCmd;
 }
 function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
-function isProcessAliveByPid(pid) {
-    if (!Number.isInteger(pid) || pid <= 0) {
-        return false;
-    }
-    try {
-        process.kill(pid, 0);
-        return true;
-    }
-    catch (error) {
-        return !(error instanceof Error && 'code' in error && error.code === 'ESRCH');
-    }
-}
-const DEFAULT_RUNTIME_HEALTH_CHECK_INTERVAL_MS = 30_000;
 export class LoopService {
     processManager;
     resolveBinary;
@@ -140,17 +144,19 @@ export class LoopService {
         this.now = options.now ?? (() => new Date());
         this.bufferLines = options.bufferLines ?? DEFAULT_OUTPUT_BUFFER_LINES;
         this.isProcessAlive = options.isProcessAlive ?? isProcessAliveByPid;
-        this.runtimeHealthCheckIntervalMs = options.healthCheckIntervalMs ?? DEFAULT_RUNTIME_HEALTH_CHECK_INTERVAL_MS;
+        this.runtimeHealthCheckIntervalMs =
+            options.healthCheckIntervalMs ?? DEFAULT_RUNTIME_HEALTH_CHECK_INTERVAL_MS;
         this.notificationService = new LoopNotificationService(repositories, this.events, this.now);
         this.diffService = new LoopDiffService();
         this.metricsService = new LoopMetricsService(this.now);
-        this.runtimeHealthCheckTimer = this.runtimeHealthCheckIntervalMs > 0
-            ? setInterval(() => {
-                void this.reconcileActiveRuntimeHealth().catch((error) => {
-                    console.error('[LoopService] runtime health reconciliation failed', error);
-                });
-            }, this.runtimeHealthCheckIntervalMs)
-            : null;
+        this.runtimeHealthCheckTimer =
+            this.runtimeHealthCheckIntervalMs > 0
+                ? setInterval(() => {
+                    void this.reconcileActiveRuntimeHealth().catch((error) => {
+                        console.error('[LoopService] runtime health reconciliation failed', error);
+                    });
+                }, this.runtimeHealthCheckIntervalMs)
+                : null;
         this.runtimeHealthCheckTimer?.unref?.();
     }
     async recoverState() {
@@ -159,42 +165,13 @@ export class LoopService {
             await this.markLoopAsOrphaned(run, 'App process restarted — loop runtime became orphaned');
         }
     }
-    async markLoopAsOrphaned(run, recoveryError) {
-        const nowMs = this.now().getTime();
-        const parsedConfig = parseConfigRecord(run.config);
-        const updatedConfig = JSON.stringify({
-            ...parsedConfig,
-            _recoveryError: recoveryError
-        });
-        await this.loopRuns.update(run.id, {
-            state: 'orphan',
-            config: updatedConfig,
-            endedAt: run.endedAt ?? nowMs
-        });
-        this.events.emit(`loop-state:${run.id}`, 'orphan');
-        await this.notificationService.notifyForLoopState(run.id, 'orphan');
-    }
-    async reconcileActiveRuntimeHealth() {
-        let reconciled = 0;
-        for (const [loopId, runtime] of this.runtimes.entries()) {
-            if (!runtime.active || runtime.stopRequested) {
-                continue;
-            }
-            if (!runtime.processPid) {
-                continue;
-            }
-            if (this.isProcessAlive(runtime.processPid)) {
-                continue;
-            }
-            await this.handleState(loopId, 'crashed');
-            reconciled += 1;
-        }
-        return reconciled;
-    }
     async start(projectId, options = {}) {
         const project = await this.requireProject(projectId);
         const effectiveOptions = options.backend === undefined
-            ? { ...options, backend: resolveDefaultLoopBackendFromEnv() ?? undefined }
+            ? {
+                ...options,
+                backend: resolveDefaultLoopBackendFromEnv() ?? undefined
+            }
             : options;
         let binaryPath;
         try {
@@ -204,10 +181,10 @@ export class LoopService {
             throw new LoopServiceError('BAD_REQUEST', error instanceof Error ? error.message : 'Unable to resolve Ralph binary');
         }
         let runCwd = project.path;
-        if (effectiveOptions.worktree) {
-            const resolvedWorktreePath = await this.diffService.resolveWorktreePath(project.path, effectiveOptions.worktree);
+        if (options.worktree) {
+            const resolvedWorktreePath = await this.diffService.resolveWorktreePath(project.path, options.worktree);
             if (!resolvedWorktreePath) {
-                throw new LoopServiceError('BAD_REQUEST', `Worktree not found: ${effectiveOptions.worktree}`);
+                throw new LoopServiceError('BAD_REQUEST', `Worktree not found: ${options.worktree}`);
             }
             runCwd = resolvedWorktreePath;
         }
@@ -226,11 +203,11 @@ export class LoopService {
             writeFile(outputLogPath, '', 'utf8')
         ]);
         const shellCommand = buildRunCommand(binaryPath, effectiveOptions);
+        console.log(`[LoopService] Spawning loop ${loopId}: cwd=${runCwd}, command=bash -lc "${shellCommand.slice(0, 200)}..."`);
         const handle = await this.processManager.spawn(projectId, 'bash', ['-lc', shellCommand], {
-            cwd: runCwd,
-            // Provider CLIs like Gemini/OpenCode make forward progress only when Ralph runs under a PTY.
-            tty: true
+            cwd: runCwd
         });
+        console.log(`[LoopService] Process spawned: processId=${handle.id}, pid=${handle.pid}, state=${handle.state}`);
         const markerAfter = await this.readCurrentLoopId(runCwd);
         const currentEventsAfter = await this.readCurrentEventsLoopId(runCwd);
         const initialRalphLoopId = (currentEventsAfter && currentEventsAfter !== currentEventsBefore
@@ -783,6 +760,38 @@ export class LoopService {
         runtime.processId = null;
         runtime.processPid = null;
     }
+    async reconcileActiveRuntimeHealth() {
+        let reconciled = 0;
+        for (const [loopId, runtime] of this.runtimes.entries()) {
+            if (!runtime.active || runtime.stopRequested) {
+                continue;
+            }
+            if (!runtime.processId || runtime.processPid === null) {
+                continue;
+            }
+            if (this.isProcessAlive(runtime.processPid)) {
+                continue;
+            }
+            await this.handleState(loopId, 'crashed');
+            reconciled += 1;
+        }
+        return reconciled;
+    }
+    async markLoopAsOrphaned(run, recoveryError) {
+        const nowMs = this.now().getTime();
+        const parsedConfig = parseConfigRecord(run.config);
+        const updatedConfig = JSON.stringify({
+            ...parsedConfig,
+            _recoveryError: recoveryError
+        });
+        await this.loopRuns.update(run.id, {
+            state: 'stopped',
+            config: updatedConfig,
+            endedAt: run.endedAt ?? nowMs
+        });
+        this.events.emit(`${STATE_EVENT_PREFIX}${run.id}`, 'stopped');
+        await this.notificationService.notifyForLoopState(run.id, 'stopped');
+    }
     async applyParsedEvent(loopId, runtime, event) {
         if (typeof event.payload !== 'object' || event.payload === null) {
             return;
@@ -1057,16 +1066,17 @@ export class LoopService {
                     return [];
                 }
                 const rawState = asString(row.status) ?? asString(row.state) ?? 'running';
-                const state = rawState === 'running' ||
-                    rawState === 'queued' ||
-                    rawState === 'merging' ||
-                    rawState === 'merged' ||
-                    rawState === 'needs-review' ||
-                    rawState === 'orphan' ||
-                    rawState === 'stopped' ||
-                    rawState === 'completed'
-                    ? rawState
-                    : 'running';
+                const state = rawState === 'orphan'
+                    ? 'stopped'
+                    : rawState === 'running' ||
+                        rawState === 'queued' ||
+                        rawState === 'merging' ||
+                        rawState === 'merged' ||
+                        rawState === 'needs-review' ||
+                        rawState === 'stopped' ||
+                        rawState === 'completed'
+                        ? rawState
+                        : 'running';
                 return [{
                         id,
                         state,

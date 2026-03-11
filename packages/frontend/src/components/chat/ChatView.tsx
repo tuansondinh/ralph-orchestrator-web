@@ -38,7 +38,8 @@ export function ChatView({ projectId }: ChatViewProps) {
     isStreaming,
     pendingConfirmation,
     sendMessage,
-    confirmAction
+    confirmAction,
+    restartChat
   } = useChatSession()
 
   const visibleTabs = getVisibleProjectTabs(capabilities)
@@ -80,32 +81,51 @@ export function ChatView({ projectId }: ChatViewProps) {
 
   return (
     <section
-      className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/40"
+      className="relative flex h-full min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden"
       data-testid="chat-view"
     >
       {isMobile ? (
         <div className="flex min-h-11 items-center px-3 pt-3">
-          <button
-            aria-label="Open project navigation"
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900/80 text-zinc-100 transition hover:bg-zinc-800"
-            onClick={() => setIsNavOpen(true)}
-            type="button"
-          >
-            <span aria-hidden="true" className="text-lg leading-none">
-              ≡
-            </span>
-          </button>
+          <div className="flex w-full items-center justify-between gap-3">
+            <button
+              aria-label="Open project navigation"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900/80 text-zinc-100 transition hover:bg-zinc-800"
+              onClick={() => setIsNavOpen(true)}
+              type="button"
+            >
+              <span aria-hidden="true" className="text-lg leading-none">
+                ≡
+              </span>
+            </button>
+            <button
+              className="rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-200 transition hover:bg-zinc-800"
+              onClick={restartChat}
+              type="button"
+            >
+              Restart chat
+            </button>
+          </div>
         </div>
       ) : (
-        <header className="border-b border-zinc-800 px-4 py-3">
-          <div className="mx-auto flex min-h-11 w-full max-w-5xl items-center gap-2 sm:gap-3">
+        <header className="px-4 py-3">
+          <div className="flex min-h-11 w-full items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-zinc-100 sm:text-xl">Chat</h2>
+            <button
+              className="rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-200 transition hover:bg-zinc-800"
+              onClick={restartChat}
+              type="button"
+            >
+              Restart chat
+            </button>
           </div>
         </header>
       )}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3">
-        <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-hidden">
+        <div
+          className="flex min-h-0 w-full flex-1 flex-col overflow-hidden"
+          data-testid="chat-content"
+        >
           <div className="min-h-0 flex-1 overflow-hidden">
             <MessageList
               isThinking={isStreaming}
@@ -123,7 +143,8 @@ export function ChatView({ projectId }: ChatViewProps) {
           </div>
 
           <div
-            className="sticky bottom-0 mt-3 shrink-0 rounded-xl border border-zinc-800 bg-zinc-950/95 p-3 pb-[env(safe-area-inset-bottom)]"
+            className="sticky bottom-0 mt-3 w-full shrink-0 self-stretch border-t border-zinc-800/80 bg-zinc-950/95 px-1 pt-3 pb-[env(safe-area-inset-bottom)]"
+            data-testid="chat-composer"
             style={{
               bottom: `${keyboardOffset}px`
             }}

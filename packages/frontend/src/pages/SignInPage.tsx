@@ -78,12 +78,14 @@ export function SignInPage({ mode = 'sign-in' }: { mode?: 'sign-in' | 'sign-up' 
           </p>
         </header>
 
-        <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-          <label className="flex flex-col gap-1 text-sm text-zinc-200">
+        <form autoComplete="on" className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
+          <label className="flex flex-col gap-1 text-sm text-zinc-200" htmlFor="cloud-auth-email">
             Email
             <input
-              autoComplete="email"
+              autoComplete="username"
               className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 outline-none transition focus:border-amber-400"
+              id="cloud-auth-email"
+              name="username"
               onChange={(event) => {
                 setEmail(event.target.value)
               }}
@@ -92,11 +94,13 @@ export function SignInPage({ mode = 'sign-in' }: { mode?: 'sign-in' | 'sign-up' 
             />
           </label>
 
-          <label className="flex flex-col gap-1 text-sm text-zinc-200">
+          <label className="flex flex-col gap-1 text-sm text-zinc-200" htmlFor="cloud-auth-password">
             Password
             <input
-              autoComplete="current-password"
+              autoComplete={isSignUpMode ? 'new-password' : 'current-password'}
               className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 outline-none transition focus:border-amber-400"
+              id="cloud-auth-password"
+              name="password"
               onChange={(event) => {
                 setPassword(event.target.value)
               }}

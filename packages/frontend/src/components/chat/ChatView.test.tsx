@@ -50,6 +50,7 @@ function makePendingConfirmation(
 describe('ChatView', () => {
   const sendMessage = vi.fn()
   const confirmAction = vi.fn()
+  const restartChat = vi.fn()
 
   beforeEach(async () => {
     resetProjectStore()
@@ -81,7 +82,8 @@ describe('ChatView', () => {
       status: 'idle',
       pendingConfirmation: null,
       sendMessage,
-      confirmAction
+      confirmAction,
+      restartChat
     })
   })
 
@@ -115,7 +117,8 @@ describe('ChatView', () => {
       status: 'idle',
       pendingConfirmation: null,
       sendMessage,
-      confirmAction
+      confirmAction,
+      restartChat
     })
 
     renderChatView()
@@ -149,7 +152,8 @@ describe('ChatView', () => {
       status: 'idle',
       pendingConfirmation: makePendingConfirmation(),
       sendMessage,
-      confirmAction
+      confirmAction,
+      restartChat
     })
 
     renderChatView()
@@ -178,5 +182,22 @@ describe('ChatView', () => {
     expect(screen.queryByRole('button', { name: 'End Session' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Session backend')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Session type')).not.toBeInTheDocument()
+  })
+
+  it('restarts chat from the desktop header action', () => {
+    renderChatView()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restart chat' }))
+
+    expect(restartChat).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses the full available width for the desktop chat content', () => {
+    renderChatView()
+
+    expect(screen.getByTestId('chat-view')).toHaveClass('w-full', 'flex-1', 'min-w-0')
+    expect(screen.getByTestId('chat-content')).toHaveClass('w-full')
+    expect(screen.getByTestId('chat-content')).not.toHaveClass('max-w-5xl')
+    expect(screen.getByTestId('chat-composer')).toHaveClass('w-full', 'self-stretch')
   })
 })

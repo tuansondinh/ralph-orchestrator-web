@@ -5,7 +5,6 @@ import type {
   EventPermissionUpdated,
   EventSessionStatus,
   OpencodeClient,
-  ServerOptions,
   Session
 } from '@opencode-ai/sdk'
 import { OpenCodeService } from '../src/services/OpenCodeService.js'
@@ -74,6 +73,10 @@ function createSession(id = 'session-1'): Session {
     }
   } as unknown as Session
 }
+
+type CreateOpencode = NonNullable<
+  ConstructorParameters<typeof OpenCodeService>[0]['createOpencode']
+>
 
 function createSettingsSnapshot(): SettingsSnapshot {
   return {
@@ -148,15 +151,13 @@ function createServiceHarness() {
     postSessionIdPermissionsPermissionId: permissionReply
   } as unknown as OpencodeClient
 
-  const createOpencode = vi.fn(
-    async (_options?: ServerOptions) => ({
-      client,
-      server: {
-        url: 'http://127.0.0.1:4096',
-        close: serverClose
-      }
-    })
-  )
+  const createOpencode = vi.fn<CreateOpencode>(async () => ({
+    client,
+    server: {
+      url: 'http://127.0.0.1:4096',
+      close: serverClose
+    }
+  }))
 
   const service = new OpenCodeService({
     mcpEndpointUrl: 'http://localhost:3003/mcp',
@@ -340,6 +341,42 @@ describe('OpenCodeService', () => {
           parts: [{ type: 'text', text: 'hello' }]
         })
       })
+    )
+  })
+
+  it('captures reasoning parts as streaming thinking messages', async () => {
+    const harness = createServiceHarness()
+
+    await harness.service.sendMessage('think first')
+
+    harness.eventQueue.push({
+      type: 'message.part.updated',
+      properties: {
+        part: {
+          id: 'reasoning-1',
+          sessionID: 'session-1',
+          messageID: 'assistant-1',
+          type: 'reasoning',
+          text: 'Inspecting the codebase',
+          time: {
+            start: 10
+          }
+        }
+      }
+    } satisfies EventMessagePartUpdated)
+
+    await flushPromises()
+
+    expect(harness.service.getSnapshot().messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'reasoning-1',
+          role: 'thinking',
+          content: 'Inspecting the codebase',
+          createdAt: 10,
+          streaming: true
+        })
+      ])
     )
   })
 

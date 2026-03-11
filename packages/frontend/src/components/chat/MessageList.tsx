@@ -30,7 +30,7 @@ export function MessageList({
 
   return (
     <section
-      className="h-full min-h-0 space-y-3 overflow-y-auto overflow-x-hidden rounded-lg border border-zinc-800 bg-zinc-950/60 p-2.5 sm:p-3"
+      className="h-full min-h-0 space-y-3 overflow-y-auto overflow-x-hidden px-1 py-1 sm:px-0"
       data-testid="chat-message-list"
     >
       {messages.length === 0 ? (
@@ -39,7 +39,9 @@ export function MessageList({
         messages
           .filter(
             (message) =>
-              message.role !== 'tool' && message.content.trim().length > 0
+              message.role === 'tool'
+                ? Boolean(message.toolCall) || message.content.trim().length > 0
+                : message.content.trim().length > 0
           )
           .map((message) => (
             <ChatMessage key={message.id} message={message} onLinkClick={onMessageLinkClick} />

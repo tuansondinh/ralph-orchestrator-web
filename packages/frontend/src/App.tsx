@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, type ComponentType } from 'react'
 import { BrowserRouter } from 'react-router-dom'
-import { PixelCat } from '@/components/layout/PixelCat'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import type { RuntimeCapabilities } from '@/lib/capabilitiesApi'
 import { AppLoadingState, AppShellRoutes } from './AppShellRoutes'
@@ -33,7 +32,6 @@ export default function App() {
           <AppShellRoutes capabilities={capabilities} />
         )}
       </Suspense>
-      <PixelCat />
     </BrowserRouter>
   )
 }

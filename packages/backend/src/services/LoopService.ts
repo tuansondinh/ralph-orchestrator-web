@@ -253,7 +253,9 @@ function buildRunCommand(
 ): string {
   const runArgs = buildRunArgs(options)
   const command = [binaryPath, ...runArgs].map(quoteShellArg).join(' ')
-  return `${command} 2>&1`
+  const fullCmd = `${command} 2>&1`
+  console.log(`[LoopService] buildRunCommand: ${fullCmd}`)
+  return fullCmd
 }
 
 function delay(ms: number): Promise<void> {
@@ -365,11 +367,11 @@ export class LoopService {
       writeFile(outputLogPath, '', 'utf8')
     ])
     const shellCommand = buildRunCommand(binaryPath, effectiveOptions)
+    console.log(`[LoopService] Spawning loop ${loopId}: cwd=${runCwd}, command=bash -lc "${shellCommand.slice(0, 200)}..."`)
     const handle = await this.processManager.spawn(projectId, 'bash', ['-lc', shellCommand], {
-      cwd: runCwd,
-      // Provider CLIs like Gemini/OpenCode make forward progress only when Ralph runs under a PTY.
-      tty: true
+      cwd: runCwd
     })
+    console.log(`[LoopService] Process spawned: processId=${handle.id}, pid=${handle.pid}, state=${handle.state}`)
 
     const markerAfter = await this.readCurrentLoopId(runCwd)
     const currentEventsAfter = await this.readCurrentEventsLoopId(runCwd)

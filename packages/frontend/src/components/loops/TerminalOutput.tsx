@@ -1,3 +1,4 @@
+// @deprecated Use LoopTerminalOutput for loop output rendering. This component uses a limited custom ANSI parser.
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 interface TerminalOutputProps {

@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { DiffViewer } from '@/components/loops/DiffViewer'
+import { LoopTerminalOutput } from '@/components/loops/LoopTerminalOutput'
 import type { LoopMetrics, LoopSummary } from '@/lib/loopApi'
-import { TerminalOutput } from '@/components/loops/TerminalOutput'
 
 interface LoopDetailProps {
   loop: LoopSummary | null
   metrics: LoopMetrics | null
-  outputLines: string[]
+  outputChunks: string[]
 }
 
 type LoopDetailTab = 'output' | 'review'
@@ -14,7 +14,7 @@ type LoopDetailTab = 'output' | 'review'
 const REVIEWABLE_STATES = new Set(['completed', 'needs-review', 'merged', 'stopped'])
 const ACTIVE_OUTPUT_STATES = new Set(['running', 'queued', 'merging'])
 
-export function LoopDetail({ loop, metrics, outputLines }: LoopDetailProps) {
+export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
   const [activeTab, setActiveTab] = useState<LoopDetailTab>('output')
   const showReviewTab = Boolean(loop && REVIEWABLE_STATES.has(loop.state))
   const outputEmptyMessage = ACTIVE_OUTPUT_STATES.has(loop?.state ?? '')
@@ -87,7 +87,7 @@ export function LoopDetail({ loop, metrics, outputLines }: LoopDetailProps) {
             <DiffViewer loopId={loop.id} />
           </div>
         ) : (
-          <TerminalOutput lines={outputLines} emptyMessage={outputEmptyMessage} />
+          <LoopTerminalOutput chunks={outputChunks} emptyMessage={outputEmptyMessage} />
         )}
       </div>
     </section>

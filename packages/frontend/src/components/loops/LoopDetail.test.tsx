@@ -7,6 +7,14 @@ vi.mock('@/components/loops/DiffViewer', () => ({
   DiffViewer: ({ loopId }: { loopId: string }) => <div>DiffViewer for {loopId}</div>
 }))
 
+vi.mock('@/components/loops/LoopTerminalOutput', () => ({
+  LoopTerminalOutput: ({ chunks, emptyMessage }: { chunks: string[], emptyMessage?: string }) => (
+    <div data-testid="loop-terminal-output">
+      {chunks.length === 0 ? emptyMessage : `${chunks.length} chunks`}
+    </div>
+  )
+}))
+
 const baseLoop: LoopSummary = {
   id: 'loop-1',
   projectId: 'project-1',
@@ -39,7 +47,7 @@ describe('LoopDetail', () => {
   })
 
   it('renders empty selection state without crashing when no loop is selected', () => {
-    render(<LoopDetail loop={null} metrics={null} outputLines={[]} />)
+    render(<LoopDetail loop={null} metrics={null} outputChunks={[]} />)
 
     expect(
       screen.getByText('Select a loop to inspect metrics and terminal output.')
@@ -47,10 +55,10 @@ describe('LoopDetail', () => {
   })
 
   it('hides the Review Changes tab for non-reviewable loop states', () => {
-    render(<LoopDetail loop={baseLoop} metrics={metrics} outputLines={['line-1']} />)
+    render(<LoopDetail loop={baseLoop} metrics={metrics} outputChunks={['chunk-1']} />)
 
     expect(screen.queryByRole('tab', { name: 'Review Changes' })).not.toBeInTheDocument()
-    expect(screen.getByText('line-1')).toBeInTheDocument()
+    expect(screen.getByText('1 chunks')).toBeInTheDocument()
   })
 
   it('shows the Review Changes tab for reviewable loop states and renders diff viewer when selected', () => {
@@ -58,7 +66,7 @@ describe('LoopDetail', () => {
       <LoopDetail
         loop={{ ...baseLoop, state: 'completed' }}
         metrics={metrics}
-        outputLines={['line-1']}
+        outputChunks={['chunk-1']}
       />
     )
 
@@ -70,7 +78,7 @@ describe('LoopDetail', () => {
   })
 
   it('shows waiting message when active loop has no output yet', () => {
-    render(<LoopDetail loop={baseLoop} metrics={metrics} outputLines={[]} />)
+    render(<LoopDetail loop={baseLoop} metrics={metrics} outputChunks={[]} />)
 
     expect(screen.getByText('Waiting for loop output...')).toBeInTheDocument()
   })
@@ -80,7 +88,7 @@ describe('LoopDetail', () => {
       <LoopDetail
         loop={{ ...baseLoop, state: 'completed', processId: null, endedAt: 1_770_768_010_000 }}
         metrics={metrics}
-        outputLines={[]}
+        outputChunks={[]}
       />
     )
 

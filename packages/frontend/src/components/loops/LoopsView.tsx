@@ -51,8 +51,7 @@ export function LoopsView({ projectId }: LoopsViewProps) {
   const selectedLoopId = useLoopStore(
     (state) => state.selectedLoopIdByProject[projectId] ?? null
   )
-  const outputsByLoop = useLoopStore((state) => state.outputsByLoop)
-  const outputRemaindersByLoop = useLoopStore((state) => state.outputRemaindersByLoop)
+  const outputChunksByLoop = useLoopStore((state) => state.outputChunksByLoop)
   const metricsByLoop = useLoopStore((state) => state.metricsByLoop)
   const setLoops = useLoopStore((state) => state.setLoops)
   const upsertLoop = useLoopStore((state) => state.upsertLoop)
@@ -75,10 +74,8 @@ export function LoopsView({ projectId }: LoopsViewProps) {
       return EMPTY_OUTPUT
     }
 
-    const lines = outputsByLoop[selectedLoop.id] ?? EMPTY_OUTPUT
-    const remainder = outputRemaindersByLoop[selectedLoop.id]
-    return remainder && remainder.length > 0 ? [...lines, remainder] : lines
-  }, [outputRemaindersByLoop, outputsByLoop, selectedLoop])
+    return outputChunksByLoop[selectedLoop.id] ?? EMPTY_OUTPUT
+  }, [outputChunksByLoop, selectedLoop])
 
   useEffect(() => {
     let cancelled = false
@@ -519,7 +516,7 @@ export function LoopsView({ projectId }: LoopsViewProps) {
               <LoopDetail
                 loop={selectedLoop}
                 metrics={selectedLoopMetrics}
-                outputLines={selectedLoopOutput}
+                outputChunks={selectedLoopOutput}
               />
             </div>
           )}

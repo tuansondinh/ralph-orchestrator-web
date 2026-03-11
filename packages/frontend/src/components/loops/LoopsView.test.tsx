@@ -11,6 +11,14 @@ import { worktreeApi } from '@/lib/worktreeApi'
 import { resetLoopStore, useLoopStore } from '@/stores/loopStore'
 import { resetTerminalStore } from '@/stores/terminalStore'
 
+vi.mock('@/components/loops/LoopTerminalOutput', () => ({
+  LoopTerminalOutput: ({ chunks, emptyMessage }: { chunks: string[], emptyMessage?: string }) => (
+    <div data-testid="loop-terminal-output">
+      {chunks.length === 0 ? emptyMessage : chunks.map((c, i) => <span key={i}>{c}</span>)}
+    </div>
+  )
+}))
+
 vi.mock('@/lib/loopApi', () => ({
   loopApi: {
     list: vi.fn(),
@@ -370,7 +378,7 @@ describe('LoopsView', () => {
     })
   })
 
-  it('normalizes replayed loop output chunks before rendering', async () => {
+  it('passes replayed loop output chunks to xterm terminal component', async () => {
     vi.mocked(loopApi.list).mockResolvedValue([baseLoop])
 
     renderLoopsView()
@@ -392,10 +400,9 @@ describe('LoopsView', () => {
     })
 
     await waitFor(() => {
-      const output = screen.getByTestId('terminal-scroll')
-      expect(output).toHaveTextContent('[ACTIVE]')
-      expect(output).toHaveTextContent('[iter 1/20] 00:00')
-      expect(output).not.toHaveTextContent('[connecting]')
+      // The raw chunk is stored as-is in the store; xterm.js handles ANSI/control sequences natively
+      const chunks = useLoopStore.getState().outputChunksByLoop['loop-1'] ?? []
+      expect(chunks).toContain('[connecting]\r[ACTIVE]\n[iter 1/20] 00:00\n')
     })
   })
 

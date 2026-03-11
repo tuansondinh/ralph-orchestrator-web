@@ -66,10 +66,11 @@ Plans:
   2. When a loop completes, the working branch is automatically pushed to the remote
   3. When a loop completes, a pull request is automatically opened against the base branch
   4. The loop result surface shows the branch name or PR link to the user
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: Add git branch creation before loop spawn and auto-push plus PR creation on loop completion in LoopService
+- [ ] 07-01-PLAN.md — Create LoopGitService and update DB schemas for branch/PR tracking
+- [ ] 07-02-PLAN.md — Wire LoopGitService into LoopService lifecycle and display branch/PR in frontend
 
 ### Phase 8: Per-User Configuration
 **Goal**: Each cloud user has isolated API key storage so secrets are never shared across users
@@ -110,6 +111,6 @@ Phases execute in numeric order: 6 → 7 → 8 → 9
 |-------|-----------|----------------|--------|-----------|
 | 1-5. Cloud Deployment | v0 | — | Complete | 2026-03-11 |
 | 6. Loop Output | 1/1 | Complete   | 2026-03-11 | - |
-| 7. Loop Git Automation | v0.9 | 0/1 | Not started | - |
+| 7. Loop Git Automation | v0.9 | 0/2 | Not started | - |
 | 8. Per-User Configuration | v0.9 | 0/1 | Not started | - |
 | 9. Chat, Terminal, and UI Polish | v0.9 | 0/2 | Not started | - |

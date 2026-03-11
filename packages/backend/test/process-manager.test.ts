@@ -155,38 +155,40 @@ describe('ProcessManager', () => {
 })
 
 describe('OutputBuffer', () => {
-  it('stores and replays only the last N lines', () => {
+  it('stores and replays only the last N raw chunks', () => {
     const buffer = new OutputBuffer(3)
-    buffer.append('line-1\nline-2\n')
-    buffer.append('line-3\nline-4\n')
+    buffer.append('chunk-1')
+    buffer.append('chunk-2')
+    buffer.append('chunk-3')
+    buffer.append('chunk-4')
 
-    expect(buffer.replay()).toEqual(['line-2', 'line-3', 'line-4'])
+    expect(buffer.replay()).toEqual(['chunk-2', 'chunk-3', 'chunk-4'])
   })
 
-  it('handles partial line chunks', () => {
+  it('stores raw chunks without splitting on newlines', () => {
     const buffer = new OutputBuffer(4)
     buffer.append('alpha')
     buffer.append('-one\nbeta')
     buffer.append('-two\n')
 
-    expect(buffer.replay()).toEqual(['alpha-one', 'beta-two'])
+    expect(buffer.replay()).toEqual(['alpha', '-one\nbeta', '-two\n'])
   })
 
-  it('supports unlimited replay when max lines is not finite', () => {
+  it('supports unlimited replay when max chunks is not finite', () => {
     const buffer = new OutputBuffer(Number.POSITIVE_INFINITY)
     for (let index = 1; index <= 8; index += 1) {
-      buffer.append(`line-${index}\n`)
+      buffer.append(`chunk-${index}\n`)
     }
 
     expect(buffer.replay()).toEqual([
-      'line-1',
-      'line-2',
-      'line-3',
-      'line-4',
-      'line-5',
-      'line-6',
-      'line-7',
-      'line-8'
+      'chunk-1\n',
+      'chunk-2\n',
+      'chunk-3\n',
+      'chunk-4\n',
+      'chunk-5\n',
+      'chunk-6\n',
+      'chunk-7\n',
+      'chunk-8\n'
     ])
   })
 })

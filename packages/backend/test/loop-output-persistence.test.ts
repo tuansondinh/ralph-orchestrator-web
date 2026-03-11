@@ -173,7 +173,8 @@ describe('Loop Output Persistence', () => {
       const replayed = await loopService.replayOutput(loopRunId)
 
       expect(mockRepo.getByLoopRunId).toHaveBeenCalledWith(loopRunId)
-      expect(replayed).toEqual(['db line 1', 'db line 2', 'db error'])
+      // Raw chunks are returned as-is (including newlines); xterm.js handles rendering
+      expect(replayed).toEqual(['db line 1\n', 'db line 2\n', 'db error\n'])
     })
 
     it('should fall back to disk replay without warning when local-mode persistence is unavailable', async () => {
@@ -215,7 +216,8 @@ describe('Loop Output Persistence', () => {
 
       const replayed = await loopService.replayOutput(loopRunId)
 
-      expect(replayed).toEqual(['disk line 1', 'disk line 2'])
+      // Disk replay returns the entire file as a single raw chunk
+      expect(replayed).toEqual(['disk line 1\ndisk line 2\n'])
       expect(warnSpy).not.toHaveBeenCalled()
       warnSpy.mockRestore()
     })
@@ -258,6 +260,9 @@ describe('Loop Output Persistence', () => {
     })
 
     it('does not warn when cloud output persistence is unavailable in local mode', async () => {
+      // Drain any pending microtasks from previous tests to avoid bleed-through warnings.
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
       const loopRunId = randomUUID()
       const mockRepo = createMockRepo()
       mockRepo.append.mockRejectedValue(
@@ -386,7 +391,8 @@ describe('Loop Output Persistence', () => {
       const replayed = await loopService.replayOutput(loopRunId)
 
       expect(mockRepo.getByLoopRunId).toHaveBeenCalledWith(loopRunId)
-      expect(replayed).toEqual(['persisted line 1', 'persisted error'])
+      // Raw chunks are returned as-is (including newlines); xterm.js handles rendering
+      expect(replayed).toEqual(['persisted line 1\n', 'persisted error\n'])
     })
 
     it('falls back to disk replay without warning when database persistence is unavailable in local mode', async () => {
@@ -429,7 +435,8 @@ describe('Loop Output Persistence', () => {
       const replayed = await loopService.replayOutput(loopRunId)
 
       expect(mockRepo.getByLoopRunId).toHaveBeenCalledWith(loopRunId)
-      expect(replayed).toEqual(['disk line 1', 'disk error'])
+      // Disk replay returns the entire file as a single raw chunk
+      expect(replayed).toEqual(['disk line 1\ndisk error\n'])
       expect(warnSpy).not.toHaveBeenCalled()
 
       warnSpy.mockRestore()

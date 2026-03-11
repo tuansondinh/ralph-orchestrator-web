@@ -71,28 +71,28 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LOOP-01 | — | Pending |
-| LOOP-02 | — | Pending |
-| GIT-01 | — | Pending |
-| GIT-02 | — | Pending |
-| GIT-03 | — | Pending |
-| USER-01 | — | Pending |
-| USER-02 | — | Pending |
-| CHAT-01 | — | Pending |
-| CHAT-02 | — | Pending |
-| CHAT-03 | — | Pending |
-| CHAT-04 | — | Pending |
-| TERM-01 | — | Pending |
-| TERM-02 | — | Pending |
-| UI-01 | — | Pending |
-| UI-02 | — | Pending |
-| UI-03 | — | Pending |
+| LOOP-01 | Phase 6 | Pending |
+| LOOP-02 | Phase 6 | Pending |
+| GIT-01 | Phase 7 | Pending |
+| GIT-02 | Phase 7 | Pending |
+| GIT-03 | Phase 7 | Pending |
+| USER-01 | Phase 8 | Pending |
+| USER-02 | Phase 8 | Pending |
+| CHAT-01 | Phase 9 | Pending |
+| CHAT-02 | Phase 9 | Pending |
+| CHAT-03 | Phase 9 | Pending |
+| CHAT-04 | Phase 9 | Pending |
+| TERM-01 | Phase 9 | Pending |
+| TERM-02 | Phase 9 | Pending |
+| UI-01 | Phase 9 | Pending |
+| UI-02 | Phase 9 | Pending |
+| UI-03 | Phase 9 | Pending |
 
 **Coverage:**
 - v0.9 requirements: 16 total
-- Mapped to phases: 0
-- Unmapped: 16
+- Mapped to phases: 16
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-11*
-*Last updated: 2026-03-11 after initial definition*
+*Last updated: 2026-03-11 — traceability filled in after roadmap creation*

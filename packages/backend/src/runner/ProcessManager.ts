@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import { constants } from 'node:fs'
+import { access, chmod, stat } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import * as pty from 'node-pty'
 
 export type ProcessState = 'running' | 'stopped' | 'crashed' | 'completed'
 
@@ -36,8 +41,10 @@ export interface OutputChunk {
 }
 
 interface ManagedProcess {
+  mode: 'pipe' | 'pty'
   handle: ProcessHandle
-  child: ChildProcessWithoutNullStreams
+  child: ChildProcessWithoutNullStreams | null
+  pty: pty.IPty | null
   outputEmitter: EventEmitter
   stateEmitter: EventEmitter
   closePromise: Promise<void>
@@ -59,6 +66,7 @@ const NOOP_LOGGER: ProcessLogger = {
   info: () => { },
   error: () => { }
 }
+const require = createRequire(import.meta.url)
 
 function truncateOutput(data: string, limit = 200) {
   if (data.length <= limit) {
@@ -68,26 +76,19 @@ function truncateOutput(data: string, limit = 200) {
   return `${data.slice(0, limit)}…`
 }
 
-function toTclLiteral(value: string) {
-  const escaped = value
-    .replace(/\\/g, '\\\\')
-    .replace(/{/g, '\\{')
-    .replace(/}/g, '\\}')
+function toPtyEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
+  const ptyEnv: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === 'string') {
+      ptyEnv[key] = value
+    }
+  }
 
-  return `{${escaped}}`
-}
+  if (!ptyEnv.TERM) {
+    ptyEnv.TERM = 'xterm-256color'
+  }
 
-function buildExpectTtyBridgeScript(command: string, args: string[]) {
-  return [
-    'set timeout -1',
-    `spawn -noecho ${[command, ...args].map(toTclLiteral).join(' ')}`,
-    'interact',
-    'lassign [wait] pid spawnid osError exitCode',
-    'if {$osError == 0} {',
-    '  exit $exitCode',
-    '}',
-    'exit 1'
-  ].join('\n')
+  return ptyEnv
 }
 
 export class ProcessManager {
@@ -96,6 +97,7 @@ export class ProcessManager {
   private readonly now: () => Date
   private readonly logger: ProcessLogger
   private readonly processes = new Map<string, ManagedProcess>()
+  private helperPermissionsEnsured = false
 
   constructor(options: ProcessManagerOptions = {}) {
     this.killGraceMs = options.killGraceMs ?? 1_000
@@ -104,22 +106,104 @@ export class ProcessManager {
     this.logger = options.logger ?? NOOP_LOGGER
   }
 
+  private async ensureNodePtyHelperExecutable() {
+    if (this.helperPermissionsEnsured || process.platform === 'win32') {
+      return
+    }
+
+    const packageJsonPath = require.resolve('node-pty/package.json')
+    const packageRoot = dirname(packageJsonPath)
+    const helperCandidates = [
+      join(
+        packageRoot,
+        'prebuilds',
+        `${process.platform}-${process.arch}`,
+        'spawn-helper'
+      ),
+      join(packageRoot, 'build', 'Release', 'spawn-helper'),
+      join(packageRoot, 'build', 'Debug', 'spawn-helper')
+    ]
+
+    let foundAnyHelper = false
+    for (const helperPath of helperCandidates) {
+      try {
+        const helperStats = await stat(helperPath)
+        if (!helperStats.isFile()) {
+          continue
+        }
+        foundAnyHelper = true
+      } catch {
+        continue
+      }
+
+      try {
+        await access(helperPath, constants.X_OK)
+        continue
+      } catch {
+        // Continue and try to make it executable.
+      }
+
+      try {
+        await chmod(helperPath, 0o755)
+        await access(helperPath, constants.X_OK)
+        this.logger.info(
+          {
+            helperPath
+          },
+          '[ProcessManager] Fixed execute permissions for node-pty spawn-helper'
+        )
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        throw new Error(`node-pty helper is not executable: ${helperPath} (${reason})`)
+      }
+    }
+
+    if (!foundAnyHelper) {
+      this.logger.debug(
+        {},
+        '[ProcessManager] No node-pty spawn-helper binary found to permission-fix'
+      )
+    }
+
+    this.helperPermissionsEnsured = true
+  }
+
   private signalProcessTree(
     managed: ManagedProcess,
     signal: 'SIGTERM' | 'SIGKILL'
   ) {
+    if (managed.mode === 'pty' && managed.pty) {
+      try {
+        managed.pty.kill(signal)
+        return true
+      } catch {
+        // Fall through to direct pid signaling.
+      }
+    }
+
     const pid = managed.handle.pid
     if (pid > 0) {
       try {
-        // Child processes are spawned detached, so negative pid targets the whole group.
+        // Detached child processes can be targeted via process-group id.
         process.kill(-pid, signal)
         return true
       } catch {
         // Fall through to direct child signaling.
       }
+
+      try {
+        process.kill(pid, signal)
+        return true
+      } catch {
+        // Fall through to child handle signaling.
+      }
     }
 
-    return managed.child.kill(signal)
+    if (managed.child) {
+      return managed.child.kill(signal)
+    }
+
+    return false
   }
 
   private emitOutput(
@@ -205,8 +289,6 @@ export class ProcessManager {
   ): Promise<ProcessHandle> {
     const env = { ...process.env, ...opts.env }
     const tty = Boolean(opts.tty)
-    const spawnCommand = tty ? 'expect' : command
-    const spawnArgs = tty ? ['-c', buildExpectTtyBridgeScript(command, args)] : args
 
     const id = this.idFactory()
     let closeResolved = false
@@ -217,28 +299,23 @@ export class ProcessManager {
       rejectClose = reject
     })
 
-    const child = spawn(spawnCommand, spawnArgs, {
-      cwd: opts.cwd,
-      env,
-      stdio: 'pipe',
-      detached: true
-    })
-
     const handle: ProcessHandle = {
       id,
       projectId,
       command,
       args: [...args],
       tty,
-      pid: child.pid ?? -1,
+      pid: -1,
       state: 'running',
       startedAt: this.now(),
       endedAt: null
     }
 
     const managed: ManagedProcess = {
+      mode: tty ? 'pty' : 'pipe',
       handle,
-      child,
+      child: null,
+      pty: null,
       outputEmitter: new EventEmitter(),
       stateEmitter: new EventEmitter(),
       closePromise,
@@ -257,7 +334,58 @@ export class ProcessManager {
       killRequested: false,
       killGraceMs: opts.killGraceMs ?? this.killGraceMs
     }
-    this.processes.set(id, managed)
+
+    if (tty) {
+      await this.ensureNodePtyHelperExecutable()
+      const terminal = pty.spawn(command, args, {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 36,
+        cwd: opts.cwd,
+        env: toPtyEnvironment(env)
+      })
+      managed.pty = terminal
+      handle.pid = terminal.pid
+      this.processes.set(id, managed)
+
+      terminal.onData((data) => {
+        this.emitOutput(managed, 'stdout', data)
+      })
+
+      terminal.onExit(({ exitCode, signal }) => {
+        console.log(
+          `[ProcessManager] PTY closed: processId=${id} exitCode=${exitCode} signal=${signal}`
+        )
+        this.markProcessClosed(id, managed, exitCode)
+      })
+    } else {
+      const child = spawn(command, args, {
+        cwd: opts.cwd,
+        env,
+        stdio: 'pipe',
+        detached: true
+      })
+      managed.child = child
+      handle.pid = child.pid ?? -1
+      this.processes.set(id, managed)
+
+      child.stdout.on('data', (data: Buffer) =>
+        this.emitOutput(managed, 'stdout', data)
+      )
+      child.stderr.on('data', (data: Buffer) =>
+        this.emitOutput(managed, 'stderr', data)
+      )
+
+      child.once('error', (error) => {
+        console.log(`[ProcessManager] Process error: processId=${id} error=${error.message}`)
+        this.markProcessError(id, managed, error)
+      })
+
+      child.once('close', (code) => {
+        console.log(`[ProcessManager] Process closed: processId=${id} exitCode=${code}`)
+        this.markProcessClosed(id, managed, code)
+      })
+    }
 
     console.log(`[ProcessManager] Spawned process: processId=${id} pid=${handle.pid} tty=${tty} command=${command} args=${JSON.stringify(args).slice(0, 200)}`)
 
@@ -274,23 +402,6 @@ export class ProcessManager {
       '[ProcessManager] Spawned process'
     )
 
-    child.stdout.on('data', (data: Buffer) =>
-      this.emitOutput(managed, 'stdout', data)
-    )
-    child.stderr.on('data', (data: Buffer) =>
-      this.emitOutput(managed, 'stderr', data)
-    )
-
-    child.once('error', (error) => {
-      console.log(`[ProcessManager] Process error: processId=${id} error=${error.message}`)
-      this.markProcessError(id, managed, error)
-    })
-
-    child.once('close', (code) => {
-      console.log(`[ProcessManager] Process closed: processId=${id} exitCode=${code}`)
-      this.markProcessClosed(id, managed, code)
-    })
-
     return { ...handle, args: [...handle.args] }
   }
 
@@ -300,11 +411,20 @@ export class ProcessManager {
       throw new Error(`Process ${processId} is not running`)
     }
 
-    if (!managed.child.stdin.writable) {
+    if (managed.mode === 'pty') {
+      if (!managed.pty) {
+        throw new Error(`Process ${processId} pseudo-terminal is not available`)
+      }
+      managed.pty.write(input)
+      return
+    }
+
+    const child = managed.child
+    if (!child?.stdin.writable) {
       throw new Error(`Process ${processId} stdin is not writable`)
     }
 
-    managed.child.stdin.write(input)
+    child.stdin.write(input)
   }
 
   async kill(processId: string, signal: 'SIGTERM' | 'SIGKILL' = 'SIGTERM') {

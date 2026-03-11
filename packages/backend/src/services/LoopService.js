@@ -205,7 +205,8 @@ export class LoopService {
         const shellCommand = buildRunCommand(binaryPath, effectiveOptions);
         console.log(`[LoopService] Spawning loop ${loopId}: cwd=${runCwd}, command=bash -lc "${shellCommand.slice(0, 200)}..."`);
         const handle = await this.processManager.spawn(projectId, 'bash', ['-lc', shellCommand], {
-            cwd: runCwd
+            cwd: runCwd,
+            tty: true
         });
         console.log(`[LoopService] Process spawned: processId=${handle.id}, pid=${handle.pid}, state=${handle.state}`);
         const markerAfter = await this.readCurrentLoopId(runCwd);

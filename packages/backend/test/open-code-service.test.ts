@@ -5,6 +5,7 @@ import type {
   EventPermissionUpdated,
   EventSessionStatus,
   OpencodeClient,
+  ServerOptions,
   Session
 } from '@opencode-ai/sdk'
 import { OpenCodeService } from '../src/services/OpenCodeService.js'
@@ -94,6 +95,11 @@ function createSettingsSnapshot(): SettingsSnapshot {
       openai: false,
       google: false
     },
+    providerApiKeyStatus: {
+      anthropic: 'environment',
+      openai: 'missing',
+      google: 'missing'
+    },
     ralphBinaryPath: null,
     notifications: {
       loopComplete: true,
@@ -142,13 +148,15 @@ function createServiceHarness() {
     postSessionIdPermissionsPermissionId: permissionReply
   } as unknown as OpencodeClient
 
-  const createOpencode = vi.fn(async () => ({
-    client,
-    server: {
-      url: 'http://127.0.0.1:4096',
-      close: serverClose
-    }
-  }))
+  const createOpencode = vi.fn(
+    async (_options?: ServerOptions) => ({
+      client,
+      server: {
+        url: 'http://127.0.0.1:4096',
+        close: serverClose
+      }
+    })
+  )
 
   const service = new OpenCodeService({
     mcpEndpointUrl: 'http://localhost:3003/mcp',
@@ -233,10 +241,14 @@ describe('OpenCodeService', () => {
       })
     )
 
-    const [firstCall] = harness.createOpencode.mock.calls
-    const [options] = firstCall
-    expect(options.config.agent.general.prompt).toContain('Do not claim to be Claude Code')
-    expect(options.config.agent.general.prompt).toContain(
+    const options = harness.createOpencode.mock.calls[0]?.[0]
+    expect(options).toBeDefined()
+    if (!options) {
+      throw new Error('expected OpenCode start options to be captured')
+    }
+    const identityPrompt = options.config?.agent?.general?.prompt
+    expect(identityPrompt).toContain('Do not claim to be Claude Code')
+    expect(identityPrompt).toContain(
       'Always refer to yourself as Ralph or Ralph Assistant'
     )
   })

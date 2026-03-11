@@ -2,38 +2,33 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (if exists)
+See: .planning/PROJECT.md (updated 2026-03-11)
 
-**Core value:** Deploy ralph-orchestrator-web as a cloud service on a single EC2 instance
-**Current focus:** Phase 4 — Stabilization & Deployment Prep
+**Core value:** Users can reliably orchestrate AI coding loops and chat with an AI assistant through a polished, intuitive web interface
+**Current focus:** Milestone v0.9 Polish — Not started (defining requirements)
 
 ## Current Phase
 
-Phase 4: Stabilization & Deployment Prep — In Progress
+Not started — defining requirements and roadmap
 
 ## Progress
 
 | Phase | Status | Progress |
 |-------|--------|----------|
-| 1     | ✓      | 100%     |
-| 2     | ✓      | 100%     |
-| 3     | ✓      | 100%     |
-| 4     | ◆      | 0%       |
+| —     | —      | —        |
 
-Last activity: 2026-03-10 - Completed quick task 1: Review and fix all build errors, test failures, and interface mismatches in cloud integration code
+Last activity: 2026-03-11 — Milestone v0.9 Polish started
 
 ### Blockers/Concerns
 
-- None — all builds and tests passing
-
-### Quick Tasks Completed
-
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 1 | Review and fix all build errors, test failures, and interface mismatches in cloud integration code | 2026-03-10 | 3ec88be | [1-review-and-fix-all-build-errors-test-fai](./quick/1-review-and-fix-all-build-errors-test-fai/) |
+- None
 
 ## Accumulated Context
 
+### Previous Milestones
+
+- v0 Cloud Deployment: Phases 1-3 complete (Auth, Cloud Services, Frontend Cloud Integration). Phase 4 (Stabilization) partially done — build/test stabilization pass completed.
+
 ### Roadmap Evolution
 
-- 2026-03-11: Phase 5 added: fix remaining bugs, especially cloud-version issues on http://ec2-18-159-34-250.eu-central-1.compute.amazonaws.com:3003, using the provided AWS CLI
+- 2026-03-11: Starting fresh milestone v0.9 Polish — focus on UX quality, loop output, git automation, per-user keys, UI cleanup

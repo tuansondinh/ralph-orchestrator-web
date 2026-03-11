@@ -1,59 +1,80 @@
-# Ralph Orchestrator Web Stabilization
+# Ralph Orchestrator Web
 
 ## What This Is
 
-Ralph Orchestrator Web is a monorepo application with a Fastify backend and React frontend for managing Ralph-driven project workflows. It lets internal operators manage projects, run loops, interact with chat and terminal sessions, and observe real-time state through WebSocket-backed UI flows. This project initialization defines the next milestone as stabilizing the existing product, fixing high-risk bugs, and preparing the current app for a conservative internal-team deployment.
+Ralph Orchestrator Web is a cloud-deployed monorepo application (Fastify backend + React frontend) for managing AI-driven coding workflows. Users manage projects, run coding loops with multiple AI backends, chat with an AI assistant that has tool access via MCP, and interact through terminal sessions — all through a real-time WebSocket-backed UI.
 
 ## Core Value
 
-The current app must run reliably enough that the internal team can execute core Ralph orchestration workflows without avoidable failures or deployment risk.
+Users can reliably orchestrate AI coding loops and chat with an AI assistant through a polished, intuitive web interface where Chat is the primary interaction point.
+
+## Current Milestone: v0.9 Polish
+
+**Goal:** Polish the app to release quality — fix loop output rendering, automate git workflow (branch + PR), per-user API keys, clean up cluttered UI, and fix terminal/chat bugs.
+
+**Target features:**
+- Loop output rendered properly via xterm.js (replacing broken ANSI parser)
+- Loops auto-create branch, push, and open PR on completion
+- Loops start on a new git branch
+- Per-user API key configuration in cloud mode
+- Chat is the primary tab (first in nav)
+- Chat tool calls collapsed by default
+- Terminal tab reliability fixes
+- UI cleanup and decluttering across all views
+- Ralph MCP auto-configured for opencode during deploy
 
 ## Requirements
 
 ### Validated
 
-- ✓ Internal operators can manage projects through the web UI and backend services — existing
-- ✓ Internal operators can start and monitor Ralph loop executions with persisted backend state — existing
-- ✓ Internal operators can use chat and terminal sessions backed by spawned processes and real-time streaming — existing
-- ✓ The system can push real-time updates for loop, terminal, chat, preview, and notification flows over WebSockets — existing
-- ✓ The app can run as a monorepo with Fastify, React, tRPC, SQLite, and workspace-based build tooling — existing
+- ✓ Users can manage projects through the web UI and backend services — v0
+- ✓ Users can start and monitor Ralph loop executions with persisted backend state — v0
+- ✓ Users can use chat and terminal sessions backed by spawned processes and real-time streaming — v0
+- ✓ The system pushes real-time updates for loop, terminal, chat, preview, and notification flows over WebSockets — v0
+- ✓ Supabase auth with GitHub OAuth in cloud mode — v0
+- ✓ Cloud project service with workspace management — v0
+- ✓ Build and tests pass across the monorepo — v0
 
 ### Active
 
-- [ ] Review the current codebase for the highest-risk bugs, regressions, and deployment blockers
-- [ ] Fix user-facing and operational issues across project, loop, chat, terminal, and real-time update flows
-- [ ] Stabilize the build, test, and release path so the current app can be deployed with confidence
-- [ ] Reduce deployment risk by addressing critical safety, configuration, and reliability gaps that affect an internal-team release
+- [ ] Loop output is rendered correctly using a proper terminal emulator (xterm.js)
+- [ ] Loops automatically push the working branch and open a pull request on completion
+- [ ] Loops start on a new git branch created before the loop process spawns
+- [ ] Per-user API key storage and configuration in cloud mode
+- [ ] Chat tab is the default/first tab when opening a project
+- [ ] Chat tool call messages are collapsed by default (expandable on click)
+- [ ] Terminal tab renders reliably on tab switch without blank/janky state
+- [ ] UI is clean, uncluttered, and visually consistent across all views
+- [ ] Ralph MCP is auto-configured for opencode during deployment
 
 ### Out of Scope
 
-- Major new product features — this milestone is for stabilization and deployment readiness, not feature expansion
-- Large architectural rewrites of backend or frontend subsystems — refactors are only in scope when needed to fix reliability or release blockers
-- Broad multi-tenant or internet-facing hardening — the current release target is a conservative internal-team deployment
+- New AI backend integrations — focus on polishing existing backends
+- Mobile-native app — web-first
+- Multi-tenant billing/subscription — internal team use
+- Major architectural rewrites — targeted fixes only
 
 ## Context
 
-This is a brownfield monorepo with substantial existing backend and frontend behavior already mapped in `.planning/codebase/`. The backend is a Fastify service with tRPC, REST, WebSocket, SQLite, and process-management layers that spawn and monitor Ralph CLI, chat, preview, and terminal processes. The frontend is a React SPA using Zustand stores and tRPC helpers to drive project, loop, chat, preview, notification, and terminal UI flows.
+The app is deployed on a single EC2 instance with Supabase Auth. The previous milestone (cloud deployment) shipped auth, cloud services, and frontend integration. The app works but has rough edges: loop output uses a naive ANSI parser that can't handle complex escape sequences, there's no git automation after loop completion, API keys are global (not per-user), the terminal tab has intermittent rendering issues, and the UI feels cluttered with tools expanded in chat.
 
-Existing codebase analysis already highlights relevant concerns for this milestone: failing frontend tests, fragile process and WebSocket state management, missing validation around terminal input, risk from production bind defaults, and performance debt around in-memory rate limiting and polling-heavy subscriptions. The current effort should treat these findings as starting points, then verify them through review and testing before defining the implementation roadmap.
-
-The intended release posture is conservative. The audience is the internal team, so the priority is dependable behavior, predictable deployment, and closing the highest-risk operational gaps rather than maximizing feature scope.
+The chat feature is the primary use case — it should be front and center, not buried behind loops.
 
 ## Constraints
 
-- **Audience**: Internal team release target — optimize for operator reliability over public-product polish
-- **Scope**: Stabilization only — prioritize defects, regressions, and deployment blockers over new capability
-- **Architecture**: Existing Fastify + React + SQLite monorepo — work with established system boundaries unless a small targeted extraction materially reduces release risk
-- **Safety**: Conservative deployment posture — changes should reduce operational risk and avoid broad destabilizing rewrites
-- **Verification**: Build and test path must be trustworthy — release readiness requires credible validation, not just code inspection
+- **Deployment**: Single EC2 instance — all changes must work in this environment
+- **Architecture**: Existing Fastify + React + SQLite monorepo — work within established boundaries
+- **Backend compatibility**: Loop output change (xterm.js) requires backend to stream raw PTY output, not parsed lines
+- **Cloud mode**: Per-user API keys need a new DB table scoped to user ID from Supabase auth
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Treat this as a brownfield stabilization milestone | The product already exists with mapped architecture and known concerns | — Pending |
-| Target an internal-team deployment first | The user wants deployment readiness without broad external-product hardening | — Pending |
-| Prioritize review, bug fixes, and release path stability over feature work | The stated goal is to fix bugs, prepare deployment, and reduce risk conservatively | — Pending |
+| Replace custom ANSI parser with xterm.js for loop output | Custom parser can't handle cursor movement, bold, OSC sequences — xterm.js handles everything | — Pending |
+| Auto-push + PR on loop completion | Users shouldn't need to manually push and create PRs after every loop | — Pending |
+| Per-user API keys (not shared) | Cloud mode has multiple users; shared keys are a security/billing issue | — Pending |
+| Chat as first/default tab | Chat is the primary use case of the app | — Pending |
 
 ---
-*Last updated: 2026-03-10 after initialization*
+*Last updated: 2026-03-11 after milestone v1.0 Polish started*

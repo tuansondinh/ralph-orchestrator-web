@@ -214,6 +214,33 @@ describe('OpenCodeService', () => {
     expect(harness.service.isRunning()).toBe(false)
   })
 
+  it('configures OpenCode with Ralph Assistant identity instructions', async () => {
+    const harness = createServiceHarness()
+
+    await harness.service.start()
+
+    expect(harness.createOpencode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          agent: {
+            general: {
+              prompt: expect.stringContaining(
+                'You are Ralph Assistant, the built-in AI assistant for Ralph Orchestrator.'
+              )
+            }
+          }
+        })
+      })
+    )
+
+    const [firstCall] = harness.createOpencode.mock.calls
+    const [options] = firstCall
+    expect(options.config.agent.general.prompt).toContain('Do not claim to be Claude Code')
+    expect(options.config.agent.general.prompt).toContain(
+      'Always refer to yourself as Ralph or Ralph Assistant'
+    )
+  })
+
   it('creates a session lazily and reuses it across calls', async () => {
     const harness = createServiceHarness()
 

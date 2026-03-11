@@ -97,41 +97,45 @@ export function ChatView({ projectId }: ChatViewProps) {
           </button>
         </div>
       ) : (
-        <header className="flex min-h-11 items-center gap-2 border-b border-zinc-800 px-4 py-3 sm:gap-3">
-          <h2 className="text-lg font-semibold text-zinc-100 sm:text-xl">Chat</h2>
+        <header className="border-b border-zinc-800 px-4 py-3">
+          <div className="mx-auto flex min-h-11 w-full max-w-5xl items-center gap-2 sm:gap-3">
+            <h2 className="text-lg font-semibold text-zinc-100 sm:text-xl">Chat</h2>
+          </div>
         </header>
       )}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3">
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <MessageList
-            isThinking={isStreaming}
-            messages={messages}
-            footer={
-              pendingConfirmation ? (
-                <ToolConfirmationCard
-                  confirmation={pendingConfirmation}
-                  onCancel={() => confirmAction(pendingConfirmation.permissionId, false)}
-                  onConfirm={() => confirmAction(pendingConfirmation.permissionId, true)}
-                />
-              ) : null
-            }
-          />
-        </div>
+        <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <MessageList
+              isThinking={isStreaming}
+              messages={messages}
+              footer={
+                pendingConfirmation ? (
+                  <ToolConfirmationCard
+                    confirmation={pendingConfirmation}
+                    onCancel={() => confirmAction(pendingConfirmation.permissionId, false)}
+                    onConfirm={() => confirmAction(pendingConfirmation.permissionId, true)}
+                  />
+                ) : null
+              }
+            />
+          </div>
 
-        <div
-          className="sticky bottom-0 mt-3 shrink-0 rounded-xl border border-zinc-800 bg-zinc-950/95 p-3 pb-[env(safe-area-inset-bottom)]"
-          style={{
-            bottom: `${keyboardOffset}px`
-          }}
-        >
-          <ChatInput
-            disabled={isStreaming || Boolean(pendingConfirmation)}
-            isSending={isStreaming}
-            onChange={setInputValue}
-            onSend={handleSend}
-            value={inputValue}
-          />
+          <div
+            className="sticky bottom-0 mt-3 shrink-0 rounded-xl border border-zinc-800 bg-zinc-950/95 p-3 pb-[env(safe-area-inset-bottom)]"
+            style={{
+              bottom: `${keyboardOffset}px`
+            }}
+          >
+            <ChatInput
+              disabled={isStreaming || Boolean(pendingConfirmation)}
+              isSending={isStreaming}
+              onChange={setInputValue}
+              onSend={handleSend}
+              value={inputValue}
+            />
+          </div>
         </div>
       </div>
 

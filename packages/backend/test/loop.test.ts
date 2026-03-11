@@ -1220,14 +1220,14 @@ describe('loop tRPC routes', () => {
     })
 
     const listed = await detachedLoopService.list(projectId)
-    expect(listed.find((loop) => loop.id === loopId)?.state).toBe('orphan')
+    expect(listed.find((loop) => loop.id === loopId)?.state).toBe('stopped')
 
     const persisted = connection.db
       .select()
       .from(loopRuns)
       .where(eq(loopRuns.id, loopId))
       .get()
-    expect(persisted?.state).toBe('orphan')
+    expect(persisted?.state).toBe('stopped')
     expect(persisted?.endedAt).toBeTypeOf('number')
   })
 
@@ -1320,7 +1320,7 @@ describe('loop tRPC routes', () => {
     expect(persisted?.endedAt).toBeNull()
   })
 
-  it('imports orphan loops from the CLI and preserves their worktree location', async () => {
+  it('imports stopped loops from the CLI and preserves their worktree location', async () => {
     const { connection, processManager, tempDir, binaryPath } = await setupCaller({
       listedLoopEntries: [
         {
@@ -1343,7 +1343,7 @@ describe('loop tRPC routes', () => {
     const imported = listed.find((loop) => loop.ralphLoopId === 'fair-fox')
     expect(imported).toMatchObject({
       ralphLoopId: 'fair-fox',
-      state: 'orphan',
+      state: 'stopped',
       worktree: 'fair-fox'
     })
     expect(imported?.id).toMatch(
@@ -1358,7 +1358,7 @@ describe('loop tRPC routes', () => {
       .get()
     expect(persisted).toMatchObject({
       ralphLoopId: 'fair-fox',
-      state: 'orphan',
+      state: 'stopped',
       worktree: 'fair-fox'
     })
     expect(persisted?.id).toBe(imported?.id)

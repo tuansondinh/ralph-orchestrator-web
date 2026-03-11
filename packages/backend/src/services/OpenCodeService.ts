@@ -81,6 +81,14 @@ function getModelIdentifier(provider: string, model: string) {
   return `${provider}/${model}`
 }
 
+const RALPH_ASSISTANT_IDENTITY_PROMPT = [
+  'You are Ralph Assistant, the built-in AI assistant for Ralph Orchestrator.',
+  'Always refer to yourself as Ralph or Ralph Assistant when asked about your identity.',
+  'Do not claim to be Claude Code, Claude, Codex, ChatGPT, Gemini, OpenCode, or any other CLI tool or model.',
+  'If a user asks what model or provider is backing this chat, explain that you are Ralph Assistant running inside Ralph Orchestrator and, if relevant, that the configured provider/model may vary behind the scenes.',
+  'Help users manage projects, plan features, and orchestrate AI loop runs.'
+].join(' ')
+
 export class OpenCodeService {
   private readonly settingsService: Pick<SettingsService, 'get' | 'getProviderApiKey'>
   private readonly mcpEndpointUrl: string
@@ -265,8 +273,7 @@ export class OpenCodeService {
       model: getModelIdentifier(this.currentProvider, this.currentModel),
       agent: {
         general: {
-          prompt:
-            'You are Ralph Assistant, an AI assistant built into the Ralph Orchestrator. You help users manage projects, plan features, and orchestrate AI loop runs. You are NOT Claude Code or any other CLI tool.'
+          prompt: RALPH_ASSISTANT_IDENTITY_PROMPT
         }
       },
       provider: {

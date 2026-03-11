@@ -244,7 +244,7 @@ export function uniqueLoopIds(loopIds: Array<string | undefined>): string[] {
 }
 
 export function isLikelyActiveLoopState(state: string): boolean {
-  return usesLiveRuntime(state) || state === 'orphan' || state === 'needs-review'
+  return usesLiveRuntime(state) || state === 'needs-review'
 }
 
 export function readIterationValue(payload: Record<string, unknown>): number | undefined {

@@ -44,6 +44,37 @@ async function createTempDir(prefix: string) {
   return mkdtemp(join(tmpdir(), `ralph-ui-${prefix}-`))
 }
 
+async function removeTempDir(dir: string, attempts = 5) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await rm(dir, { recursive: true, force: true })
+      return
+    } catch (error) {
+      const code =
+        error instanceof Error && 'code' in error ? (error.code as string | undefined) : undefined
+      if ((code !== 'ENOTEMPTY' && code !== 'EBUSY') || attempt === attempts) {
+        throw error
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, attempt * 50))
+    }
+  }
+}
+
+async function closeWebSocket(socket: WebSocket) {
+  if (
+    socket.readyState === WebSocket.CLOSED ||
+    socket.readyState === WebSocket.CLOSING
+  ) {
+    return
+  }
+
+  await new Promise<void>((resolve) => {
+    socket.once('close', () => resolve())
+    socket.close()
+  })
+}
+
 async function createMockNotificationBinary(directory: string) {
   const filePath = join(directory, 'mock-notify-ralph.mjs')
   const script = `#!/usr/bin/env node
@@ -187,7 +218,7 @@ describe('notification routes', () => {
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop()
       if (dir) {
-        await rm(dir, { recursive: true, force: true })
+        await removeTempDir(dir)
       }
     }
   })
@@ -333,7 +364,7 @@ describe('notification websocket channel', () => {
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop()
       if (dir) {
-        await rm(dir, { recursive: true, force: true })
+        await removeTempDir(dir)
       }
     }
   })
@@ -387,7 +418,7 @@ describe('notification websocket channel', () => {
         message.notificationType === 'loop_complete'
     )
     expect(live.projectId).toBe(projectId)
-    ws1.close()
+    await closeWebSocket(ws1)
 
     const ws2 = new WebSocket(wsUrl)
     await new Promise((resolve, reject) => {
@@ -410,6 +441,6 @@ describe('notification websocket channel', () => {
         message.replay === true
     )
     expect(replay.notificationType).toBe('loop_complete')
-    ws2.close()
+    await closeWebSocket(ws2)
   })
 })

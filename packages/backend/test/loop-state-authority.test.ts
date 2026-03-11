@@ -69,7 +69,7 @@ describe('Loop State Authority', () => {
   })
 
   describe('recoverState()', () => {
-    it('marks stale active loops as orphaned', async () => {
+    it('marks stale active loops as stopped', async () => {
       const projectId = 'project-1'
       const now = Date.now()
 
@@ -121,11 +121,11 @@ describe('Loop State Authority', () => {
       await loopService.recoverState()
 
       const recovered1 = await repos.loopRuns.findById('loop-1')
-      expect(recovered1?.state).toBe('orphan')
+      expect(recovered1?.state).toBe('stopped')
       expect(recovered1?.endedAt).toBeGreaterThan(0)
 
       const recovered2 = await repos.loopRuns.findById('loop-2')
-      expect(recovered2?.state).toBe('orphan')
+      expect(recovered2?.state).toBe('stopped')
       expect(recovered2?.endedAt).toBeGreaterThan(0)
 
       const recovered3 = await repos.loopRuns.findById('loop-3')

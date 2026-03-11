@@ -58,7 +58,6 @@ type LoopLifecycleState =
   | 'merging'
   | 'merged'
   | 'needs-review'
-  | 'orphan'
 
 export class LoopServiceError extends ServiceError {
   constructor(code: ServiceErrorCode, message: string) {
@@ -1103,13 +1102,13 @@ export class LoopService {
     })
 
     await this.loopRuns.update(run.id, {
-      state: 'orphan',
+      state: 'stopped',
       config: updatedConfig,
       endedAt: run.endedAt ?? nowMs
     })
 
-    this.events.emit(`${STATE_EVENT_PREFIX}${run.id}`, 'orphan')
-    await this.notificationService.notifyForLoopState(run.id, 'orphan')
+    this.events.emit(`${STATE_EVENT_PREFIX}${run.id}`, 'stopped')
+    await this.notificationService.notifyForLoopState(run.id, 'stopped')
   }
 
   private async applyParsedEvent(
@@ -1440,16 +1439,17 @@ export class LoopService {
 
         const rawState = asString(row.status) ?? asString(row.state) ?? 'running'
         const state: LoopLifecycleState =
-          rawState === 'running' ||
-          rawState === 'queued' ||
-          rawState === 'merging' ||
-          rawState === 'merged' ||
-          rawState === 'needs-review' ||
-          rawState === 'orphan' ||
-          rawState === 'stopped' ||
-          rawState === 'completed'
-            ? rawState
-            : 'running'
+          rawState === 'orphan'
+            ? 'stopped'
+            : rawState === 'running' ||
+              rawState === 'queued' ||
+              rawState === 'merging' ||
+              rawState === 'merged' ||
+              rawState === 'needs-review' ||
+              rawState === 'stopped' ||
+              rawState === 'completed'
+              ? rawState
+              : 'running'
 
         return [{
           id,

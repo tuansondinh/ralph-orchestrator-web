@@ -3,14 +3,13 @@ import type { LoopMetrics, LoopSummary } from '@/lib/loopApi'
 
 interface LoopStoreState {
   loopsByProject: Record<string, LoopSummary[]>
-  outputsByLoop: Record<string, string[]>
-  outputRemaindersByLoop: Record<string, string>
+  outputChunksByLoop: Record<string, string[]>
   metricsByLoop: Record<string, LoopMetrics | undefined>
   selectedLoopIdByProject: Record<string, string | null | undefined>
   setLoops: (projectId: string, loops: LoopSummary[]) => void
   upsertLoop: (projectId: string, loop: LoopSummary) => void
   updateLoopById: (loopId: string, updates: Partial<LoopSummary>) => void
-  appendOutput: (loopId: string, line: string) => void
+  appendOutput: (loopId: string, chunk: string) => void
   appendOutputChunk: (loopId: string, chunk: string) => void
   appendOutputs: (outputsByLoop: Record<string, string[]>) => void
   setMetrics: (loopId: string, metrics: LoopMetrics) => void
@@ -19,54 +18,23 @@ interface LoopStoreState {
 
 const initialState = {
   loopsByProject: {} as Record<string, LoopSummary[]>,
-  outputsByLoop: {} as Record<string, string[]>,
-  outputRemaindersByLoop: {} as Record<string, string>,
+  outputChunksByLoop: {} as Record<string, string[]>,
   metricsByLoop: {} as Record<string, LoopMetrics | undefined>,
   selectedLoopIdByProject: {} as Record<string, string | null | undefined>
 }
-const MAX_OUTPUT_LINES_PER_LOOP = 2_000
+const MAX_OUTPUT_CHUNKS_PER_LOOP = 2_000
 
-function mergeLoopOutputLines(current: string[], incoming: string[]) {
+function mergeChunks(current: string[], incoming: string[]) {
   if (incoming.length === 0) {
     return current
   }
 
   const merged = [...current, ...incoming]
-  if (merged.length <= MAX_OUTPUT_LINES_PER_LOOP) {
+  if (merged.length <= MAX_OUTPUT_CHUNKS_PER_LOOP) {
     return merged
   }
 
-  return merged.slice(merged.length - MAX_OUTPUT_LINES_PER_LOOP)
-}
-
-function applyTerminalLineControls(value: string) {
-  let line = ''
-
-  for (const char of value) {
-    if (char === '\r') {
-      line = ''
-      continue
-    }
-
-    if (char === '\b') {
-      line = line.slice(0, -1)
-      continue
-    }
-
-    line += char
-  }
-
-  return line
-}
-
-function splitOutputChunk(remainder: string, chunk: string) {
-  const normalized = `${remainder}${chunk.replace(/\r\n/g, '\n')}`
-  const segments = normalized.split('\n')
-
-  return {
-    lines: segments.slice(0, -1).map(applyTerminalLineControls),
-    remainder: applyTerminalLineControls(segments.at(-1) ?? '')
-  }
+  return merged.slice(merged.length - MAX_OUTPUT_CHUNKS_PER_LOOP)
 }
 
 export const useLoopStore = create<LoopStoreState>((set) => ({
@@ -145,41 +113,23 @@ export const useLoopStore = create<LoopStoreState>((set) => ({
         loopsByProject: nextLoopsByProject
       }
     }),
-  appendOutput: (loopId, line) =>
+  appendOutput: (loopId, chunk) =>
     set((state) => ({
-      outputsByLoop: {
-        ...state.outputsByLoop,
-        [loopId]: mergeLoopOutputLines(state.outputsByLoop[loopId] ?? [], [line])
+      outputChunksByLoop: {
+        ...state.outputChunksByLoop,
+        [loopId]: mergeChunks(state.outputChunksByLoop[loopId] ?? [], [chunk])
       }
     })),
   appendOutputChunk: (loopId, chunk) =>
-    set((state) => {
-      const previousRemainder = state.outputRemaindersByLoop[loopId] ?? ''
-      const next = splitOutputChunk(previousRemainder, chunk)
-
-      if (next.lines.length === 0 && next.remainder === previousRemainder) {
-        return state
+    set((state) => ({
+      outputChunksByLoop: {
+        ...state.outputChunksByLoop,
+        [loopId]: mergeChunks(state.outputChunksByLoop[loopId] ?? [], [chunk])
       }
-
-      const nextOutputRemaindersByLoop = { ...state.outputRemaindersByLoop }
-      if (next.remainder.length > 0) {
-        nextOutputRemaindersByLoop[loopId] = next.remainder
-      } else {
-        delete nextOutputRemaindersByLoop[loopId]
-      }
-
-      return {
-        outputsByLoop: {
-          ...state.outputsByLoop,
-          [loopId]: mergeLoopOutputLines(state.outputsByLoop[loopId] ?? [], next.lines)
-        },
-        outputRemaindersByLoop: nextOutputRemaindersByLoop
-      }
-    }),
+    })),
   appendOutputs: (outputsByLoop) =>
     set((state) => {
-      const nextOutputsByLoop = { ...state.outputsByLoop }
-      const nextRemaindersByLoop = { ...state.outputRemaindersByLoop }
+      const nextOutputChunksByLoop = { ...state.outputChunksByLoop }
       let changed = false
 
       for (const [loopId, chunks] of Object.entries(outputsByLoop)) {
@@ -187,28 +137,9 @@ export const useLoopStore = create<LoopStoreState>((set) => ({
           continue
         }
 
-        let current = nextOutputsByLoop[loopId] ?? []
-        let remainder = nextRemaindersByLoop[loopId] ?? ''
-
-        for (const chunk of chunks) {
-          const next = splitOutputChunk(remainder, chunk)
-          remainder = next.remainder
-
-          if (next.lines.length > 0) {
-            current = mergeLoopOutputLines(current, next.lines)
-            changed = true
-          }
-        }
-
-        nextOutputsByLoop[loopId] = current
-        if (remainder !== (nextRemaindersByLoop[loopId] ?? '')) {
-          if (remainder.length > 0) {
-            nextRemaindersByLoop[loopId] = remainder
-          } else {
-            delete nextRemaindersByLoop[loopId]
-          }
-          changed = true
-        }
+        const current = nextOutputChunksByLoop[loopId] ?? []
+        nextOutputChunksByLoop[loopId] = mergeChunks(current, chunks)
+        changed = true
       }
 
       if (!changed) {
@@ -216,8 +147,7 @@ export const useLoopStore = create<LoopStoreState>((set) => ({
       }
 
       return {
-        outputsByLoop: nextOutputsByLoop,
-        outputRemaindersByLoop: nextRemaindersByLoop
+        outputChunksByLoop: nextOutputChunksByLoop
       }
     }),
   setMetrics: (loopId, metrics) =>

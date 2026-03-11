@@ -52,6 +52,7 @@ export function LoopsView({ projectId }: LoopsViewProps) {
     (state) => state.selectedLoopIdByProject[projectId] ?? null
   )
   const outputsByLoop = useLoopStore((state) => state.outputsByLoop)
+  const outputRemaindersByLoop = useLoopStore((state) => state.outputRemaindersByLoop)
   const metricsByLoop = useLoopStore((state) => state.metricsByLoop)
   const setLoops = useLoopStore((state) => state.setLoops)
   const upsertLoop = useLoopStore((state) => state.upsertLoop)
@@ -69,9 +70,15 @@ export function LoopsView({ projectId }: LoopsViewProps) {
     [loops, selectedLoopId]
   )
   const selectedLoopMetrics = selectedLoop ? metricsByLoop[selectedLoop.id] ?? null : null
-  const selectedLoopOutput = selectedLoop
-    ? outputsByLoop[selectedLoop.id] ?? EMPTY_OUTPUT
-    : EMPTY_OUTPUT
+  const selectedLoopOutput = useMemo(() => {
+    if (!selectedLoop) {
+      return EMPTY_OUTPUT
+    }
+
+    const lines = outputsByLoop[selectedLoop.id] ?? EMPTY_OUTPUT
+    const remainder = outputRemaindersByLoop[selectedLoop.id]
+    return remainder && remainder.length > 0 ? [...lines, remainder] : lines
+  }, [outputRemaindersByLoop, outputsByLoop, selectedLoop])
 
   useEffect(() => {
     let cancelled = false
@@ -248,6 +255,13 @@ export function LoopsView({ projectId }: LoopsViewProps) {
         typeof message.loopId === 'string' &&
         typeof message.data === 'string'
       ) {
+        if (message.replay === true) {
+          appendOutputs({
+            [message.loopId]: [message.data]
+          })
+          return
+        }
+
         const queue = pendingOutputByLoopRef.current[message.loopId] ?? []
         queue.push(message.data)
         pendingOutputByLoopRef.current[message.loopId] = queue
@@ -344,7 +358,15 @@ export function LoopsView({ projectId }: LoopsViewProps) {
         void refreshLoopMetrics(message.loopId).catch(() => {})
       }
     },
-    [loops, metricsByLoop, refreshLoopMetrics, scheduleOutputFlush, setMetrics, updateLoopById]
+    [
+      loops,
+      metricsByLoop,
+      appendOutputs,
+      refreshLoopMetrics,
+      scheduleOutputFlush,
+      setMetrics,
+      updateLoopById
+    ]
   )
 
   const { isConnected } = useWebSocket({

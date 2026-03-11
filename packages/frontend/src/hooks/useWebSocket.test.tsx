@@ -76,13 +76,15 @@ class MockWebSocket {
 
 function HookHarness({
   connectTimeoutMs,
-  accessToken
+  accessToken,
+  channels = ['notifications']
 }: {
   connectTimeoutMs?: number
   accessToken?: string
+  channels?: string[]
 }) {
   const { status, reconnectAttempt } = useWebSocket({
-    channels: ['notifications'],
+    channels,
     onMessage: () => {},
     reconnectDelayMs: 100,
     connectTimeoutMs,
@@ -258,6 +260,24 @@ describe('useWebSocket', () => {
       '[ws] reconnecting',
       expect.objectContaining({ attempt: 1 })
     )
+  })
+
+  it('does not resubscribe when channel values are unchanged across rerenders', () => {
+    const sendSpy = vi.spyOn(MockWebSocket.prototype, 'send')
+    const { rerender } = render(<HookHarness channels={['notifications']} />)
+
+    act(() => {
+      vi.advanceTimersByTime(0)
+    })
+
+    act(() => {
+      MockWebSocket.instances[0]?.emitOpen()
+    })
+
+    expect(sendSpy).toHaveBeenCalledTimes(1)
+
+    rerender(<HookHarness channels={['notifications']} />)
+    expect(sendSpy).toHaveBeenCalledTimes(1)
   })
 })
 

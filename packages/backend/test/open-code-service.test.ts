@@ -161,6 +161,9 @@ function createServiceHarness() {
 
   const service = new OpenCodeService({
     mcpEndpointUrl: 'http://localhost:3003/mcp',
+    mcpHeaders: {
+      'x-ralph-internal-mcp-token': 'test-internal-token'
+    },
     settingsService: {
       get: settingsGet,
       getProviderApiKey
@@ -256,7 +259,10 @@ describe('OpenCodeService', () => {
       ralph: {
         type: 'remote',
         enabled: true,
-        url: 'http://localhost:3003/mcp'
+        url: 'http://localhost:3003/mcp',
+        headers: {
+          'x-ralph-internal-mcp-token': 'test-internal-token'
+        }
       }
     })
   })

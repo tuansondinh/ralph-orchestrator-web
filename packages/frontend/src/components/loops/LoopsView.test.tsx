@@ -370,6 +370,35 @@ describe('LoopsView', () => {
     })
   })
 
+  it('normalizes replayed loop output chunks before rendering', async () => {
+    vi.mocked(loopApi.list).mockResolvedValue([baseLoop])
+
+    renderLoopsView()
+
+    const socket = await waitFor(() => {
+      const current = MockWebSocket.instances[0]
+      expect(current).toBeDefined()
+      return current
+    })
+
+    socket?.emitMessage({
+      type: 'loop.output',
+      channel: 'loop:loop-1:output',
+      loopId: 'loop-1',
+      stream: 'stdout',
+      data: '[connecting]\r[ACTIVE]\n[iter 1/20] 00:00\n',
+      timestamp: new Date().toISOString(),
+      replay: true
+    })
+
+    await waitFor(() => {
+      const output = screen.getByTestId('terminal-scroll')
+      expect(output).toHaveTextContent('[ACTIVE]')
+      expect(output).toHaveTextContent('[iter 1/20] 00:00')
+      expect(output).not.toHaveTextContent('[connecting]')
+    })
+  })
+
   it('refreshes final metrics on loop completion so token totals remain visible', async () => {
     vi.mocked(loopApi.list).mockResolvedValue([baseLoop])
 

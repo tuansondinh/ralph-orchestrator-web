@@ -323,8 +323,8 @@ describe('SettingsPage', () => {
     )
 
     const page = await screen.findByTestId('settings-page')
+    expect(page).toHaveClass('h-full')
     expect(page).toHaveClass('min-h-0')
-    expect(page).toHaveClass('flex-1')
     expect(page).toHaveClass('overflow-y-auto')
   })
 })

@@ -30,6 +30,7 @@ import type {
 
 interface OpenCodeServiceOptions {
   mcpEndpointUrl: string
+  mcpHeaders?: Record<string, string>
   settingsService: Pick<SettingsService, 'get' | 'getProviderApiKey'>
   dataDir?: string
   createOpencode?: (options?: ServerOptions) => Promise<{
@@ -81,17 +82,26 @@ function getModelIdentifier(provider: string, model: string) {
   return `${provider}/${model}`
 }
 
+function getWorkspaceRootLabel() {
+  const cwd = process.cwd().replace(/\\/g, '/').replace(/\/+$/, '')
+  const segments = cwd.split('/').filter(Boolean)
+  return segments.at(-1) ?? cwd
+}
+
 const RALPH_ASSISTANT_IDENTITY_PROMPT = [
   'You are Ralph Assistant, the built-in AI assistant for Ralph Orchestrator.',
   'Always refer to yourself as Ralph or Ralph Assistant when asked about your identity.',
   'Do not claim to be Claude Code, Claude, Codex, ChatGPT, Gemini, OpenCode, or any other CLI tool or model.',
   'If a user asks what model or provider is backing this chat, explain that you are Ralph Assistant running inside Ralph Orchestrator and, if relevant, that the configured provider/model may vary behind the scenes.',
+  `The workspace root for this app session is "${getWorkspaceRootLabel()}". Treat that as the default project root unless the user explicitly switches to a subdirectory or a specific managed project.`,
+  'Do not describe packages/backend or packages/frontend as the main project unless the user explicitly asks about those subdirectories.',
   'Help users manage projects, plan features, and orchestrate AI loop runs.'
 ].join(' ')
 
 export class OpenCodeService {
   private readonly settingsService: Pick<SettingsService, 'get' | 'getProviderApiKey'>
-  private readonly mcpEndpointUrl: string
+  private mcpEndpointUrl: string
+  private readonly mcpHeaders: Record<string, string>
   private readonly dataDir?: string
   private readonly createOpencodeFactory: NonNullable<OpenCodeServiceOptions['createOpencode']>
   private readonly now: () => number
@@ -111,6 +121,7 @@ export class OpenCodeService {
 
   constructor(options: OpenCodeServiceOptions) {
     this.mcpEndpointUrl = options.mcpEndpointUrl
+    this.mcpHeaders = options.mcpHeaders ?? {}
     this.settingsService = options.settingsService
     this.dataDir = options.dataDir
     this.createOpencodeFactory = options.createOpencode ?? createOpencode
@@ -241,6 +252,22 @@ export class OpenCodeService {
     })
   }
 
+  async setMcpEndpointUrl(url: string) {
+    if (url === this.mcpEndpointUrl) {
+      return
+    }
+
+    this.mcpEndpointUrl = url
+
+    if (!this.client) {
+      return
+    }
+
+    await this.client.config.update({
+      body: await this.buildConfig()
+    })
+  }
+
   private async startInternal() {
     const settings = await this.settingsService.get()
     this.currentProvider = settings.chatProvider
@@ -254,8 +281,8 @@ export class OpenCodeService {
 
     this.client = created.client
     this.server = created.server
+    await this.subscribeToEvents()
     this.running = true
-    this.subscribeToEvents()
   }
 
   private async ensureStarted() {
@@ -289,31 +316,34 @@ export class OpenCodeService {
         ralph: {
           type: 'remote',
           enabled: true,
-          url: this.mcpEndpointUrl
+          url: this.mcpEndpointUrl,
+          headers: Object.keys(this.mcpHeaders).length > 0 ? this.mcpHeaders : undefined
         }
       }
     }
   }
 
-  private subscribeToEvents() {
+  private async subscribeToEvents() {
     const client = this.client
     if (!client) {
       return
     }
 
-    void (async () => {
-      try {
-        const subscription = await client.event.subscribe({})
-        for await (const event of subscription.stream as AsyncIterable<OpenCodeSdkEvent>) {
-          this.handleEvent(event)
-        }
-      } finally {
-        this.running = false
-        this.client = null
-        this.server = null
-        this.sessionId = null
+    const subscription = await client.event.subscribe({})
+    void this.consumeEvents(subscription.stream as AsyncIterable<OpenCodeSdkEvent>)
+  }
+
+  private async consumeEvents(stream: AsyncIterable<OpenCodeSdkEvent>) {
+    try {
+      for await (const event of stream) {
+        this.handleEvent(event)
       }
-    })()
+    } finally {
+      this.running = false
+      this.client = null
+      this.server = null
+      this.sessionId = null
+    }
   }
 
   private handleEvent(event: OpenCodeSdkEvent) {
@@ -354,6 +384,17 @@ export class OpenCodeService {
       this.emit({
         type: 'chat:delta',
         text: delta
+      })
+      return
+    }
+
+    if (part.type === 'reasoning') {
+      const thinkingMessage = this.getOrCreateThinkingMessage(part.id, part.time.start)
+      thinkingMessage.content = part.text
+      thinkingMessage.streaming = part.time.end === undefined
+      this.emit({
+        type: 'chat:message',
+        message: thinkingMessage
       })
       return
     }
@@ -452,6 +493,25 @@ export class OpenCodeService {
       role: 'assistant',
       content: '',
       createdAt: this.now()
+    }
+    this.messages.push(created)
+    return created
+  }
+
+  private getOrCreateThinkingMessage(id: string, createdAt: number) {
+    const existing = this.messages.find(
+      (message) => message.id === id && message.role === 'thinking'
+    )
+    if (existing) {
+      return existing
+    }
+
+    const created: ChatMessage = {
+      id,
+      role: 'thinking',
+      content: '',
+      createdAt,
+      streaming: true
     }
     this.messages.push(created)
     return created

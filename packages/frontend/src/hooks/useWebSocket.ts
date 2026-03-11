@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getAuthAccessToken } from '@/lib/authSession'
 
 interface UseWebSocketOptions {
@@ -61,6 +61,20 @@ function normalizeChannels(channels: string[]) {
   return [...new Set(channels.map((channel) => channel.trim()).filter(Boolean))].sort()
 }
 
+function areChannelsEqual(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false
+    }
+  }
+
+  return true
+}
+
 function sendSubscribe(socket: WebSocket, channels: string[]) {
   if (socket.readyState !== WebSocket.OPEN) {
     return
@@ -92,18 +106,21 @@ export function useWebSocket({
   const shouldReconnectRef = useRef(true)
   const reconnectAttemptRef = useRef(0)
 
-  const normalizedChannels = useMemo(() => normalizeChannels(channels), [channels])
-
   useEffect(() => {
     onMessageRef.current = onMessage
   }, [onMessage])
 
   useEffect(() => {
+    const normalizedChannels = normalizeChannels(channels)
+    if (areChannelsEqual(channelsRef.current, normalizedChannels)) {
+      return
+    }
+
     channelsRef.current = normalizedChannels
     if (socketRef.current) {
       sendSubscribe(socketRef.current, normalizedChannels)
     }
-  }, [normalizedChannels])
+  }, [channels])
 
   useEffect(() => {
     shouldReconnectRef.current = true // ensure cleanup

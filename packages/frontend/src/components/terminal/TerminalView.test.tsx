@@ -7,6 +7,7 @@ import { resetTerminalStore } from '@/stores/terminalStore'
 vi.mock('@/lib/terminalApi', () => ({
   terminalApi: {
     getProjectSessions: vi.fn(),
+    getOutputHistory: vi.fn(),
     startSession: vi.fn(),
     endSession: vi.fn()
   }
@@ -62,6 +63,7 @@ describe('TerminalView', () => {
     vi.clearAllMocks()
     resetTerminalStore()
     vi.mocked(terminalApi.getProjectSessions).mockResolvedValue([session])
+    vi.mocked(terminalApi.getOutputHistory).mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -84,5 +86,19 @@ describe('TerminalView', () => {
     const controls = screen.getByRole('button', { name: 'PLAN' }).parentElement
     expect(controls).toHaveClass('flex-wrap')
     expect(controls).toHaveClass('justify-start')
+  })
+
+  it('loads output history for the active terminal session on mount', async () => {
+    render(<TerminalView projectId="project-1" />)
+
+    await waitFor(() => {
+      expect(terminalApi.getProjectSessions).toHaveBeenCalledWith({ projectId: 'project-1' })
+    })
+
+    await waitFor(() => {
+      expect(terminalApi.getOutputHistory).toHaveBeenCalledWith({
+        sessionId: 'terminal-session-1'
+      })
+    })
   })
 })

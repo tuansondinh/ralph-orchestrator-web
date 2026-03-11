@@ -81,6 +81,37 @@ describe('loopStore', () => {
     expect(output[0]).toBe('line-1')
   })
 
+  it('appendOutputs normalizes chunked loop output into display lines', () => {
+    useLoopStore.getState().appendOutputs({
+      'loop-1': ['[connecting]\r[ACTIVE]\n', '[iter 1/20] ', '00:00\nnext\n']
+    })
+
+    expect(useLoopStore.getState().outputsByLoop['loop-1']).toEqual([
+      '[ACTIVE]',
+      '[iter 1/20] 00:00',
+      'next'
+    ])
+    expect(useLoopStore.getState().outputRemaindersByLoop['loop-1']).toBeUndefined()
+  })
+
+  it('appendOutputs keeps partial chunks isolated per loop', () => {
+    useLoopStore.getState().appendOutputs({
+      'loop-1': ['alpha'],
+      'loop-2': ['beta\n']
+    })
+
+    expect(useLoopStore.getState().outputsByLoop['loop-1']).toEqual([])
+    expect(useLoopStore.getState().outputsByLoop['loop-2']).toEqual(['beta'])
+    expect(useLoopStore.getState().outputRemaindersByLoop['loop-1']).toBe('alpha')
+
+    useLoopStore.getState().appendOutputs({
+      'loop-1': [' done\n']
+    })
+
+    expect(useLoopStore.getState().outputsByLoop['loop-1']).toEqual(['alpha done'])
+    expect(useLoopStore.getState().outputRemaindersByLoop['loop-1']).toBeUndefined()
+  })
+
   it('setMetrics stores metrics for a loop', () => {
     const metrics = makeMetrics({ iterations: 5, tokensUsed: 1000 })
     useLoopStore.getState().setMetrics('loop-1', metrics)

@@ -17,6 +17,8 @@ npm run build:cloud
 
 echo "Syncing repository to ${REMOTE_HOST}:${REMOTE_DIR}..."
 rsync -avz --delete \
+  --include '/sops/' \
+  --include '/sops/***' \
   --exclude node_modules \
   --exclude .git \
   --exclude .env \
@@ -57,8 +59,7 @@ ssh ${SSH_OPTS} "${REMOTE_HOST}" \
   "command -v expect >/dev/null 2>&1 || (echo 'expect not present; continuing with script(1) PTY fallback if available' >&2; true)"
 
 echo "Installing opencode config..."
-ssh ${SSH_OPTS} "${REMOTE_HOST}" \
-  "REMOTE_DIR='${REMOTE_DIR}' node <<'EOF'
+ssh ${SSH_OPTS} "${REMOTE_HOST}" "REMOTE_DIR='${REMOTE_DIR}' node - <<'EOF'" <<'EOF'
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
@@ -84,7 +85,7 @@ template.mcp = {
 
 fs.mkdirSync(configDir, { recursive: true })
 fs.writeFileSync(configPath, JSON.stringify(template, null, 2) + '\n')
-EOF"
+EOF
 
 echo "Updating runtime environment defaults..."
 ssh ${SSH_OPTS} "${REMOTE_HOST}" "REMOTE_DIR='${REMOTE_DIR}' bash -s" <<'EOF'

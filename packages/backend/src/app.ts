@@ -60,6 +60,7 @@ function parseSettingInteger(value: string | undefined, fallback: number) {
 }
 
 const API_ROUTE_PREFIXES = ['/trpc', '/chat', '/ws', '/mcp', '/health']
+const INTERNAL_MCP_AUTH_HEADER = 'x-ralph-internal-mcp-token'
 
 function resolveStaticDirectory() {
   const configuredRoot = process.env.RALPH_UI_STATIC_ROOT
@@ -101,27 +102,6 @@ function toStaticRelativePath(pathname: string) {
   return stripped
 }
 
-function createUnavailableService<T>(name: string): T {
-  const unavailable = () => {
-    throw new Error(
-      `${name} is unavailable in cloud mode until repository integration is implemented.`
-    )
-  }
-
-  return new Proxy(
-    {},
-    {
-      get(_target, property) {
-        if (property === 'then') {
-          return undefined
-        }
-
-        return unavailable
-      }
-    }
-  ) as T
-}
-
 type CloudRuntimeConfig = NonNullable<ResolvedRuntimeMode['cloud']>
 
 async function cloudStartupPlugin(
@@ -130,9 +110,10 @@ async function cloudStartupPlugin(
     cloud: CloudRuntimeConfig
     projectService: ProjectService
     repositories: ReturnType<typeof createRepositoryBundle>
+    internalMcpAuthToken: string
   }
 ): Promise<void> {
-  const { cloud, projectService, repositories } = options
+  const { cloud, projectService, repositories, internalMcpAuthToken } = options
   const workspaceManager = new LocalWorkspaceManager(WORKSPACE_BASE_DIR)
   app.decorate('workspaceManager', workspaceManager)
   projectService.setWorkspaceManager(workspaceManager)
@@ -151,6 +132,8 @@ async function cloudStartupPlugin(
         pathname === '/health' ||
         pathname === '/trpc/capabilities' ||
         pathname === '/ws' ||
+        (pathname === '/mcp' &&
+          request.headers[INTERNAL_MCP_AUTH_HEADER] === internalMcpAuthToken) ||
         !API_ROUTE_PREFIXES.some(
           (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
         )
@@ -262,27 +245,29 @@ export function createApp(options: CreateAppOptions = {}) {
   })
   const projectService = new ProjectService(repositories)
   const ralphMcpServer =
-    localDatabase
-      ? new RalphMcpServer({
-          projectService,
-          presetService,
-          loopService,
-          monitoringService,
-          settingsService,
-          ralphProcessService,
-          hatsPresetService,
-          chatService,
-          sopService
-        })
-      : createUnavailableService<RalphMcpServer>('RalphMcpServer')
+    new RalphMcpServer({
+      projectService,
+      presetService,
+      loopService,
+      monitoringService,
+      settingsService,
+      ralphProcessService,
+      hatsPresetService,
+      chatService,
+      sopService
+    })
   const configuredAllowedOrigins = parseAllowedOrigins(
     process.env.RALPH_UI_ALLOWED_ORIGINS
   )
 
   const taskService =
     new TaskService(repositories)
+  const internalMcpAuthToken = crypto.randomUUID()
   const openCodeService = new OpenCodeService({
     mcpEndpointUrl: `http://127.0.0.1:${Number(process.env.PORT ?? 3003)}/mcp`,
+    mcpHeaders: {
+      [INTERNAL_MCP_AUTH_HEADER]: internalMcpAuthToken
+    },
     settingsService
   })
 
@@ -317,7 +302,8 @@ export function createApp(options: CreateAppOptions = {}) {
     app.register(cloudStartupPlugin, {
       cloud: runtime.cloud,
       projectService,
-      repositories
+      repositories,
+      internalMcpAuthToken
     })
   }
 
@@ -414,15 +400,13 @@ export function createApp(options: CreateAppOptions = {}) {
   }
 
   app.addHook('onReady', async () => {
-    if (localDatabase) {
-      await ralphMcpServer.start()
-    }
+    await ralphMcpServer.start()
   })
 
   app.addHook('onClose', async () => {
     await openCodeService.stop()
+    await ralphMcpServer.close()
     if (localDatabase) {
-      await ralphMcpServer.close()
       await terminalService.shutdown()
       await processManager.shutdown()
     }

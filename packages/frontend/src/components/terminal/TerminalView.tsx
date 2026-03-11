@@ -48,7 +48,6 @@ function TerminalSession({
   const fitRef = useRef<FitAddon | null>(null)
   const scheduleSyncSizeRef = useRef<(() => void) | null>(null)
   const sessionStateRef = useRef<TerminalSessionState>(session.state)
-  const connectionGenerationRef = useRef(0)
   const isFitReadyRef = useRef(false)
   const pendingOutputChunksRef = useRef<string[]>([])
   const updateSession = useTerminalStore((state) => state.updateSession)
@@ -61,7 +60,7 @@ function TerminalSession({
         message.sessionId === sessionId &&
         typeof message.data === 'string'
       ) {
-        if (message.replay === true && connectionGenerationRef.current > 1) {
+        if (message.replay === true) {
           return
         }
         if (!isFitReadyRef.current || !terminalRef.current) {
@@ -135,7 +134,6 @@ function TerminalSession({
       return
     }
 
-    connectionGenerationRef.current += 1
     isFitReadyRef.current = false
     scheduleSyncSizeRef.current?.()
   }, [isConnected, sessionId])
@@ -154,11 +152,45 @@ function TerminalSession({
   }, [sessionId])
 
   useEffect(() => {
+    pendingOutputChunksRef.current = []
+
+    let cancelled = false
+
+    const loadHistory = async () => {
+      try {
+        const history = await terminalApi.getOutputHistory({ sessionId })
+        if (cancelled) {
+          return
+        }
+
+        const combined = history.join('')
+        if (!combined) {
+          return
+        }
+
+        if (!isFitReadyRef.current || !terminalRef.current) {
+          pendingOutputChunksRef.current = [combined]
+          return
+        }
+
+        terminalRef.current.write(combined)
+      } catch {
+        // Best effort: the websocket stream can still populate the terminal.
+      }
+    }
+
+    void loadHistory()
+
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId])
+
+  useEffect(() => {
     const container = containerRef.current
     if (!container || terminalRef.current) return
 
     isFitReadyRef.current = false
-    pendingOutputChunksRef.current = []
     const term = new XTerm({
       cursorBlink: true,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',

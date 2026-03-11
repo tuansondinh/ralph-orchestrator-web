@@ -722,13 +722,13 @@ export class LoopService {
 
   async getOutput(input: { loopId: string; limit?: number }): Promise<LoopOutputSnapshot> {
     const run = await this.requireLoop(input.loopId)
-    const maxLines = Math.max(1, Math.min(input.limit ?? 50, 500))
-    const lines = (await this.replayOutput(input.loopId)).slice(-maxLines)
-    const lineLabel = lines.length === 1 ? 'line' : 'lines'
+    const maxChunks = Math.max(1, Math.min(input.limit ?? 50, 500))
+    const chunks = (await this.replayOutput(input.loopId)).slice(-maxChunks)
+    const chunkLabel = chunks.length === 1 ? 'chunk' : 'chunks'
 
     return {
-      summary: `Showing ${lines.length} recent ${lineLabel} for loop ${input.loopId} (${run.state})`,
-      lines,
+      summary: `Showing ${chunks.length} recent ${chunkLabel} for loop ${input.loopId} (${run.state})`,
+      lines: chunks,
       link: `/project/${run.projectId}/loops?loopId=${run.id}`
     }
   }
@@ -792,7 +792,7 @@ export class LoopService {
     try {
       const chunks = await this.loopOutput.getByLoopRunId(loopId)
       if (chunks.length > 0) {
-        return chunks.map(chunk => chunk.data.replace(/\n$/, ''))
+        return chunks.map(chunk => chunk.data)
       }
     } catch (error) {
       if (!isLoopOutputPersistenceUnavailableError(error)) {
@@ -1591,21 +1591,12 @@ export class LoopService {
   }
 
   private readOutputReplayFromDisk(filePath: string): string[] {
-    const maxLines =
-      Number.isFinite(this.bufferLines) && this.bufferLines > 0
-        ? Math.floor(this.bufferLines)
-        : 500
-
     try {
       const raw = readFileSync(filePath, 'utf8')
-      const normalized = raw.replace(/\r\n/g, '\n')
-      const lines = normalized.split('\n')
-
-      if (lines.length > 0 && lines[lines.length - 1] === '') {
-        lines.pop()
+      if (raw.length === 0) {
+        return []
       }
-
-      return lines.slice(Math.max(0, lines.length - maxLines))
+      return [raw]
     } catch {
       return []
     }

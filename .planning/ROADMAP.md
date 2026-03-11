@@ -52,10 +52,10 @@
   2. Loop output no longer uses the custom ANSI parser in TerminalOutput.tsx
   3. Backend streams raw PTY bytes to the frontend rather than pre-parsed line strings
   4. Complex escape sequences (OSC, cursor movement) display without garbled or missing output
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 06-01: Replace custom ANSI parser with xterm.js in LoopsView and update backend to stream raw PTY output
+- [ ] 06-01-PLAN.md — Replace custom ANSI parser with xterm.js and update backend to stream raw PTY chunks
 
 ### Phase 7: Loop Git Automation
 **Goal**: Loops automatically manage git branch lifecycle so users never need to manually branch, push, or open a PR

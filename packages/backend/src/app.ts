@@ -42,6 +42,14 @@ import { TaskService } from './services/TaskService.js'
 import { RalphMcpServer } from './mcp/RalphMcpServer.js'
 import { resolveRalphBinary } from './lib/ralph.js'
 import { isOriginAllowed, parseAllowedOrigins } from './lib/origin.js'
+import {
+  CHAT_PROVIDERS,
+  type ChatProvider,
+  getEnvironmentApiKey,
+  normalizeChatModel,
+  normalizeChatProvider,
+  resolveLegacyProvider
+} from './lib/chatProviderConfig.js'
 import { registerWebsocket } from './api/websocket.js'
 import { LocalWorkspaceManager } from './services/WorkspaceManager.js'
 import { WORKSPACE_BASE_DIR } from './config/runtimeMode.js'

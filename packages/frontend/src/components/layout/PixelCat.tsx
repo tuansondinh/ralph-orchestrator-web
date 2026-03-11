@@ -2,7 +2,8 @@ export function PixelCat() {
   return (
     <div
       aria-hidden="true"
-      className="ralph-pixel-cat-wrap pointer-events-none fixed z-40 select-none"
+      className="ralph-pixel-cat-wrap pointer-events-none fixed top-1.5 -right-14 z-40 origin-top-right select-none sm:top-2 sm:-right-20"
+      data-testid="pixel-cat"
     >
       <svg
         className="ralph-pixel-cat h-[84px] w-[126px] sm:h-[98px] sm:w-[147px]"

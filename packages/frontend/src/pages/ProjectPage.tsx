@@ -17,16 +17,31 @@ import { useProjectStore } from '@/stores/projectStore'
 export function ProjectPage() {
   const params = useParams()
   const { capabilities } = useCapabilities()
+  const isMobile = useMediaQuery('(max-width: 767px)')
   const projectId = params.id
   const requestedTab = isProjectTabId(params.tab) ? params.tab : null
   const tab = requestedTab === 'chat' ? 'chat' : resolveProjectTab(requestedTab, capabilities)
-  const isMobile = useMediaQuery('(max-width: 767px)')
-  const hideChrome = isMobile && tab === 'chat'
+  const isProjectsLoading = useProjectStore((state) => state.isLoading)
   const project = useProjectStore((state) =>
     state.projects.find((candidate) => candidate.id === projectId)
   )
 
-  if (!projectId || !project) {
+  if (!projectId) {
+    return (
+      <section className="space-y-2">
+        <h1 className="text-2xl font-semibold">Project not found</h1>
+        <p className="text-sm text-zinc-400">
+          Select a project from the sidebar or create a new one to continue.
+        </p>
+      </section>
+    )
+  }
+
+  if (isProjectsLoading) {
+    return <p className="text-sm text-zinc-400">Loading project...</p>
+  }
+
+  if (!project) {
     return (
       <section className="space-y-2">
         <h1 className="text-2xl font-semibold">Project not found</h1>
@@ -41,16 +56,12 @@ export function ProjectPage() {
     return <Navigate replace to={`/project/${project.id}/${tab}`} />
   }
 
+  const showProjectHeader = !(isMobile && tab === 'chat')
+
   return (
-    <section
-      className={
-        hideChrome
-          ? 'flex h-[100dvh] flex-col'
-          : 'flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden'
-      }
-    >
-      {!hideChrome && <ProjectHeader project={project} />}
-      {!hideChrome && <TabBar projectId={project.id} />}
+    <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden sm:gap-3">
+      {showProjectHeader ? <ProjectHeader project={project} /> : null}
+      <TabBar projectId={project.id} />
       {tab === 'loops' ? (
         <div className="min-h-0 flex-1">
           <LoopsView projectId={project.id} />
@@ -60,7 +71,9 @@ export function ProjectPage() {
           <TasksView projectId={project.id} />
         </div>
       ) : tab === 'chat' ? (
-        <ChatView projectId={project.id} />
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <ChatView projectId={project.id} />
+        </div>
       ) : tab === 'terminal' ? (
         <TerminalView projectId={project.id} />
       ) : tab === 'monitor' ? (

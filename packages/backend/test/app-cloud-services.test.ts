@@ -140,7 +140,8 @@ describe('createApp cloud service wiring', () => {
       })
     ])
     await expect(app.settingsService.get()).resolves.toMatchObject({
-      chatModel: 'gemini',
+      chatProvider: 'anthropic',
+      chatModel: 'claude-sonnet-4-20250514',
       ralphBinaryPath: null
     })
     await expect(app.loopService.list('project-1')).resolves.toEqual([])

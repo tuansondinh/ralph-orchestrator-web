@@ -81,6 +81,7 @@ Recommended environment variables:
 - `RALPH_UI_BIND_HOST`: set to `0.0.0.0` (root `start` script already does this)
 - `RALPH_UI_ALLOWED_ORIGINS`: optional comma-separated allowlist for cross-origin frontend deployments
 - `RALPH_UI_DB_PATH`: optional persistent DB path (for example mounted volume path)
+- `RALPH_UI_DEFAULT_BACKEND`: optional backend used for quick `ralph plan`/`ralph task` actions when no explicit `--backend` is provided (for cloud deploys typically `opencode`)
 
 Notes:
 - Built frontend is loaded from `packages/frontend/dist`.

@@ -199,6 +199,7 @@ function mockAuthenticatedCloudSession() {
 }
 
 beforeEach(() => {
+  window.__matchMediaController?.reset()
   resetCapabilitiesCache()
   resetLoopStore()
   resetProjectStore()
@@ -354,6 +355,9 @@ describe('App', () => {
   it('renders empty state when no projects exist', async () => {
     render(<App />)
 
+    await waitFor(() => {
+      expect(screen.queryByText('Loading projects...')).not.toBeInTheDocument()
+    })
     expect(await screen.findByRole('heading', { name: 'No projects yet' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Create Project' })).toBeInTheDocument()
   })
@@ -390,6 +394,71 @@ describe('App', () => {
 
     fireEvent.click(expandButton)
     expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
+  })
+
+  it('uses a mobile navigation drawer on narrow screens', async () => {
+    window.__matchMediaController?.setMatches('(max-width: 767px)', true)
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 10
+      }
+    ])
+
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: 'Open navigation' })).toBeInTheDocument()
+    expect(
+      screen.queryByText('This app is experimental and not fully implemented yet.')
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Collapse sidebar' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Project navigation' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+
+    const drawer = screen.getByRole('dialog', { name: 'Project navigation' })
+    expect(within(drawer).getByText('Alpha App')).toBeInTheDocument()
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Alpha App' }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/project/alpha/loops')
+    })
+    expect(screen.queryByRole('dialog', { name: 'Project navigation' })).not.toBeInTheDocument()
+  })
+
+  it('uses compact tab styles on project navigation links', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ])
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Alpha App' }))
+
+    const chatTab = within(screen.getByRole('navigation', { name: 'Project sections' })).getByRole(
+      'link',
+      { name: 'Chat' }
+    )
+    expect(chatTab).toHaveClass('px-2.5')
+    expect(chatTab).toHaveClass('py-1.5')
+    expect(chatTab).toHaveClass('text-xs')
+    expect(chatTab).toHaveClass('sm:px-3')
+    expect(chatTab).toHaveClass('sm:py-2')
+    expect(chatTab).toHaveClass('sm:text-sm')
   })
 
   it('renders project-aware homepage and opens latest project from hero action', async () => {
@@ -541,6 +610,18 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'Chat' })).toBeInTheDocument()
   })
 
+  it('keeps route content constrained so child views own scrolling', async () => {
+    window.history.pushState({}, '', '/settings')
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+
+    const routeContent = screen.getByTestId('app-route-content')
+    expect(routeContent).toHaveClass('overflow-hidden')
+    expect(routeContent).not.toHaveClass('overflow-y-auto')
+  })
+
   it('keeps terminal available in cloud mode while hiding preview', async () => {
     seedProjects([
       {
@@ -595,6 +676,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
     expect(screen.getByLabelText('Email')).toBeInTheDocument()
+    expect(screen.getByTestId('pixel-cat')).toHaveClass('pointer-events-none', '-right-14', 'sm:-right-20')
     expect(screen.queryByText('Project workspaces')).not.toBeInTheDocument()
     expect(projectApi.list).not.toHaveBeenCalled()
   })
@@ -743,6 +825,27 @@ describe('App', () => {
     })
   })
 
+  it('preserves the direct /project/:id/chat route', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ])
+    window.history.pushState({}, '', '/project/alpha/chat')
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/project/alpha/chat')
+    })
+  })
+
   it('keeps the remembered terminal tab in cloud mode', async () => {
     seedProjects([
       {
@@ -780,6 +883,38 @@ describe('App', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/project/alpha/terminal')
     })
+  })
+
+  it('keeps the PixelCat offset away from authenticated header actions', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ])
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    })
+    mockAuthenticatedCloudSession()
+
+    render(<App />)
+
+    expect(await screen.findByText('dev@example.com')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
+    expect(screen.getByTestId('pixel-cat')).toHaveClass('pointer-events-none', '-right-14', 'sm:-right-20')
   })
 
   it('allows direct terminal routes in cloud mode', async () => {

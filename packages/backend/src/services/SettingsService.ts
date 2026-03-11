@@ -4,10 +4,16 @@ import { resolveRepositoryBundle, type RepositoryBundleSource } from '../db/repo
 import { resolveRalphBinary } from '../lib/ralph.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 import {
+  CHAT_PROVIDERS,
   CHAT_PROVIDER_ENV_VAR_MAP,
   DEFAULT_CHAT_PROVIDER,
   DEFAULT_OPENCODE_MODEL,
-  type ChatProvider
+  type ChatProvider,
+  type ProviderApiKeyStatus,
+  getEnvironmentApiKey,
+  normalizeChatModel,
+  normalizeChatProvider,
+  resolveLegacyProvider
 } from '../lib/chatProviderConfig.js'
 
 const DEFAULT_PORT_START = 3001
@@ -34,21 +40,19 @@ const SETTING_KEYS = {
   defaultPreset: 'ralph.defaultPreset'
 } as const
 
-const CHAT_MODELS = ['gemini', 'openai', 'claude'] as const
-type ChatModel = (typeof CHAT_MODELS)[number]
-
 export interface PreviewSettingsSnapshot {
   baseUrl: string
   command: string | null
 }
 
 export interface SettingsSnapshot {
-  chatModel: ChatModel
   chatProvider: ChatProvider
+  chatModel: string
   opencodeModel: string
   providerEnvVarMap: typeof CHAT_PROVIDER_ENV_VAR_MAP
   apiKeyStatus: Record<ChatProvider, boolean>
   storedApiKeyStatus: Record<ChatProvider, boolean>
+  providerApiKeyStatus: Record<ChatProvider, ProviderApiKeyStatus>
   ralphBinaryPath: string | null
   notifications: {
     loopComplete: boolean
@@ -67,10 +71,14 @@ export interface SettingsSnapshot {
 }
 
 export interface SettingsUpdateInput {
-  chatModel?: ChatModel
   chatProvider?: ChatProvider
+  chatModel?: string
   opencodeModel?: string
   providerApiKeys?: Partial<Record<ChatProvider, string | null>>
+  providerApiKey?: {
+    provider: ChatProvider
+    value?: string | null
+  }
   ralphBinaryPath?: string | null
   notifications?: {
     loopComplete?: boolean
@@ -138,30 +146,6 @@ function normalizePath(value: string | null | undefined) {
 
 function stripTrailingSlash(url: string) {
   return url.endsWith('/') ? url.slice(0, -1) : url
-}
-
-function normalizeChatModel(value: string | undefined): ChatModel {
-  if (!value) {
-    return 'gemini'
-  }
-
-  if ((CHAT_MODELS as readonly string[]).includes(value)) {
-    return value as ChatModel
-  }
-
-  return 'gemini'
-}
-
-function normalizeChatProvider(value: string | undefined): ChatProvider {
-  if (!value) {
-    return DEFAULT_CHAT_PROVIDER
-  }
-
-  if (value in CHAT_PROVIDER_ENV_VAR_MAP) {
-    return value as ChatProvider
-  }
-
-  return DEFAULT_CHAT_PROVIDER
 }
 
 function normalizeModelName(value: string | undefined, fallback: string) {
@@ -302,6 +286,10 @@ export class SettingsService {
   async get(): Promise<SettingsSnapshot> {
     const map = await this.readMap()
     const storedApiKeyStatus = getStoredApiKeyStatus(map)
+    const legacyProvider = resolveLegacyProvider(map.get(SETTING_KEYS.chatModel))
+    const chatProvider = normalizeChatProvider(
+      map.get(SETTING_KEYS.chatProvider) ?? legacyProvider ?? undefined
+    )
     const configuredPreviewStart = parseInteger(
       map.get(SETTING_KEYS.previewPortStart),
       DEFAULT_PORT_START
@@ -319,8 +307,8 @@ export class SettingsService {
     const previewCommand = normalizePath(map.get(SETTING_KEYS.previewCommand))
 
     return {
-      chatModel: normalizeChatModel(map.get(SETTING_KEYS.chatModel)),
-      chatProvider: normalizeChatProvider(map.get(SETTING_KEYS.chatProvider)),
+      chatProvider,
+      chatModel: normalizeChatModel(chatProvider, map.get(SETTING_KEYS.chatModel)),
       opencodeModel: normalizeModelName(
         map.get(SETTING_KEYS.opencodeModel),
         DEFAULT_OPENCODE_MODEL
@@ -328,6 +316,7 @@ export class SettingsService {
       providerEnvVarMap: CHAT_PROVIDER_ENV_VAR_MAP,
       apiKeyStatus: getApiKeyStatus(storedApiKeyStatus),
       storedApiKeyStatus,
+      providerApiKeyStatus: this.getProviderApiKeyStatus(map),
       ralphBinaryPath: normalizePath(map.get(SETTING_KEYS.ralphBinaryPath)),
       notifications: {
         loopComplete: parseBoolean(map.get(SETTING_KEYS.notifyLoopComplete), true),
@@ -347,12 +336,22 @@ export class SettingsService {
   }
 
   async update(input: SettingsUpdateInput): Promise<SettingsSnapshot> {
-    if (input.chatModel !== undefined) {
-      await this.upsert(SETTING_KEYS.chatModel, input.chatModel)
-    }
+    const currentMap = await this.readMap()
+    const currentProvider =
+      currentMap.get(SETTING_KEYS.chatProvider) ??
+      resolveLegacyProvider(currentMap.get(SETTING_KEYS.chatModel)) ??
+      undefined
+    const nextProvider = normalizeChatProvider(
+      input.chatProvider ?? currentProvider
+    )
+    const nextModel = normalizeChatModel(nextProvider, input.chatModel)
 
     if (input.chatProvider !== undefined) {
-      await this.upsert(SETTING_KEYS.chatProvider, input.chatProvider)
+      await this.upsert(SETTING_KEYS.chatProvider, nextProvider)
+    }
+
+    if (input.chatProvider !== undefined || input.chatModel !== undefined) {
+      await this.upsert(SETTING_KEYS.chatModel, nextModel)
     }
 
     if (input.opencodeModel !== undefined) {
@@ -360,6 +359,16 @@ export class SettingsService {
         SETTING_KEYS.opencodeModel,
         normalizeModelName(input.opencodeModel, DEFAULT_OPENCODE_MODEL)
       )
+    }
+
+    if (input.providerApiKey) {
+      const key = this.getProviderApiKeySettingKey(input.providerApiKey.provider)
+      const normalized = normalizePath(input.providerApiKey.value)
+      if (normalized) {
+        await this.upsert(key, normalized)
+      } else {
+        await this.remove(key)
+      }
     }
 
     if (input.providerApiKeys) {
@@ -570,7 +579,7 @@ export class SettingsService {
 
   async getProviderApiKey(provider: ChatProvider): Promise<string | null> {
     const map = await this.readMap()
-    const stored = normalizePath(map.get(settingKeyForProviderApiKey(provider)))
+    const stored = normalizePath(map.get(this.getProviderApiKeySettingKey(provider)))
     if (stored) {
       return stored
     }
@@ -592,6 +601,23 @@ export class SettingsService {
 
   private async remove(key: string) {
     await this.settings.delete(key)
+  }
+
+  private getProviderApiKeySettingKey(provider: ChatProvider) {
+    return settingKeyForProviderApiKey(provider)
+  }
+
+  private getProviderApiKeyStatus(map: Map<string, string>) {
+    return Object.fromEntries(
+      CHAT_PROVIDERS.map((provider) => {
+        const savedValue = normalizePath(map.get(this.getProviderApiKeySettingKey(provider)))
+        if (savedValue) {
+          return [provider, 'saved']
+        }
+
+        return [provider, getEnvironmentApiKey(provider) ? 'environment' : 'missing']
+      })
+    ) as Record<ChatProvider, ProviderApiKeyStatus>
   }
 
   private assertValidPort(field: string, value: number) {

@@ -754,7 +754,7 @@ const settingsRouter = t.router({
     .input(
       z
         .object({
-          chatModel: z.enum(['gemini', 'openai', 'claude']).optional(),
+          chatModel: z.string().trim().min(1).optional(),
           chatProvider: chatProviderSchema.optional(),
           opencodeModel: z.string().trim().min(1).optional(),
           providerApiKeys: z
@@ -762,6 +762,12 @@ const settingsRouter = t.router({
               anthropic: z.string().trim().min(1).nullable().optional(),
               openai: z.string().trim().min(1).nullable().optional(),
               google: z.string().trim().min(1).nullable().optional()
+            })
+            .optional(),
+          providerApiKey: z
+            .object({
+              provider: z.enum(CHAT_PROVIDERS),
+              value: z.string().optional().nullable()
             })
             .optional(),
           ralphBinaryPath: z.string().optional().nullable(),

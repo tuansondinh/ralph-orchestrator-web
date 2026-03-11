@@ -61,39 +61,27 @@ ssh ${SSH_OPTS} "${REMOTE_HOST}" \
   "mkdir -p ~/.config/opencode && cp ${REMOTE_DIR}/deploy/opencode.json ~/.config/opencode/opencode.json"
 
 echo "Updating runtime environment defaults..."
-ssh ${SSH_OPTS} "${REMOTE_HOST}" "REMOTE_DIR='${REMOTE_DIR}' python3 -" <<'PY'
-from pathlib import Path
-import os
+ssh ${SSH_OPTS} "${REMOTE_HOST}" "REMOTE_DIR='${REMOTE_DIR}' bash -s" <<'EOF'
+set -euo pipefail
 
-remote_dir = os.environ["REMOTE_DIR"]
-path = Path(remote_dir) / ".env"
-text = path.read_text() if path.exists() else ""
-lines = text.splitlines()
-updates = {
-    "PATH": "/home/app/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-    "RALPH_UI_RALPH_BIN": f"{remote_dir}/node_modules/.bin/ralph",
+ENV_FILE="${REMOTE_DIR}/.env"
+touch "${ENV_FILE}"
+
+upsert_env() {
+  local key="$1"
+  local value="$2"
+
+  if grep -q "^${key}=" "${ENV_FILE}"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "${ENV_FILE}"
+  else
+    printf '%s=%s\n' "${key}" "${value}" >>"${ENV_FILE}"
+  fi
 }
-seen = set()
-out = []
 
-for line in lines:
-    replaced = False
-    for key, value in updates.items():
-        if line.startswith(f"{key}="):
-            out.append(f"{key}={value}")
-            seen.add(key)
-            replaced = True
-            break
-    if not replaced:
-        out.append(line)
-
-for key, value in updates.items():
-    if key not in seen:
-        out.append(f"{key}={value}")
-
-path.write_text("\n".join(out) + "\n")
-print("updated")
-PY
+upsert_env "PATH" "/home/app/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+upsert_env "RALPH_UI_RALPH_BIN" "${REMOTE_DIR}/node_modules/.bin/ralph"
+upsert_env "RALPH_UI_DEFAULT_BACKEND" "opencode"
+EOF
 
 echo "Installing systemd unit on remote..."
 ssh ${SSH_OPTS} "${REMOTE_HOST}" \

@@ -19,7 +19,7 @@ export function Sidebar({
   reconnectAttempt
 }: SidebarProps) {
   return (
-    <div className="flex h-full flex-col gap-5">
+    <div className="flex h-full min-h-0 flex-col gap-5">
       <header className="space-y-1">
         <h1 className="text-lg font-semibold">Ralph Orchestrator</h1>
         <p className="text-sm text-zinc-400">Project workspaces</p>

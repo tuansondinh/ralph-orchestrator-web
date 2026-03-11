@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProcessManager } from '../src/runner/ProcessManager.js'
 import { LoopService } from '../src/services/LoopService.js'
 import type { RepositoryBundle, LoopRunRecord, LoopRunUpdate } from '../src/db/repositories/contracts.js'
@@ -64,8 +64,12 @@ describe('Loop State Authority', () => {
     loopService = new LoopService(repos, processManager)
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   describe('recoverState()', () => {
-    it('marks stale running loops as failed', async () => {
+    it('marks stale active loops as orphaned', async () => {
       const projectId = 'project-1'
       const now = Date.now()
 
@@ -117,11 +121,11 @@ describe('Loop State Authority', () => {
       await loopService.recoverState()
 
       const recovered1 = await repos.loopRuns.findById('loop-1')
-      expect(recovered1?.state).toBe('failed')
+      expect(recovered1?.state).toBe('orphan')
       expect(recovered1?.endedAt).toBeGreaterThan(0)
 
       const recovered2 = await repos.loopRuns.findById('loop-2')
-      expect(recovered2?.state).toBe('failed')
+      expect(recovered2?.state).toBe('orphan')
       expect(recovered2?.endedAt).toBeGreaterThan(0)
 
       const recovered3 = await repos.loopRuns.findById('loop-3')
@@ -152,6 +156,63 @@ describe('Loop State Authority', () => {
 
       const loop = await repos.loopRuns.findById('loop-1')
       expect(loop?.state).toBe('completed')
+    })
+  })
+
+  describe('runtime liveness reconciliation', () => {
+    it('marks tracked loops as crashed when their pid is no longer alive', async () => {
+      vi.useFakeTimers()
+      const now = Date.now()
+      const projectId = 'project-1'
+      const observedStates: string[] = []
+
+      loopService = new LoopService(repos, processManager, {
+        healthCheckIntervalMs: 50,
+        isProcessAlive: () => false
+      } as never)
+
+      await repos.loopRuns.create({
+        id: 'loop-1',
+        projectId,
+        ralphLoopId: 'primary-20260311-101500',
+        state: 'running',
+        config: '{}',
+        prompt: null,
+        worktree: null,
+        iterations: 2,
+        tokensUsed: 80,
+        errors: 0,
+        startedAt: now - 5_000,
+        endedAt: null
+      })
+
+      loopService.subscribeState('loop-1', (state) => {
+        observedStates.push(state)
+      })
+
+      ;(loopService as unknown as { runtimes: Map<string, unknown> }).runtimes.set('loop-1', {
+        processId: 'process-1',
+        processPid: 43210,
+        active: true,
+        stopRequested: false,
+        ralphLoopId: 'primary-20260311-101500',
+        outputRemainder: '',
+        buffer: {} as OutputBuffer,
+        parser: {} as RalphEventParser,
+        currentHat: null,
+        iterations: 2,
+        notified: new Set(),
+        unsubOutput: vi.fn(),
+        unsubState: vi.fn(),
+        outputSequenceCounter: 0
+      })
+
+      await vi.advanceTimersByTimeAsync(55)
+
+      const updated = await repos.loopRuns.findById('loop-1')
+      expect(updated?.state).toBe('crashed')
+      expect(updated?.endedAt).toBeGreaterThan(0)
+      expect(observedStates).toContain('crashed')
     })
   })
 

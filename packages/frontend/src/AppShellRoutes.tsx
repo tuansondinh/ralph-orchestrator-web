@@ -319,31 +319,37 @@ export function AppShellRoutes({
           reconnectAttempt={reconnectAttempt}
         />
       }
-      >
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
-          <div className="flex flex-wrap items-center gap-3">
-            {notificationPermission === 'default' ? (
-              <button
-                className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
-                onClick={() => {
-                  void requestPermission()
-                }}
-                type="button"
-              >
-                Enable notifications
-              </button>
-            ) : null}
-          </div>
+      navigationKey={location.pathname}
+    >
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
+        <div className="flex flex-wrap items-center gap-3">
+          {notificationPermission === 'default' ? (
+            <button
+              className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
+              onClick={() => {
+                void requestPermission()
+              }}
+              type="button"
+            >
+              Enable notifications
+            </button>
+          ) : null}
+        </div>
 
-          <AppErrorBoundary resetKey={location.pathname}>
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <Routes>
+        <AppErrorBoundary resetKey={location.pathname}>
+          <div
+            className="min-h-0 flex-1 overflow-hidden"
+            data-testid="app-route-content"
+          >
+            <Routes>
               <Route
                 element={
-                  <HomePage
-                    onProjectCreated={handleProjectCreated}
-                    onProjectSelect={handleProjectSelect}
-                  />
+                  <div className="h-full overflow-y-auto pr-1">
+                    <HomePage
+                      onProjectCreated={handleProjectCreated}
+                      onProjectSelect={handleProjectSelect}
+                    />
+                  </div>
                 }
                 path="/"
               />
@@ -363,7 +369,7 @@ export function AppShellRoutes({
               <Route element={<SettingsPage />} path="/settings" />
               <Route
                 element={
-                  <section className="space-y-3">
+                  <section className="h-full overflow-y-auto space-y-3 pr-1">
                     <h1 className="text-2xl font-semibold">Not found</h1>
                     <Link
                       className="text-sm text-zinc-300 underline underline-offset-4"

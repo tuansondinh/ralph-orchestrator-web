@@ -110,4 +110,38 @@ describe('NewProjectDialog', () => {
     expect(screen.queryByLabelText('Project name')).not.toBeInTheDocument()
     expect(await screen.findByText('octocat/hello-world')).toBeInTheDocument()
   })
+
+  it('uses stacked mobile layout primitives inside the local project dialog', async () => {
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'local',
+      database: true,
+      auth: false,
+      localProjects: true,
+      githubProjects: false,
+      terminal: true,
+      preview: true,
+      localDirectoryPicker: true,
+      mcp: true
+    })
+
+    render(
+      <MemoryRouter>
+        <NewProjectDialog onCreated={vi.fn()} />
+      </MemoryRouter>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Project' }))
+
+    const projectName = await screen.findByLabelText('Project name')
+    expect(projectName).toBeInTheDocument()
+
+    const createPathRow = screen.getByPlaceholderText('/path/to/new/project').closest('div')
+    expect(createPathRow).toHaveClass('flex-col')
+    expect(createPathRow).toHaveClass('sm:flex-row')
+
+    const actionRow = screen.getByRole('button', { name: 'Create' }).closest('div')
+    expect(actionRow).toHaveClass('flex-col-reverse')
+    expect(actionRow).toHaveClass('sm:flex-row')
+    expect(actionRow).toHaveClass('sm:justify-end')
+  })
 })

@@ -444,6 +444,43 @@ describe('loop tRPC routes', () => {
     expect(output.lines.join('\n')).toContain('tick-1')
   })
 
+  it('applies the configured default backend when loop.start omits a backend override', async () => {
+    const previousDefaultBackend = process.env.RALPH_UI_DEFAULT_BACKEND
+    process.env.RALPH_UI_DEFAULT_BACKEND = 'opencode'
+
+    try {
+      const { caller, connection, processManager, tempDir } = await setupCaller()
+      const projectPath = join(tempDir, 'project')
+      await mkdir(projectPath, { recursive: true })
+      const projectId = await createProject(connection, projectPath)
+
+      const started = await caller.loop.start({
+        projectId,
+        prompt: 'keep-running'
+      })
+
+      const handle = processManager.list().find((proc) => proc.id === started.processId)
+      expect(handle).toBeDefined()
+      expect(handle?.args[1]).toContain("'--backend' 'opencode'")
+
+      const persisted = connection.db
+        .select()
+        .from(loopRuns)
+        .where(eq(loopRuns.id, started.id))
+        .get()
+      const parsedConfig = JSON.parse(persisted?.config ?? '{}') as Record<string, unknown>
+      expect(parsedConfig.backend).toBe('opencode')
+
+      await caller.loop.stop({ loopId: started.id })
+    } finally {
+      if (previousDefaultBackend === undefined) {
+        delete process.env.RALPH_UI_DEFAULT_BACKEND
+      } else {
+        process.env.RALPH_UI_DEFAULT_BACKEND = previousDefaultBackend
+      }
+    }
+  })
+
   it('captures the Ralph loop id from current-loop-id marker during start', async () => {
     const { caller, connection, tempDir } = await setupCaller({
       markerLoopId: 'primary-20260225-090000'
@@ -1183,14 +1220,14 @@ describe('loop tRPC routes', () => {
     })
 
     const listed = await detachedLoopService.list(projectId)
-    expect(listed.find((loop) => loop.id === loopId)?.state).toBe('stopped')
+    expect(listed.find((loop) => loop.id === loopId)?.state).toBe('orphan')
 
     const persisted = connection.db
       .select()
       .from(loopRuns)
       .where(eq(loopRuns.id, loopId))
       .get()
-    expect(persisted?.state).toBe('stopped')
+    expect(persisted?.state).toBe('orphan')
     expect(persisted?.endedAt).toBeTypeOf('number')
   })
 

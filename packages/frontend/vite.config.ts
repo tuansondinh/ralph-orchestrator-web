@@ -18,6 +18,39 @@ function resolveBackendWsOrigin(backendOrigin: string) {
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) {
+            return undefined
+          }
+
+          if (id.includes('/@xterm/')) {
+            return 'vendor-xterm'
+          }
+
+          if (id.includes('/react-markdown/')) {
+            return 'vendor-markdown'
+          }
+
+          if (id.includes('/yaml/')) {
+            return 'vendor-yaml'
+          }
+
+          if (
+            id.includes('/@tanstack/') ||
+            id.includes('/@trpc/') ||
+            id.includes('/@supabase/')
+          ) {
+            return 'vendor-data'
+          }
+
+          return undefined
+        }
+      }
+    }
+  },
   resolve: {
     extensions: ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.json'],
     alias: {

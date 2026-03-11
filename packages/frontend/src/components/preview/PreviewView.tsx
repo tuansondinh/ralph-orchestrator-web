@@ -290,7 +290,7 @@ export function PreviewView({ projectId }: PreviewViewProps) {
   const errorMessage = preview?.error ?? requestError
 
   return (
-    <section className="space-y-4">
+    <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold">Preview</h2>
         <span className="text-xs text-zinc-400">

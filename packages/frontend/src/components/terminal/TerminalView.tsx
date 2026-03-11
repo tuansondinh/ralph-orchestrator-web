@@ -303,13 +303,13 @@ function TerminalSession({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between text-xs text-zinc-500">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-2 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
           <span>{session.state === 'active' ? 'Running' : 'Stopped'}</span>
           <span>{isConnected ? 'Connected' : 'Connecting...'}</span>
           <span>PID: {session.pid}</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-start gap-2">
           <label className="text-zinc-400" htmlFor={`terminal-backend-${sessionId}`}>
             Backend
           </label>
@@ -475,7 +475,7 @@ export function TerminalView({ projectId }: { projectId: string }) {
     : 'codex'
 
   return (
-    <section className="space-y-4">
+    <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
       <h2 className="text-xl font-semibold">Terminal</h2>
 
       <p className="rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-xs text-zinc-300">

@@ -10,7 +10,7 @@ import { resolveRalphBinary } from '../lib/ralph.js';
 import { OutputBuffer } from '../runner/OutputBuffer.js';
 import { RalphEventParser } from '../runner/RalphEventParser.js';
 import { ServiceError } from '../lib/ServiceError.js';
-import { asLoopId, asPrimaryLoopId, asNumber, asRecord, asString, extractIterationCandidates, isLikelyActiveLoopState, parseConfigRecord, parsePersistedConfig, primaryLoopIdFromEventsPath, primaryLoopIdFromTimestamp, readIterationValue, uniqueLoopIds, usesLiveRuntime } from './loopUtils.js';
+import { asLoopId, asPrimaryLoopId, asNumber, asRecord, asString, extractIterationCandidates, isLikelyActiveLoopState, parseConfigRecord, parsePersistedConfig, primaryLoopIdFromEventsPath, primaryLoopIdFromTimestamp, readIterationValue, resolveDefaultLoopBackendFromEnv, uniqueLoopIds, usesLiveRuntime } from './loopUtils.js';
 import { LoopNotificationService } from './LoopNotificationService.js';
 import { LoopDiffService } from './LoopDiffService.js';
 import { LoopMetricsService } from './LoopMetricsService.js';
@@ -97,12 +97,27 @@ function buildRunCommand(binaryPath, options) {
 function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
+function isProcessAliveByPid(pid) {
+    if (!Number.isInteger(pid) || pid <= 0) {
+        return false;
+    }
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch (error) {
+        return !(error instanceof Error && 'code' in error && error.code === 'ESRCH');
+    }
+}
+const DEFAULT_RUNTIME_HEALTH_CHECK_INTERVAL_MS = 30_000;
 export class LoopService {
     processManager;
     resolveBinary;
     stopLoopWithCli;
     now;
     bufferLines;
+    isProcessAlive;
+    runtimeHealthCheckIntervalMs;
     projects;
     loopRuns;
     loopOutput;
@@ -113,6 +128,7 @@ export class LoopService {
     notificationService;
     diffService;
     metricsService;
+    runtimeHealthCheckTimer;
     constructor(source, processManager, options = {}) {
         this.processManager = processManager;
         const repositories = resolveRepositoryBundle(source);
@@ -123,28 +139,63 @@ export class LoopService {
         this.stopLoopWithCli = options.stopLoop ?? stopLoopWithCli;
         this.now = options.now ?? (() => new Date());
         this.bufferLines = options.bufferLines ?? DEFAULT_OUTPUT_BUFFER_LINES;
+        this.isProcessAlive = options.isProcessAlive ?? isProcessAliveByPid;
+        this.runtimeHealthCheckIntervalMs = options.healthCheckIntervalMs ?? DEFAULT_RUNTIME_HEALTH_CHECK_INTERVAL_MS;
         this.notificationService = new LoopNotificationService(repositories, this.events, this.now);
         this.diffService = new LoopDiffService();
         this.metricsService = new LoopMetricsService(this.now);
+        this.runtimeHealthCheckTimer = this.runtimeHealthCheckIntervalMs > 0
+            ? setInterval(() => {
+                void this.reconcileActiveRuntimeHealth().catch((error) => {
+                    console.error('[LoopService] runtime health reconciliation failed', error);
+                });
+            }, this.runtimeHealthCheckIntervalMs)
+            : null;
+        this.runtimeHealthCheckTimer?.unref?.();
     }
     async recoverState() {
         const staleRuns = await this.loopRuns.findByState(['running', 'queued']);
         for (const run of staleRuns) {
-            const nowMs = this.now().getTime();
-            const parsedConfig = parseConfigRecord(run.config);
-            const updatedConfig = JSON.stringify({
-                ...parsedConfig,
-                _recoveryError: 'App process restarted — loop stopped'
-            });
-            await this.loopRuns.update(run.id, {
-                state: 'failed',
-                config: updatedConfig,
-                endedAt: nowMs
-            });
+            await this.markLoopAsOrphaned(run, 'App process restarted — loop runtime became orphaned');
         }
+    }
+    async markLoopAsOrphaned(run, recoveryError) {
+        const nowMs = this.now().getTime();
+        const parsedConfig = parseConfigRecord(run.config);
+        const updatedConfig = JSON.stringify({
+            ...parsedConfig,
+            _recoveryError: recoveryError
+        });
+        await this.loopRuns.update(run.id, {
+            state: 'orphan',
+            config: updatedConfig,
+            endedAt: run.endedAt ?? nowMs
+        });
+        this.events.emit(`loop-state:${run.id}`, 'orphan');
+        await this.notificationService.notifyForLoopState(run.id, 'orphan');
+    }
+    async reconcileActiveRuntimeHealth() {
+        let reconciled = 0;
+        for (const [loopId, runtime] of this.runtimes.entries()) {
+            if (!runtime.active || runtime.stopRequested) {
+                continue;
+            }
+            if (!runtime.processPid) {
+                continue;
+            }
+            if (this.isProcessAlive(runtime.processPid)) {
+                continue;
+            }
+            await this.handleState(loopId, 'crashed');
+            reconciled += 1;
+        }
+        return reconciled;
     }
     async start(projectId, options = {}) {
         const project = await this.requireProject(projectId);
+        const effectiveOptions = options.backend === undefined
+            ? { ...options, backend: resolveDefaultLoopBackendFromEnv() ?? undefined }
+            : options;
         let binaryPath;
         try {
             binaryPath = await this.resolveBinary();
@@ -153,10 +204,10 @@ export class LoopService {
             throw new LoopServiceError('BAD_REQUEST', error instanceof Error ? error.message : 'Unable to resolve Ralph binary');
         }
         let runCwd = project.path;
-        if (options.worktree) {
-            const resolvedWorktreePath = await this.diffService.resolveWorktreePath(project.path, options.worktree);
+        if (effectiveOptions.worktree) {
+            const resolvedWorktreePath = await this.diffService.resolveWorktreePath(project.path, effectiveOptions.worktree);
             if (!resolvedWorktreePath) {
-                throw new LoopServiceError('BAD_REQUEST', `Worktree not found: ${options.worktree}`);
+                throw new LoopServiceError('BAD_REQUEST', `Worktree not found: ${effectiveOptions.worktree}`);
             }
             runCwd = resolvedWorktreePath;
         }
@@ -165,7 +216,7 @@ export class LoopService {
         const currentEventsBefore = await this.readCurrentEventsLoopId(runCwd);
         const loopId = randomUUID();
         const startCommit = await this.resolveHeadCommit(runCwd);
-        const promptSnapshot = await this.resolvePromptSnapshot(runCwd, options);
+        const promptSnapshot = await this.resolvePromptSnapshot(runCwd, effectiveOptions);
         const outputLogFile = join('.ralph-ui', 'loop-logs', `${loopId}.log`);
         await mkdir(join(project.path, '.ralph-ui', 'loop-logs'), { recursive: true });
         const debugLogPath = join(runCwd, 'debug.log');
@@ -174,7 +225,7 @@ export class LoopService {
             writeFile(debugLogPath, '', 'utf8'),
             writeFile(outputLogPath, '', 'utf8')
         ]);
-        const shellCommand = buildRunCommand(binaryPath, options);
+        const shellCommand = buildRunCommand(binaryPath, effectiveOptions);
         const handle = await this.processManager.spawn(projectId, 'bash', ['-lc', shellCommand], {
             cwd: runCwd,
             // Provider CLIs like Gemini/OpenCode make forward progress only when Ralph runs under a PTY.
@@ -188,12 +239,12 @@ export class LoopService {
             (markerAfter && markerAfter !== markerBefore ? markerAfter : null);
         const nowMs = this.now().getTime();
         const configPayload = JSON.stringify({
-            config: options.config ?? null,
-            prompt: options.prompt ?? null,
-            promptFile: options.promptFile ?? null,
-            backend: options.backend ?? null,
-            exclusive: Boolean(options.exclusive),
-            worktree: options.worktree ?? null,
+            config: effectiveOptions.config ?? null,
+            prompt: effectiveOptions.prompt ?? null,
+            promptFile: effectiveOptions.promptFile ?? null,
+            backend: effectiveOptions.backend ?? null,
+            exclusive: Boolean(effectiveOptions.exclusive),
+            worktree: effectiveOptions.worktree ?? null,
             ralphLoopId: initialRalphLoopId,
             startCommit,
             endCommit: null,
@@ -207,7 +258,7 @@ export class LoopService {
                 state: 'running',
                 config: configPayload,
                 prompt: promptSnapshot,
-                worktree: options.worktree ?? null,
+                worktree: effectiveOptions.worktree ?? null,
                 iterations: 0,
                 tokensUsed: 0,
                 errors: 0,
@@ -852,11 +903,7 @@ export class LoopService {
             if (listed.ids.has(explicitRalphLoopId)) {
                 continue;
             }
-            await this.loopRuns.update(run.id, {
-                state: 'stopped',
-                endedAt: run.endedAt ?? nowMs
-            });
-            this.events.emit(`${STATE_EVENT_PREFIX}${run.id}`, 'stopped');
+            await this.markLoopAsOrphaned(run, 'Loop runtime is missing from Ralph loop list');
             reconciled += 1;
         }
         return reconciled;

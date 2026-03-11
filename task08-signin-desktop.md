@@ -1,0 +1,20 @@
+- generic [ref=e2]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - paragraph [ref=e7]: Cloud mode
+      - heading "Sign in" [level=1] [ref=e8]
+      - paragraph [ref=e9]: Use your Supabase email and password to open the Ralph cloud shell.
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - text: Email
+        - textbox "Email" [ref=e12]
+      - generic [ref=e13]:
+        - text: Password
+        - textbox "Password" [ref=e14]
+      - button "Sign in" [ref=e15]
+      - paragraph [ref=e16]:
+        - text: Don't have an account?
+        - link "Sign up" [ref=e17] [cursor=pointer]:
+          - /url: /sign-up
+  - generic:
+    - img

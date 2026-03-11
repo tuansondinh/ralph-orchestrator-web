@@ -24,3 +24,13 @@ Deploy the existing ralph-orchestrator-web app on a single EC2 instance with Sup
 ### Phase 4: Stabilization & Deployment Prep
 **Goal:** Fix all build errors, test failures, and deployment blockers across the cloud integration
 **Status:** In Progress
+
+### Phase 5: Cloud Bug Fixing & Production Diagnostics
+
+**Goal:** Fix remaining bugs across the app, prioritizing issues reproduced on the cloud deployment at http://ec2-18-159-34-250.eu-central-1.compute.amazonaws.com:3003 using the provided AWS CLI for diagnosis and remediation
+**Requirements**: TBD
+**Depends on:** Phase 4
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 5 to break down)

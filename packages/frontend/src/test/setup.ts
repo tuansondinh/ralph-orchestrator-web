@@ -2,80 +2,62 @@ import '@testing-library/jest-dom/vitest'
 
 type MatchMediaListener = (event: MediaQueryListEvent) => void
 
-if (!window.matchMedia) {
-  const mediaState = new Map<string, boolean>()
-  const mediaListeners = new Map<string, Set<MatchMediaListener>>()
-
-  const getListeners = (query: string) => {
-    const listeners = mediaListeners.get(query)
-    if (listeners) {
-      return listeners
+declare global {
+  interface Window {
+    __matchMediaController?: {
+      setMatches: (query: string, matches: boolean) => void
+      reset: () => void
     }
-
-    const nextListeners = new Set<MatchMediaListener>()
-    mediaListeners.set(query, nextListeners)
-    return nextListeners
   }
+}
 
-  Object.defineProperty(window, '__matchMediaController', {
-    writable: true,
-    value: {
-      set(query: string, matches: boolean) {
-        mediaState.set(query, matches)
-        const event = {
-          matches,
-          media: query
-        } as MediaQueryListEvent
+const mediaQueryState = new Map<string, boolean>()
+const mediaQueryListeners = new Map<string, Set<MatchMediaListener>>()
 
-        for (const listener of getListeners(query)) {
-          listener(event)
-        }
-      }
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: (query: string) => {
+    const getMatches = () => mediaQueryState.get(query) ?? false
+
+    return {
+      get matches() {
+        return getMatches()
+      },
+      media: query,
+      onchange: null,
+      addListener: (listener: MatchMediaListener) => {
+        const listeners = mediaQueryListeners.get(query) ?? new Set<MatchMediaListener>()
+        listeners.add(listener)
+        mediaQueryListeners.set(query, listeners)
+      },
+      removeListener: (listener: MatchMediaListener) => {
+        mediaQueryListeners.get(query)?.delete(listener)
+      },
+      addEventListener: (_type: string, listener: MatchMediaListener) => {
+        const listeners = mediaQueryListeners.get(query) ?? new Set<MatchMediaListener>()
+        listeners.add(listener)
+        mediaQueryListeners.set(query, listeners)
+      },
+      removeEventListener: (_type: string, listener: MatchMediaListener) => {
+        mediaQueryListeners.get(query)?.delete(listener)
+      },
+      dispatchEvent: () => false
     }
-  })
+  }
+})
 
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: (query: string) => {
-      const getMatches = () => mediaState.get(query) ?? false
-      const legacyListeners = new Map<
-        MatchMediaListener,
-        MatchMediaListener
-      >()
-
-      return {
-        get matches() {
-          return getMatches()
-        },
-        media: query,
-        onchange: null,
-        addListener(listener: MatchMediaListener) {
-          const wrappedListener: MatchMediaListener = (event) => {
-            listener(event)
-          }
-
-          legacyListeners.set(listener, wrappedListener)
-          getListeners(query).add(wrappedListener)
-        },
-        removeListener(listener: MatchMediaListener) {
-          const wrappedListener = legacyListeners.get(listener)
-          if (!wrappedListener) {
-            return
-          }
-
-          getListeners(query).delete(wrappedListener)
-          legacyListeners.delete(listener)
-        },
-        addEventListener(_type: string, listener: MatchMediaListener) {
-          getListeners(query).add(listener)
-        },
-        removeEventListener(_type: string, listener: MatchMediaListener) {
-          getListeners(query).delete(listener)
-        },
-        dispatchEvent: () => false
-      }
-    }
-  })
+window.__matchMediaController = {
+  setMatches(query: string, matches: boolean) {
+    mediaQueryState.set(query, matches)
+    const event = { matches, media: query } as MediaQueryListEvent
+    mediaQueryListeners.get(query)?.forEach((listener) => {
+      listener(event)
+    })
+  },
+  reset() {
+    mediaQueryState.clear()
+    mediaQueryListeners.clear()
+  }
 }
 
 if (typeof globalThis.ResizeObserver === 'undefined') {

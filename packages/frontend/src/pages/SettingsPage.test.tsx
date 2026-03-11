@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { SettingsPage } from '@/pages/SettingsPage'
-import { settingsApi } from '@/lib/settingsApi'
+import { settingsApi, type SettingsSnapshot } from '@/lib/settingsApi'
 import { capabilitiesApi } from '@/lib/capabilitiesApi'
 import { githubApi } from '@/lib/githubApi'
 
@@ -29,24 +29,13 @@ vi.mock('@/lib/githubApi', () => ({
   }
 }))
 
-const baseSettings = {
-  chatModel: 'gemini' as const,
+const baseSettings: SettingsSnapshot = {
   chatProvider: 'anthropic' as const,
-  opencodeModel: 'claude-sonnet-4-20250514',
-  providerEnvVarMap: {
-    anthropic: 'ANTHROPIC_API_KEY',
-    openai: 'OPENAI_API_KEY',
-    google: 'GOOGLE_API_KEY'
-  },
-  apiKeyStatus: {
-    anthropic: true,
-    openai: true,
-    google: true
-  },
-  storedApiKeyStatus: {
-    anthropic: false,
-    openai: false,
-    google: false
+  chatModel: 'claude-sonnet-4-20250514',
+  providerApiKeyStatus: {
+    anthropic: 'missing',
+    openai: 'missing',
+    google: 'saved'
   },
   ralphBinaryPath: '/usr/local/bin/ralph',
   notifications: {
@@ -84,31 +73,17 @@ describe('SettingsPage', () => {
     vi.mocked(settingsApi.update).mockImplementation(async (input) => ({
       ...baseSettings,
       ...input,
-      chatModel: input.chatModel ?? baseSettings.chatModel,
       chatProvider: input.chatProvider ?? baseSettings.chatProvider,
-      opencodeModel: input.opencodeModel ?? baseSettings.opencodeModel,
-      storedApiKeyStatus: {
-        ...baseSettings.storedApiKeyStatus,
-        ...(input.providerApiKeys
-          ? Object.fromEntries(
-              Object.entries(input.providerApiKeys).map(([provider, value]) => [
-                provider,
-                value !== null
-              ])
-            )
-          : {})
-      },
-      apiKeyStatus: {
-        ...baseSettings.apiKeyStatus,
-        ...(input.providerApiKeys
-          ? Object.fromEntries(
-              Object.entries(input.providerApiKeys).map(([provider, value]) => [
-                provider,
-                value !== null
-              ])
-            )
-          : {})
-      },
+      chatModel: input.chatModel ?? baseSettings.chatModel,
+      providerApiKeyStatus: input.providerApiKey
+        ? {
+            ...baseSettings.providerApiKeyStatus,
+            [input.providerApiKey.provider]:
+              input.providerApiKey.value && input.providerApiKey.value.trim().length > 0
+                ? 'saved'
+                : 'missing'
+          }
+        : baseSettings.providerApiKeyStatus,
       notifications: {
         ...baseSettings.notifications,
         ...(input.notifications ?? {})
@@ -121,7 +96,7 @@ describe('SettingsPage', () => {
       }
     }))
     vi.mocked(settingsApi.testBinary).mockResolvedValue({
-      path: baseSettings.ralphBinaryPath,
+      path: baseSettings.ralphBinaryPath!,
       version: 'ralph 9.9.9-test'
     })
     vi.mocked(settingsApi.clearData).mockResolvedValue({ cleared: true })
@@ -151,24 +126,24 @@ describe('SettingsPage', () => {
     fireEvent.change(screen.getByLabelText('Preview port end'), {
       target: { value: '4200' }
     })
-    fireEvent.change(screen.getByLabelText('Provider'), {
+    fireEvent.change(screen.getByLabelText('AI provider'), {
       target: { value: 'openai' }
     })
-    fireEvent.change(screen.getByLabelText('Model'), {
-      target: { value: 'gpt-4o' }
+    fireEvent.change(screen.getByLabelText('AI model'), {
+      target: { value: 'gpt-5' }
     })
     fireEvent.change(screen.getByLabelText('API key'), {
-      target: { value: 'openai-key' }
+      target: { value: 'openai-live-key' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
 
     await waitFor(() => {
       expect(settingsApi.update).toHaveBeenCalledWith({
-        chatModel: 'openai',
         chatProvider: 'openai',
-        opencodeModel: 'gpt-4o',
-        providerApiKeys: {
-          openai: 'openai-key'
+        chatModel: 'gpt-5',
+        providerApiKey: {
+          provider: 'openai',
+          value: 'openai-live-key'
         },
         ralphBinaryPath: '/custom/bin/ralph',
         notifications: {
@@ -186,87 +161,62 @@ describe('SettingsPage', () => {
     })
   })
 
-  it('renders chat settings fields with the current values', async () => {
+  it('switches model options and provider-specific API key warnings with provider changes', async () => {
     render(
       <MemoryRouter>
         <SettingsPage />
       </MemoryRouter>
     )
 
-    expect(await screen.findByRole('heading', { name: 'Assistant' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Provider')).toHaveValue('anthropic')
-    expect(screen.getByLabelText('Model')).toHaveValue('claude-sonnet-4-20250514')
-    expect(screen.getByRole('option', { name: 'Anthropic' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'OpenAI' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Google' })).toBeInTheDocument()
-  })
-
-  it('shows an inline warning when the selected chat provider is missing an API key', async () => {
-    vi.mocked(settingsApi.get).mockResolvedValue({
-      ...baseSettings,
-      apiKeyStatus: {
-        anthropic: true,
-        openai: false,
-        google: true
-      }
-    })
-
-    render(
-      <MemoryRouter>
-        <SettingsPage />
-      </MemoryRouter>
-    )
-
-    await screen.findByLabelText('Provider')
-    fireEvent.change(screen.getByLabelText('Provider'), {
-      target: { value: 'openai' }
-    })
-
-    expect(await screen.findByText(/No stored key or OPENAI_API_KEY environment variable is configured/i)).toBeInTheDocument()
-  })
-
-  it('shows when a stored API key is configured and allows clearing it', async () => {
-    vi.mocked(settingsApi.get).mockResolvedValue({
-      ...baseSettings,
-      apiKeyStatus: {
-        anthropic: true,
-        openai: true,
-        google: true
-      },
-      storedApiKeyStatus: {
-        anthropic: false,
-        openai: true,
-        google: false
-      }
-    })
-
-    render(
-      <MemoryRouter>
-        <SettingsPage />
-      </MemoryRouter>
-    )
-
-    await screen.findByLabelText('Provider')
-    fireEvent.change(screen.getByLabelText('Provider'), {
-      target: { value: 'openai' }
-    })
-
+    expect(await screen.findByLabelText('AI provider')).toHaveValue('anthropic')
+    expect(screen.getByLabelText('AI model')).toHaveValue('claude-sonnet-4-20250514')
+    expect(screen.getByText('No API key saved for Anthropic.')).toBeInTheDocument()
     expect(
-      await screen.findByText(/A stored API key is already configured for this provider/i)
-    ).toBeInTheDocument()
+      screen.getAllByRole('option').map((option) => option.textContent).filter(Boolean)
+    ).toEqual([
+      'Anthropic',
+      'OpenAI',
+      'Google',
+      'Claude Sonnet 4',
+      'Claude Opus 4.1',
+      'Claude Haiku 3.5'
+    ])
 
-    fireEvent.click(screen.getByLabelText('Clear the stored API key for this provider on save'))
-    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
-
-    await waitFor(() => {
-      expect(settingsApi.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          providerApiKeys: {
-            openai: null
-          }
-        })
-      )
+    fireEvent.change(screen.getByLabelText('AI provider'), {
+      target: { value: 'openai' }
     })
+
+    expect(screen.getByLabelText('AI model')).toHaveValue('gpt-5-mini')
+    expect(
+      screen.getAllByRole('option').map((option) => option.textContent).filter(Boolean)
+    ).toEqual([
+      'Anthropic',
+      'OpenAI',
+      'Google',
+      'GPT-5 Mini',
+      'GPT-5',
+      'GPT-4o',
+      'o3',
+      'o4-mini'
+    ])
+
+    fireEvent.change(screen.getByLabelText('AI provider'), {
+      target: { value: 'google' }
+    })
+
+    expect(screen.getByLabelText('AI model')).toHaveValue('gemini-2.5-flash')
+    expect(screen.getByText('Saved API key available for Google.')).toBeInTheDocument()
+    expect(
+      screen.getAllByRole('option').map((option) => option.textContent).filter(Boolean)
+    ).toEqual([
+      'Anthropic',
+      'OpenAI',
+      'Google',
+      'Gemini 3 Pro Preview',
+      'Gemini 3 Flash Preview',
+      'Gemini 2.5 Pro',
+      'Gemini 2.5 Flash'
+    ])
   })
 
   it('tests the configured binary and shows success or failure feedback', async () => {
@@ -340,5 +290,41 @@ describe('SettingsPage', () => {
     )
 
     expect(await screen.findByRole('heading', { name: 'GitHub connector' })).toBeInTheDocument()
+  })
+
+  it('uses stacked mobile layout primitives for dense settings sections', async () => {
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    )
+
+    const providerSelect = await screen.findByLabelText('AI provider')
+    const assistantGrid = providerSelect.closest('label')?.parentElement
+    expect(assistantGrid).toHaveClass('grid-cols-1')
+    expect(assistantGrid).toHaveClass('md:grid-cols-2')
+
+    const previewPortStart = screen.getByLabelText('Preview port start')
+    const previewGrid = previewPortStart.closest('label')?.parentElement
+    expect(previewGrid).toHaveClass('grid-cols-1')
+    expect(previewGrid).toHaveClass('sm:grid-cols-2')
+
+    const footer = screen.getByRole('button', { name: 'Save settings' }).closest('footer')
+    expect(footer).toHaveClass('flex-col')
+    expect(footer).toHaveClass('items-stretch')
+    expect(footer).toHaveClass('sm:flex-row')
+  })
+
+  it('owns scrolling at the page root so all settings remain reachable', async () => {
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    )
+
+    const page = await screen.findByTestId('settings-page')
+    expect(page).toHaveClass('min-h-0')
+    expect(page).toHaveClass('flex-1')
+    expect(page).toHaveClass('overflow-y-auto')
   })
 })

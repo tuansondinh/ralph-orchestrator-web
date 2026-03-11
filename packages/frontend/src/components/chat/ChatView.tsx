@@ -79,7 +79,10 @@ export function ChatView({ projectId }: ChatViewProps) {
   }
 
   return (
-    <section className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/40">
+    <section
+      className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/40"
+      data-testid="chat-view"
+    >
       {isMobile ? (
         <div className="flex min-h-11 items-center px-3 pt-3">
           <button
@@ -94,8 +97,8 @@ export function ChatView({ projectId }: ChatViewProps) {
           </button>
         </div>
       ) : (
-        <header className="flex min-h-11 items-center border-b border-zinc-800 px-4 py-3">
-          <h2 className="text-sm font-semibold text-zinc-100">Chat</h2>
+        <header className="flex min-h-11 items-center gap-2 border-b border-zinc-800 px-4 py-3 sm:gap-3">
+          <h2 className="text-lg font-semibold text-zinc-100 sm:text-xl">Chat</h2>
         </header>
       )}
 

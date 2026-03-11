@@ -18,7 +18,7 @@ export function ChatMessage({ message, onLinkClick }: ChatMessageProps) {
       data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
     >
       <div
-        className={`min-w-0 max-w-[90%] overflow-x-hidden rounded-lg border px-3 py-2 text-sm leading-6 md:max-w-[80%] ${
+        className={`min-w-0 max-w-full overflow-x-hidden rounded-lg border px-3 py-2 text-sm leading-6 sm:max-w-[92%] md:max-w-[80%] ${
           isUser
             ? 'border-cyan-700/70 bg-cyan-950/60 text-cyan-100'
             : 'border-zinc-700 bg-zinc-900/60 text-zinc-100'
@@ -33,7 +33,7 @@ export function ChatMessage({ message, onLinkClick }: ChatMessageProps) {
               <h2 className="mb-2 text-sm font-semibold" {...props} />
             ),
             p: ({ node: _node, ...props }) => (
-              <p className="mb-2 whitespace-pre-wrap break-all last:mb-0" {...props} />
+              <p className="mb-2 whitespace-pre-wrap break-words last:mb-0" {...props} />
             ),
             ul: ({ node: _node, ...props }) => (
               <ul className="mb-2 list-disc space-y-1 pl-5 last:mb-0" {...props} />
@@ -49,7 +49,7 @@ export function ChatMessage({ message, onLinkClick }: ChatMessageProps) {
             ),
             code: ({ node: _node, className, ...props }) => (
               <code
-                className={`whitespace-pre-wrap break-all rounded bg-zinc-950 px-1 py-0.5 font-mono text-xs ${
+                className={`whitespace-pre-wrap break-words rounded bg-zinc-950 px-1 py-0.5 font-mono text-xs ${
                   className ?? ''
                 }`}
                 {...props}

@@ -166,15 +166,15 @@ describe('settings tRPC routes', () => {
     const { caller, binaryPath, tempDir } = await setupCaller()
 
     const initial = await caller.settings.get()
-    expect(initial.chatModel).toBe('gemini')
     expect(initial.chatProvider).toBe('anthropic')
+    expect(initial.chatModel).toBe('claude-sonnet-4-20250514')
     expect(initial.opencodeModel).toBe('claude-sonnet-4-20250514')
-    expect(initial.apiKeyStatus).toEqual({
-      anthropic: false,
-      openai: false,
-      google: false
+    expect(initial.providerApiKeyStatus).toEqual({
+      anthropic: 'missing',
+      openai: 'missing',
+      google: 'missing'
     })
-    expect(initial.storedApiKeyStatus).toEqual({
+    expect(initial.apiKeyStatus).toEqual({
       anthropic: false,
       openai: false,
       google: false
@@ -194,11 +194,12 @@ describe('settings tRPC routes', () => {
     expect(initial.data.dbPath.endsWith('settings.db')).toBe(true)
 
     const updated = await caller.settings.update({
-      chatModel: 'openai',
       chatProvider: 'openai',
+      chatModel: 'gpt-5',
       opencodeModel: 'gpt-4o',
-      providerApiKeys: {
-        openai: 'openai-key'
+      providerApiKey: {
+        provider: 'openai',
+        value: 'openai-test-key'
       },
       ralphBinaryPath: binaryPath,
       notifications: {
@@ -214,10 +215,14 @@ describe('settings tRPC routes', () => {
       }
     })
 
-    expect(updated.chatModel).toBe('openai')
     expect(updated.chatProvider).toBe('openai')
+    expect(updated.chatModel).toBe('gpt-5')
     expect(updated.opencodeModel).toBe('gpt-4o')
-    expect(updated.apiKeyStatus.openai).toBe(true)
+    expect(updated.providerApiKeyStatus).toEqual({
+      anthropic: 'missing',
+      openai: 'saved',
+      google: 'missing'
+    })
     expect(updated.storedApiKeyStatus.openai).toBe(true)
     expect(updated.ralphBinaryPath).toBe(binaryPath)
     expect(updated.notifications.loopComplete).toBe(false)
@@ -230,8 +235,8 @@ describe('settings tRPC routes', () => {
     })
 
     const reloaded = await caller.settings.get()
-    expect(reloaded.chatModel).toBe('openai')
     expect(reloaded.chatProvider).toBe('openai')
+    expect(reloaded.chatModel).toBe('gpt-5')
     expect(reloaded.opencodeModel).toBe('gpt-4o')
     expect(reloaded).toEqual(updated)
 
@@ -248,12 +253,10 @@ describe('settings tRPC routes', () => {
     const { caller } = await setupCaller()
 
     const updated = await caller.settings.update({
-      chatModel: 'claude',
       chatProvider: 'google',
       opencodeModel: 'gemini-2.5-pro'
     })
 
-    expect(updated.chatModel).toBe('claude')
     expect(updated.chatProvider).toBe('google')
     expect(updated.opencodeModel).toBe('gemini-2.5-pro')
     expect(updated.providerEnvVarMap).toEqual({
@@ -273,7 +276,6 @@ describe('settings tRPC routes', () => {
     })
 
     const reloaded = await caller.settings.get()
-    expect(reloaded.chatModel).toBe('claude')
     expect(reloaded.chatProvider).toBe('google')
     expect(reloaded.opencodeModel).toBe('gemini-2.5-pro')
   })
@@ -305,6 +307,52 @@ describe('settings tRPC routes', () => {
       }
     })
     expect(cleared.storedApiKeyStatus.anthropic).toBe(false)
+  })
+
+  it('clears provider-specific api keys and falls back to the selected provider default model', async () => {
+    const { caller } = await setupCaller()
+
+    const updated = await caller.settings.update({
+      chatProvider: 'google',
+      chatModel: 'not-a-real-google-model',
+      providerApiKey: {
+        provider: 'google',
+        value: 'google-test-key'
+      }
+    })
+
+    expect(updated.chatProvider).toBe('google')
+    expect(updated.chatModel).toBe('gemini-2.5-flash')
+    expect(updated.providerApiKeyStatus.google).toBe('saved')
+
+    const cleared = await caller.settings.update({
+      providerApiKey: {
+        provider: 'google',
+        value: null
+      }
+    })
+
+    expect(cleared.providerApiKeyStatus.google).toBe('missing')
+  })
+
+  it('persists refreshed model ids and falls back to provider defaults for stale saved values', async () => {
+    const { caller } = await setupCaller()
+
+    const updated = await caller.settings.update({
+      chatProvider: 'google',
+      chatModel: 'gemini-3-flash-preview'
+    })
+
+    expect(updated.chatProvider).toBe('google')
+    expect(updated.chatModel).toBe('gemini-3-flash-preview')
+
+    const fallback = await caller.settings.update({
+      chatProvider: 'openai',
+      chatModel: 'claude-opus-4-6'
+    })
+
+    expect(fallback.chatProvider).toBe('openai')
+    expect(fallback.chatModel).toBe('gpt-5-mini')
   })
 
   it('requires confirmation before clearing project/chat/loop/notification data', async () => {

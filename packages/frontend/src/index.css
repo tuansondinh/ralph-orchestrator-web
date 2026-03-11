@@ -17,8 +17,6 @@ body {
 }
 
 .ralph-pixel-cat-wrap {
-  right: 4.75rem;
-  top: 0.55rem;
   transform: translateZ(0);
 }
 
@@ -68,17 +66,5 @@ body {
   46%,
   48% {
     transform: scaleY(0.15);
-  }
-}
-
-@media (max-width: 640px) {
-  .ralph-pixel-cat-wrap {
-    right: 2.7rem;
-    top: 0.35rem;
-  }
-
-  .ralph-pixel-cat {
-    transform: scale(0.78);
-    transform-origin: top right;
   }
 }

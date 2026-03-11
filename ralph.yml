@@ -34,16 +34,14 @@ hats:
 
          ### Input Detection
 
-         Analyze the prompt to determine input type:
+         Analyze the prompt and classify it as one of:
 
          **Type 1: PDD Output Directory**
-         - Prompt looks like a path: `specs/my-feature` or `specs/my-feature/`
-         - Directory contains `tasks/` subdirectory with `.code-task.md` files
-         - May also have `design.md`, `plan.md`, `context.md`
+         - Prompt looks like `specs/my-feature` or `specs/my-feature/`
+         - Directory contains `tasks/` with `.code-task.md` files
 
          **Type 2: Single Code Task File**
-         - Prompt is a path ending in `.code-task.md`
-         - Example: `tasks/add-verbose-flag.code-task.md`
+         - Prompt ends in `.code-task.md`
 
          **Type 3: Rough Description**
          - Prompt is plain text describing what to implement

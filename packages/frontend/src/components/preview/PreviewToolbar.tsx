@@ -61,23 +61,23 @@ export function PreviewToolbar({
         >
           {formatState(state)}
         </span>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <button
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800 sm:w-auto"
             onClick={onRefresh}
             type="button"
           >
             Refresh
           </button>
           <button
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800 sm:w-auto"
             onClick={onConfigure}
             type="button"
           >
             Configure
           </button>
           <button
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             disabled={!url}
             onClick={onCopyUrl}
             type="button"
@@ -85,7 +85,7 @@ export function PreviewToolbar({
             Copy URL
           </button>
           <button
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             disabled={!url}
             onClick={onOpenInBrowser}
             type="button"
@@ -107,7 +107,7 @@ export function PreviewToolbar({
         </label>
         <div className="flex flex-wrap gap-2">
           <button
-            className="rounded-md border border-zinc-700 bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             disabled={isSavingUrl}
             onClick={onSaveUrl}
             type="button"
@@ -116,7 +116,7 @@ export function PreviewToolbar({
           </button>
         </div>
       </div>
-      <p className="truncate text-xs text-zinc-500" title={commandLabel}>
+      <p className="break-all text-xs text-zinc-500" title={commandLabel}>
         Command: {commandLabel}
       </p>
     </section>

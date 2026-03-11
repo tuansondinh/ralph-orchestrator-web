@@ -1,24 +1,10 @@
 import { trpcClient } from '@/lib/trpc'
+import type { ChatProvider, ProviderApiKeyStatus } from '@/lib/chatProviderConfig'
 
 export interface SettingsSnapshot {
-  chatModel: 'gemini' | 'openai' | 'claude'
-  chatProvider: 'anthropic' | 'openai' | 'google'
-  opencodeModel: string
-  providerEnvVarMap: {
-    anthropic: string
-    openai: string
-    google: string
-  }
-  apiKeyStatus: {
-    anthropic: boolean
-    openai: boolean
-    google: boolean
-  }
-  storedApiKeyStatus: {
-    anthropic: boolean
-    openai: boolean
-    google: boolean
-  }
+  chatProvider: ChatProvider
+  chatModel: string
+  providerApiKeyStatus: Record<ChatProvider, ProviderApiKeyStatus>
   ralphBinaryPath: string | null
   notifications: {
     loopComplete: boolean
@@ -37,13 +23,11 @@ export interface SettingsSnapshot {
 }
 
 export interface SettingsUpdateInput {
-  chatModel?: 'gemini' | 'openai' | 'claude'
-  chatProvider?: 'anthropic' | 'openai' | 'google'
-  opencodeModel?: string
-  providerApiKeys?: {
-    anthropic?: string | null
-    openai?: string | null
-    google?: string | null
+  chatProvider?: ChatProvider
+  chatModel?: string
+  providerApiKey?: {
+    provider: ChatProvider
+    value?: string | null
   }
   ralphBinaryPath?: string | null
   notifications?: {

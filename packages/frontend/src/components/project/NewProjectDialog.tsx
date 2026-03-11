@@ -248,7 +248,7 @@ export function NewProjectDialog({
                         <label className="text-sm text-zinc-300" htmlFor="project-create-path">
                           Project path (optional)
                         </label>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                           <input
                             className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
                             id="project-create-path"
@@ -257,7 +257,7 @@ export function NewProjectDialog({
                             value={createPath}
                           />
                           <button
-                            className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-800"
+                            className="w-full rounded-md border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-800 sm:w-auto"
                             disabled={isSelectingPath}
                             onClick={() => {
                               void handleSelectPath(setCreatePath)
@@ -275,7 +275,7 @@ export function NewProjectDialog({
                       <label className="text-sm text-zinc-300" htmlFor="project-path">
                         Project path
                       </label>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                         <input
                           className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
                           id="project-path"
@@ -285,7 +285,7 @@ export function NewProjectDialog({
                           value={path}
                         />
                         <button
-                          className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-800"
+                          className="w-full rounded-md border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-800 sm:w-auto"
                           disabled={isSelectingPath}
                           onClick={() => {
                             void handleSelectPath(setPath)
@@ -298,16 +298,16 @@ export function NewProjectDialog({
                     </div>
                   )}
                   {error ? <p className="text-sm text-red-300">{error}</p> : null}
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                     <button
-                      className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+                      className="w-full rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 sm:w-auto"
                       onClick={close}
                       type="button"
                     >
                       Cancel
                     </button>
                     <button
-                      className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 disabled:opacity-50"
+                      className="w-full rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 disabled:opacity-50 sm:w-auto"
                       disabled={isSubmitting || (mode === 'create' ? !name.trim() : !path.trim())}
                       type="submit"
                     >

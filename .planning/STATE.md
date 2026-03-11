@@ -31,3 +31,9 @@ Last activity: 2026-03-10 - Completed quick task 1: Review and fix all build err
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 1 | Review and fix all build errors, test failures, and interface mismatches in cloud integration code | 2026-03-10 | 3ec88be | [1-review-and-fix-all-build-errors-test-fai](./quick/1-review-and-fix-all-build-errors-test-fai/) |
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- 2026-03-11: Phase 5 added: fix remaining bugs, especially cloud-version issues on http://ec2-18-159-34-250.eu-central-1.compute.amazonaws.com:3003, using the provided AWS CLI

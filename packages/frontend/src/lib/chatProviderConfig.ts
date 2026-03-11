@@ -9,12 +9,6 @@ export interface ChatProviderModelOption {
   label: string
 }
 
-export const CHAT_PROVIDER_ENV_VAR_MAP: Record<ChatProvider, string> = {
-  anthropic: 'ANTHROPIC_API_KEY',
-  openai: 'OPENAI_API_KEY',
-  google: 'GOOGLE_API_KEY'
-}
-
 export const CHAT_PROVIDER_MODEL_OPTIONS: Record<ChatProvider, ChatProviderModelOption[]> = {
   anthropic: [
     { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
@@ -37,47 +31,11 @@ export const CHAT_PROVIDER_MODEL_OPTIONS: Record<ChatProvider, ChatProviderModel
 }
 
 export const DEFAULT_CHAT_PROVIDER: ChatProvider = 'anthropic'
-export const DEFAULT_OPENCODE_MODEL = 'claude-sonnet-4-20250514'
 
 export const DEFAULT_CHAT_MODEL_BY_PROVIDER: Record<ChatProvider, string> = {
   anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-5-mini',
   google: 'gemini-2.5-flash'
-}
-
-const LEGACY_MODEL_ALIAS_TO_PROVIDER: Record<string, ChatProvider> = {
-  claude: 'anthropic',
-  openai: 'openai',
-  gemini: 'google'
-}
-
-export function normalizeChatProvider(value: string | undefined): ChatProvider {
-  if (value && (CHAT_PROVIDERS as readonly string[]).includes(value)) {
-    return value as ChatProvider
-  }
-
-  return DEFAULT_CHAT_PROVIDER
-}
-
-export function resolveLegacyProvider(value: string | undefined) {
-  if (!value) {
-    return null
-  }
-
-  return LEGACY_MODEL_ALIAS_TO_PROVIDER[value] ?? null
-}
-
-export function getProviderModelOptions(provider: ChatProvider) {
-  return CHAT_PROVIDER_MODEL_OPTIONS[provider]
-}
-
-export function normalizeChatModel(provider: ChatProvider, value: string | undefined) {
-  const options = getProviderModelOptions(provider)
-  if (value && options.some((option) => option.id === value)) {
-    return value
-  }
-
-  return DEFAULT_CHAT_MODEL_BY_PROVIDER[provider]
 }
 
 export function getProviderLabel(provider: ChatProvider) {
@@ -93,15 +51,14 @@ export function getProviderLabel(provider: ChatProvider) {
 
 export function getModelLabel(provider: ChatProvider, model: string) {
   return (
-    getProviderModelOptions(provider).find((option) => option.id === model)?.label ??
-    model
+    CHAT_PROVIDER_MODEL_OPTIONS[provider].find((option) => option.id === model)?.label ?? model
   )
 }
 
-export function getEnvironmentApiKey(provider: ChatProvider) {
-  if (provider === 'google') {
-    return process.env.GOOGLE_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? null
+export function normalizeChatModel(provider: ChatProvider, model: string | undefined) {
+  if (model && CHAT_PROVIDER_MODEL_OPTIONS[provider].some((option) => option.id === model)) {
+    return model
   }
 
-  return process.env[CHAT_PROVIDER_ENV_VAR_MAP[provider]] ?? null
+  return DEFAULT_CHAT_MODEL_BY_PROVIDER[provider]
 }

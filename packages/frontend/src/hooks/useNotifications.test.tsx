@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { notificationApi } from '@/lib/notificationApi'
-import { settingsApi } from '@/lib/settingsApi'
+import { settingsApi, type SettingsSnapshot } from '@/lib/settingsApi'
 import { resetNotificationStore } from '@/stores/notificationStore'
 import { useNotifications } from '@/hooks/useNotifications'
 
@@ -69,6 +69,36 @@ class MockBrowserNotification {
   constructor(_title: string, _options?: NotificationOptions) {}
 }
 
+function createSettingsSnapshot(
+  overrides: Partial<SettingsSnapshot> = {}
+): SettingsSnapshot {
+  return {
+    chatProvider: 'anthropic',
+    chatModel: 'claude-sonnet-4-20250514',
+    providerApiKeyStatus: {
+      anthropic: 'missing',
+      openai: 'missing',
+      google: 'missing'
+    },
+    ralphBinaryPath: null,
+    notifications: {
+      loopComplete: true,
+      loopFailed: true,
+      needsInput: true
+    },
+    preview: {
+      portStart: 3001,
+      portEnd: 3010,
+      baseUrl: 'http://localhost',
+      command: null
+    },
+    data: {
+      dbPath: '/tmp/ralph-ui/data.db'
+    },
+    ...overrides
+  }
+}
+
 describe('useNotifications', () => {
   beforeEach(() => {
     resetNotificationStore()
@@ -76,7 +106,7 @@ describe('useNotifications', () => {
     vi.stubGlobal('Notification', MockBrowserNotification as unknown as typeof Notification)
 
     vi.mocked(notificationApi.list).mockResolvedValue([])
-    vi.mocked(settingsApi.get).mockResolvedValue(baseSettings)
+    vi.mocked(settingsApi.get).mockResolvedValue(createSettingsSnapshot())
   })
 
   afterEach(() => {

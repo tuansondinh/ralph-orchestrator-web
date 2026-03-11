@@ -428,6 +428,16 @@ describe('LoopsView', () => {
     expect(await screen.findByTestId('loops-loading-skeleton')).toBeInTheDocument()
   })
 
+  it('keeps the loop list column independently scrollable', async () => {
+    vi.mocked(loopApi.list).mockResolvedValue([baseLoop])
+
+    renderLoopsView()
+
+    const listScroll = await screen.findByTestId('loops-list-scroll')
+    expect(listScroll).toHaveClass('min-h-0')
+    expect(listScroll).toHaveClass('overflow-y-auto')
+  })
+
   it('keeps prompt input empty when prompt file is missing', async () => {
     vi.mocked(projectApi.getPrompt).mockRejectedValueOnce(
       new Error('Prompt file not found: PROMPT.md')

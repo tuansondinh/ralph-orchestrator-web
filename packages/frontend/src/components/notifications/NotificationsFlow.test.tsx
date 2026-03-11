@@ -4,7 +4,7 @@ import App from '@/App'
 import { loopApi } from '@/lib/loopApi'
 import { notificationApi } from '@/lib/notificationApi'
 import { projectApi, type ProjectRecord } from '@/lib/projectApi'
-import { settingsApi } from '@/lib/settingsApi'
+import { settingsApi, type SettingsSnapshot } from '@/lib/settingsApi'
 import { resetLoopStore } from '@/stores/loopStore'
 import { resetNotificationStore } from '@/stores/notificationStore'
 import { resetProjectStore } from '@/stores/projectStore'
@@ -152,6 +152,36 @@ const seedProject: ProjectRecord = {
   updatedAt: 1
 }
 
+function createSettingsSnapshot(
+  overrides: Partial<SettingsSnapshot> = {}
+): SettingsSnapshot {
+  return {
+    chatProvider: 'anthropic',
+    chatModel: 'claude-sonnet-4-20250514',
+    providerApiKeyStatus: {
+      anthropic: 'missing',
+      openai: 'missing',
+      google: 'missing'
+    },
+    ralphBinaryPath: null,
+    notifications: {
+      loopComplete: true,
+      loopFailed: true,
+      needsInput: true
+    },
+    preview: {
+      portStart: 3001,
+      portEnd: 3010,
+      baseUrl: 'http://localhost',
+      command: null
+    },
+    data: {
+      dbPath: '/tmp/ralph-ui/data.db'
+    },
+    ...overrides
+  }
+}
+
 describe('notifications flow', () => {
   async function findSocketForChannel(channel: string) {
     await waitFor(() => {
@@ -208,7 +238,7 @@ describe('notifications flow', () => {
       read: 1,
       createdAt: Date.now()
     }))
-    vi.mocked(settingsApi.get).mockResolvedValue(baseSettings)
+    vi.mocked(settingsApi.get).mockResolvedValue(createSettingsSnapshot())
     vi.mocked(settingsApi.getDefaultPreset).mockResolvedValue('hatless-baseline.yml')
     vi.mocked(settingsApi.setDefaultPreset).mockResolvedValue('hatless-baseline.yml')
   })
@@ -284,14 +314,15 @@ describe('notifications flow', () => {
   })
 
   it('suppresses loop complete toasts when disabled in settings', async () => {
-    vi.mocked(settingsApi.get).mockResolvedValue({
-      ...baseSettings,
-      notifications: {
-        loopComplete: false,
-        loopFailed: true,
-        needsInput: true
-      }
-    })
+    vi.mocked(settingsApi.get).mockResolvedValue(
+      createSettingsSnapshot({
+        notifications: {
+          loopComplete: false,
+          loopFailed: true,
+          needsInput: true
+        }
+      })
+    )
 
     render(<App />)
 

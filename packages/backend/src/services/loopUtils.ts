@@ -137,6 +137,17 @@ export function asLoopBackend(value: unknown): LoopBackend | undefined {
   return undefined
 }
 
+export function resolveDefaultLoopBackendFromEnv(
+  env: NodeJS.ProcessEnv = process.env
+): LoopBackend | null {
+  const raw = env.RALPH_UI_DEFAULT_BACKEND
+  if (typeof raw !== 'string') {
+    return null
+  }
+
+  return asLoopBackend(raw.trim().toLowerCase()) ?? null
+}
+
 export function parseConfigRecord(config: string | null): Record<string, unknown> {
   if (!config) {
     return {}

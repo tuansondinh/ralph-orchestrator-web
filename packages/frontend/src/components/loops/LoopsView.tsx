@@ -475,7 +475,7 @@ export function LoopsView({ projectId }: LoopsViewProps) {
               <div className="h-56 animate-pulse rounded-lg bg-zinc-900/50" />
             </section>
           ) : (
-            <div className="h-full min-h-0 overflow-y-auto pr-1">
+            <div className="h-full min-h-0 overflow-y-auto pr-1" data-testid="loops-list-scroll">
               <LoopList
                 loops={loops}
                 selectedLoopId={selectedLoopId}

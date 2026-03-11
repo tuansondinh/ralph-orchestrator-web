@@ -9,8 +9,8 @@ Requirements for the v0.9 Polish milestone. Each maps to roadmap phases.
 
 ### Loop Output
 
-- [ ] **LOOP-01**: Loop output is rendered using xterm.js terminal emulator instead of the custom ANSI parser
-- [ ] **LOOP-02**: Loop output handles all escape sequences (colors, bold, cursor movement, OSC) correctly
+- [x] **LOOP-01**: Loop output is rendered using xterm.js terminal emulator instead of the custom ANSI parser
+- [x] **LOOP-02**: Loop output handles all escape sequences (colors, bold, cursor movement, OSC) correctly
 
 ### Loop Git Automation
 
@@ -71,8 +71,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LOOP-01 | Phase 6 | Pending |
-| LOOP-02 | Phase 6 | Pending |
+| LOOP-01 | Phase 6 | Complete |
+| LOOP-02 | Phase 6 | Complete |
 | GIT-01 | Phase 7 | Pending |
 | GIT-02 | Phase 7 | Pending |
 | GIT-03 | Phase 7 | Pending |

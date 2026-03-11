@@ -36,7 +36,7 @@
 
 **Milestone Goal:** Polish the app to release quality — correct loop output rendering, automated git workflow, per-user API keys, and clean UI with chat as the primary interaction point.
 
-- [ ] **Phase 6: Loop Output** - Replace custom ANSI parser with xterm.js for correct terminal rendering
+- [x] **Phase 6: Loop Output** - Replace custom ANSI parser with xterm.js for correct terminal rendering (completed 2026-03-11)
 - [ ] **Phase 7: Loop Git Automation** - Auto-create branch, push, and open PR on loop completion
 - [ ] **Phase 8: Per-User Configuration** - Per-user API key storage scoped to Supabase user ID
 - [ ] **Phase 9: Chat, Terminal, and UI Polish** - Chat as primary tab, collapsed tool calls, terminal reliability, UI cleanup
@@ -109,7 +109,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-5. Cloud Deployment | v0 | — | Complete | 2026-03-11 |
-| 6. Loop Output | v0.9 | 0/1 | Not started | - |
+| 6. Loop Output | 1/1 | Complete   | 2026-03-11 | - |
 | 7. Loop Git Automation | v0.9 | 0/1 | Not started | - |
 | 8. Per-User Configuration | v0.9 | 0/1 | Not started | - |
 | 9. Chat, Terminal, and UI Polish | v0.9 | 0/2 | Not started | - |

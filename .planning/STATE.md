@@ -1,3 +1,19 @@
+---
+gsd_state_version: 1.0
+milestone: v0.9
+milestone_name: Polish
+status: planning
+stopped_at: Completed 06-loop-output 06-01-PLAN.md
+last_updated: "2026-03-11T16:58:25.343Z"
+last_activity: 2026-03-11 — Roadmap created for v0.9 Polish milestone (phases 6-9)
+progress:
+  total_phases: 9
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 100
+---
+
 # Project State
 
 ## Project Reference
@@ -14,7 +30,7 @@ Plan: 0 of 1 in current phase
 Status: Ready to plan
 Last activity: 2026-03-11 — Roadmap created for v0.9 Polish milestone (phases 6-9)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -34,6 +50,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 06-loop-output P01 | 14m | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -46,6 +63,8 @@ Recent decisions affecting current work:
 - Auto-push + PR on loop completion — users should not need to manually push/PR after every loop
 - Per-user API keys (not shared) — cloud mode has multiple users; shared keys are a security and billing issue
 - Chat as first/default tab — chat is the primary use case of the app
+- [Phase 06-loop-output]: xterm.js read-only terminal replaces custom ANSI parser for loop output rendering
+- [Phase 06-loop-output]: OutputBuffer stores raw PTY chunks without line-splitting
 
 ### Pending Todos
 
@@ -58,6 +77,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-11
-Stopped at: Roadmap created — phases 6-9 defined, all 16 requirements mapped, ready to plan Phase 6
+Last session: 2026-03-11T16:58:25.340Z
+Stopped at: Completed 06-loop-output 06-01-PLAN.md
 Resume file: None

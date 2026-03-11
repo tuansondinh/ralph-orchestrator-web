@@ -58,7 +58,33 @@ ssh ${SSH_OPTS} "${REMOTE_HOST}" \
 
 echo "Installing opencode config..."
 ssh ${SSH_OPTS} "${REMOTE_HOST}" \
-  "mkdir -p ~/.config/opencode && cp ${REMOTE_DIR}/deploy/opencode.json ~/.config/opencode/opencode.json"
+  "REMOTE_DIR='${REMOTE_DIR}' node <<'EOF'
+const fs = require('node:fs')
+const path = require('node:path')
+const os = require('node:os')
+
+const remoteDir = process.env.REMOTE_DIR
+const envPath = path.join(remoteDir, '.env')
+const templatePath = path.join(remoteDir, 'deploy', 'opencode.json')
+const configDir = path.join(os.homedir(), '.config', 'opencode')
+const configPath = path.join(configDir, 'opencode.json')
+const template = JSON.parse(fs.readFileSync(templatePath, 'utf8'))
+const envText = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : ''
+const portMatch = envText.match(/^PORT=(.+)$/m)
+const port = Number((portMatch?.[1] ?? '3003').trim()) || 3003
+
+template.mcp = {
+  ...(template.mcp ?? {}),
+  ralph: {
+    type: 'remote',
+    enabled: true,
+    url: `http://127.0.0.1:${port}/mcp`
+  }
+}
+
+fs.mkdirSync(configDir, { recursive: true })
+fs.writeFileSync(configPath, JSON.stringify(template, null, 2) + '\n')
+EOF"
 
 echo "Updating runtime environment defaults..."
 ssh ${SSH_OPTS} "${REMOTE_HOST}" "REMOTE_DIR='${REMOTE_DIR}' bash -s" <<'EOF'

@@ -252,6 +252,13 @@ describe('OpenCodeService', () => {
     expect(identityPrompt).toContain(
       'Always refer to yourself as Ralph or Ralph Assistant'
     )
+    expect(options.config?.mcp).toMatchObject({
+      ralph: {
+        type: 'remote',
+        enabled: true,
+        url: 'http://localhost:3003/mcp'
+      }
+    })
   })
 
   it('creates a session lazily and reuses it across calls', async () => {

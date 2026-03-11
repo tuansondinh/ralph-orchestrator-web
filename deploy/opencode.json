@@ -7,6 +7,13 @@
       }
     }
   },
+  "mcp": {
+    "ralph": {
+      "type": "remote",
+      "enabled": true,
+      "url": "http://127.0.0.1:3003/mcp"
+    }
+  },
   "model": "zai-coding-plan/glm-4.7",
   "small_model": "zai-coding-plan/glm-4.5-air"
 }

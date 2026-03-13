@@ -53,6 +53,35 @@ describe('runtime mode resolution', () => {
     })
   })
 
+  it('activates local-cloud mode when cloud configuration and the local-cloud flag are present', () => {
+    const resolved = resolveRuntimeMode({
+      SUPABASE_URL: 'https://example.supabase.co',
+      SUPABASE_ANON_KEY: 'anon-key',
+      SUPABASE_DB_URL: 'postgresql://postgres:postgres@localhost:5432/ralph',
+      RALPH_UI_LOCAL_CLOUD: 'true'
+    })
+
+    expect(resolved).toEqual({
+      mode: 'local-cloud',
+      capabilities: {
+        mode: 'local-cloud',
+        database: true,
+        auth: true,
+        localProjects: false,
+        githubProjects: true,
+        terminal: true,
+        preview: true,
+        localDirectoryPicker: false,
+        mcp: true
+      },
+      cloud: {
+        supabaseUrl: 'https://example.supabase.co',
+        supabaseAnonKey: 'anon-key',
+        databaseUrl: 'postgresql://postgres:postgres@localhost:5432/ralph'
+      }
+    })
+  })
+
   it('fails fast with missing variables when cloud configuration is partial', () => {
     expect(() =>
       resolveRuntimeMode({
@@ -92,6 +121,18 @@ describe('runtime mode resolution', () => {
       preview: false,
       localDirectoryPicker: false,
       mcp: false
+    })
+
+    expect(getRuntimeCapabilities('local-cloud')).toEqual({
+      mode: 'local-cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: true,
+      preview: true,
+      localDirectoryPicker: false,
+      mcp: true
     })
   })
 })

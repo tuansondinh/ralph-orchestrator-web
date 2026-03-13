@@ -8,7 +8,7 @@ import {
   resolveSupabaseBrowserConfig
 } from '@/lib/supabaseBrowserClient'
 
-type RuntimeMode = 'local' | 'cloud'
+type RuntimeMode = 'local' | 'local-cloud' | 'cloud'
 
 interface AuthContextValue {
   accessToken: string | null
@@ -92,7 +92,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
           return
         }
 
-        setMode('cloud')
+        setMode(capabilities.mode)
         const supabaseClient = getSupabaseBrowserClient()
         if (!supabaseClient) {
           setRuntimeError('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY.')

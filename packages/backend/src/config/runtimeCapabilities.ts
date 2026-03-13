@@ -1,4 +1,4 @@
-export type RuntimeMode = 'local' | 'cloud'
+export type RuntimeMode = 'local' | 'local-cloud' | 'cloud'
 
 export interface RuntimeCapabilities {
   mode: RuntimeMode
@@ -38,8 +38,26 @@ export const CLOUD_RUNTIME_CAPABILITIES = {
   mcp: false
 } satisfies RuntimeCapabilities
 
+export const LOCAL_CLOUD_RUNTIME_CAPABILITIES = {
+  mode: 'local-cloud',
+  database: true,
+  auth: true,
+  localProjects: false,
+  githubProjects: true,
+  terminal: true,
+  preview: true,
+  localDirectoryPicker: false,
+  mcp: true
+} satisfies RuntimeCapabilities
+
 export function getRuntimeCapabilities(mode: RuntimeMode): RuntimeCapabilities {
-  return mode === 'cloud'
-    ? { ...CLOUD_RUNTIME_CAPABILITIES }
-    : { ...LOCAL_RUNTIME_CAPABILITIES }
+  if (mode === 'cloud') {
+    return { ...CLOUD_RUNTIME_CAPABILITIES }
+  }
+
+  if (mode === 'local-cloud') {
+    return { ...LOCAL_CLOUD_RUNTIME_CAPABILITIES }
+  }
+
+  return { ...LOCAL_RUNTIME_CAPABILITIES }
 }

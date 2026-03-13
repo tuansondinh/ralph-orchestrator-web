@@ -70,4 +70,37 @@ describe('capabilities tRPC route', () => {
       mcp: false
     })
   })
+
+  it('returns capabilities without auth in local-cloud mode', async () => {
+    const runtime = createTestRuntime('local-cloud')
+
+    const caller = appRouter.createCaller({
+      runtime,
+      db: {} as any,
+      processManager: {} as any,
+      loopService: {} as any,
+      chatService: {} as any,
+      monitoringService: {} as any,
+      previewService: {} as any,
+      projectService: {} as any,
+      presetService: {} as any,
+      settingsService: {} as any,
+      hatsPresetService: {} as any,
+      taskService: {} as any
+    })
+
+    const capabilities = await caller.capabilities()
+
+    expect(capabilities).toEqual({
+      mode: 'local-cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: true,
+      preview: true,
+      localDirectoryPicker: false,
+      mcp: true
+    })
+  })
 })

@@ -44,6 +44,8 @@ const CLOUD_ENV_KEYS = [
   'SUPABASE_DB_URL'
 ] as const
 
+const LOCAL_CLOUD_ENV_KEY = 'RALPH_UI_LOCAL_CLOUD'
+
 type RuntimeEnv = Partial<Record<(typeof CLOUD_ENV_KEYS)[number], string | undefined>>
 type RuntimeModeEnvInput =
   | RuntimeEnv
@@ -62,6 +64,10 @@ function readEnvValue(env: RuntimeEnv, key: (typeof CLOUD_ENV_KEYS)[number]) {
 export function resolveRuntimeMode(
   env: RuntimeModeEnvInput = process.env
 ): ResolvedRuntimeMode {
+  const localCloudFlag =
+    typeof (env as Record<string, string | undefined>)[LOCAL_CLOUD_ENV_KEY] === 'string' &&
+    (env as Record<string, string | undefined>)[LOCAL_CLOUD_ENV_KEY]!.trim().toLowerCase() ===
+      'true'
   const values = {
     SUPABASE_URL: readEnvValue(env, 'SUPABASE_URL'),
     SUPABASE_ANON_KEY: readEnvValue(env, 'SUPABASE_ANON_KEY'),
@@ -81,9 +87,11 @@ export function resolveRuntimeMode(
     throw new RuntimeModeConfigError([...missingKeys])
   }
 
+  const mode = localCloudFlag ? 'local-cloud' : 'cloud'
+
   return {
-    mode: 'cloud',
-    capabilities: getRuntimeCapabilities('cloud'),
+    mode,
+    capabilities: getRuntimeCapabilities(mode),
     cloud: {
       supabaseUrl: values.SUPABASE_URL!,
       supabaseAnonKey: values.SUPABASE_ANON_KEY!,

@@ -2,6 +2,7 @@ import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseProvider } from '../src/db/connection.js'
 import type { RepositoryBundle } from '../src/db/repositories/contracts.js'
+import type { ResolvedRuntimeMode } from '../src/config/runtimeMode.js'
 import { createTestRuntime } from './test-helpers.js'
 
 const createRepositoryBundle = vi.fn<(database: DatabaseProvider) => RepositoryBundle>()
@@ -40,6 +41,28 @@ function parseSseMessages(payload: string): Array<Record<string, unknown>> {
     )
     .filter((data) => data.length > 0)
     .map((data) => JSON.parse(data) as Record<string, unknown>)
+}
+
+function createLocalCloudRuntime(): ResolvedRuntimeMode {
+  return {
+    mode: 'local-cloud',
+    capabilities: {
+      mode: 'local-cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: true,
+      preview: true,
+      localDirectoryPicker: false,
+      mcp: true
+    },
+    cloud: {
+      supabaseUrl: 'https://test.supabase.co',
+      supabaseAnonKey: 'test-anon-key',
+      databaseUrl: 'postgresql://postgres:postgres@localhost:5432/ralph'
+    }
+  }
 }
 
 describe('createApp cloud service wiring', () => {
@@ -332,5 +355,97 @@ describe('createApp cloud service wiring', () => {
     expect(tools).toContain('list_projects')
     expect(tools).toContain('start_loop')
     expect(tools).toContain('activate_plan_mode')
+  })
+
+  it('initializes auth middleware in local-cloud mode and still shuts down terminal resources on close', async () => {
+    const repositories: RepositoryBundle = {
+      projects: {
+        list: vi.fn().mockResolvedValue([]),
+        findById: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(null),
+        update: vi.fn().mockResolvedValue(null),
+        delete: vi.fn().mockResolvedValue(undefined),
+        findByUserId: vi.fn().mockResolvedValue([]),
+        findByGitHubRepo: vi.fn().mockResolvedValue(null)
+      },
+      loopRuns: {
+        listAll: vi.fn().mockResolvedValue([]),
+        listByProjectId: vi.fn().mockResolvedValue([]),
+        findById: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(null),
+        update: vi.fn().mockResolvedValue(null),
+        findByState: vi.fn().mockResolvedValue([])
+      },
+      chats: {
+        findSessionById: vi.fn().mockResolvedValue(null),
+        findLatestActiveSessionByProjectId: vi.fn().mockResolvedValue(null),
+        createSession: vi.fn().mockResolvedValue(null),
+        updateSession: vi.fn().mockResolvedValue(null),
+        listMessagesBySessionId: vi.fn().mockResolvedValue([]),
+        createMessage: vi.fn().mockResolvedValue(null)
+      },
+      notifications: {
+        list: vi.fn().mockResolvedValue([]),
+        findById: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(null),
+        update: vi.fn().mockResolvedValue(null),
+        delete: vi.fn().mockResolvedValue(undefined)
+      },
+      settings: {
+        list: vi.fn().mockResolvedValue([]),
+        get: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined)
+      },
+      githubConnections: {
+        findByUserId: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(null),
+        delete: vi.fn().mockResolvedValue(undefined)
+      },
+      loopOutput: {
+        append: vi.fn().mockResolvedValue(undefined),
+        getByLoopRunId: vi.fn().mockResolvedValue([]),
+        deleteByLoopRunId: vi.fn().mockResolvedValue(undefined)
+      }
+    }
+    createRepositoryBundle.mockReturnValue(repositories)
+
+    const close = vi.fn(async () => {})
+    const app = createApp({
+      runtime: createLocalCloudRuntime(),
+      databaseProviderFactory: () => ({
+        mode: 'cloud',
+        dialect: 'postgres',
+        client: {} as never,
+        db: {} as never,
+        metadata: {
+          connectionString: 'postgresql://postgres:postgres@localhost:5432/ralph'
+        },
+        close
+      })
+    })
+    apps.push(app)
+
+    const terminalShutdownSpy = vi
+      .spyOn(app.terminalService, 'shutdown')
+      .mockResolvedValue(undefined)
+    const processShutdownSpy = vi
+      .spyOn(app.processManager, 'shutdown')
+      .mockResolvedValue(undefined)
+
+    const unauthorizedProjectList = await app.inject({
+      method: 'GET',
+      url: '/trpc/project.list'
+    })
+
+    expect(unauthorizedProjectList.statusCode).toBe(401)
+    expect(app.workspaceManager).toBeDefined()
+
+    await app.close()
+    apps.pop()
+
+    expect(terminalShutdownSpy).toHaveBeenCalledTimes(1)
+    expect(processShutdownSpy).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
   })
 })

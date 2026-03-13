@@ -302,7 +302,7 @@ export function createApp(options: CreateAppOptions = {}) {
 
   app.register(cookie)
 
-  if (runtime.mode === 'cloud' && runtime.cloud) {
+  if (runtime.capabilities.auth && runtime.cloud) {
     app.register(cloudStartupPlugin, {
       cloud: runtime.cloud,
       projectService,
@@ -410,7 +410,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.addHook('onClose', async () => {
     await openCodeService.stop()
     await ralphMcpServer.close()
-    if (localDatabase) {
+    if (runtime.capabilities.terminal) {
       await terminalService.shutdown()
       await processManager.shutdown()
     }

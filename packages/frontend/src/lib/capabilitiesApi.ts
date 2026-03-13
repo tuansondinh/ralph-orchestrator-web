@@ -1,7 +1,7 @@
 import { trpcClient } from '@/lib/trpc'
 
 export interface RuntimeCapabilities {
-  mode: 'local' | 'cloud'
+  mode: 'local' | 'local-cloud' | 'cloud'
   database: true
   auth: boolean
   localProjects: boolean

@@ -74,10 +74,10 @@ function requireAuthenticatedUserId(ctx: Context) {
 }
 
 function assertCloudGitHubAvailable(ctx: Context) {
-  if (ctx.runtime.mode !== 'cloud' || !ctx.runtime.capabilities.githubProjects) {
+  if (!ctx.runtime.capabilities.auth || !ctx.runtime.capabilities.githubProjects) {
     throw new TRPCError({
       code: 'FORBIDDEN',
-      message: 'GitHub cloud procedures are unavailable in local mode.'
+      message: 'GitHub procedures are unavailable in this runtime mode.'
     })
   }
 }
@@ -109,7 +109,7 @@ function requireGitHubService(ctx: Context) {
 async function requireProjectAccess(ctx: Context, projectId: string) {
   const project = await ctx.projectService.get(projectId).catch((error) => asTRPCError(error))
 
-  if (ctx.runtime.mode === 'cloud') {
+  if (ctx.runtime.capabilities.auth) {
     const userId = requireAuthenticatedCloudUser(ctx)
     const projectOwnerId = (project as { userId?: string | null }).userId
     if (projectOwnerId !== userId) {
@@ -125,7 +125,7 @@ async function requireProjectAccess(ctx: Context, projectId: string) {
 
 const projectRouter = t.router({
   list: t.procedure.query(({ ctx }) => {
-    if (ctx.runtime.mode === 'cloud') {
+    if (ctx.runtime.capabilities.auth) {
       const userId = requireAuthenticatedCloudUser(ctx)
       return ctx.projectService
         .findByUserId(userId)

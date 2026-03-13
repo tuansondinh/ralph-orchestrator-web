@@ -407,8 +407,7 @@ export async function registerWebsocket(app: FastifyInstance) {
       return
     }
 
-    const cloudMode =
-      app.runtimeConfig.mode === 'cloud' && app.runtimeConfig.capabilities.auth
+    const cloudMode = app.runtimeConfig.capabilities.auth
     let cloudUserId: string | null = null
     if (cloudMode) {
       try {

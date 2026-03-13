@@ -48,6 +48,46 @@ function getDefaultBaseBranch(branches: GitBranchInfo[]) {
   return branches.find((branch) => branch.current)?.name ?? branches[0]?.name ?? ''
 }
 
+function getBranchPriority(branch: GitBranchInfo) {
+  if (branch.current) {
+    return 3
+  }
+
+  if (!branch.remote) {
+    return 2
+  }
+
+  return 1
+}
+
+function normalizeBranches(branches: GitBranchInfo[]) {
+  const branchNames: string[] = []
+  const branchMap = new Map<string, GitBranchInfo>()
+
+  for (const branch of branches) {
+    const existing = branchMap.get(branch.name)
+    if (!existing) {
+      branchNames.push(branch.name)
+      branchMap.set(branch.name, branch)
+      continue
+    }
+
+    const preferred =
+      getBranchPriority(branch) > getBranchPriority(existing) ? branch : existing
+
+    branchMap.set(branch.name, {
+      ...preferred,
+      current: existing.current || branch.current,
+      remote: preferred.remote ?? existing.remote ?? branch.remote,
+      lastCommit: preferred.lastCommit ?? existing.lastCommit ?? branch.lastCommit
+    })
+  }
+
+  return branchNames
+    .map((branchName) => branchMap.get(branchName))
+    .filter((branch): branch is GitBranchInfo => branch !== undefined)
+}
+
 export function StartLoopDialog({
   projectId,
   onStart,
@@ -197,7 +237,7 @@ export function StartLoopDialog({
       .listBranches(projectId)
       .then((nextBranches) => {
         if (!cancelled) {
-          setBranches(nextBranches)
+          setBranches(normalizeBranches(nextBranches))
         }
       })
       .catch((nextError) => {

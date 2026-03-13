@@ -304,4 +304,39 @@ describe('StartLoopDialog', () => {
       })
     })
   })
+
+  it('deduplicates repeated branch names from local and remote refs in the git branch controls', async () => {
+    vi.mocked(loopApi.listBranches).mockResolvedValue([
+      { name: 'main', current: true },
+      { name: 'main', current: false, remote: 'origin' },
+      { name: 'release/2026.03', current: false },
+      { name: 'release/2026.03', current: false, remote: 'origin' }
+    ])
+
+    const onStart = vi.fn().mockResolvedValue(undefined)
+    renderDialog({ projectId: 'test-project-id', onStart })
+
+    expect(await screen.findByLabelText('Branch mode')).toHaveValue('new')
+
+    const baseBranchOptions = screen
+      .getAllByRole('option')
+      .filter((option) =>
+        ['main (current)', 'release/2026.03'].includes(option.textContent ?? '')
+      )
+
+    expect(baseBranchOptions).toHaveLength(2)
+    expect(screen.getByLabelText('Base branch')).toHaveValue('main')
+
+    fireEvent.change(screen.getByLabelText('Branch mode'), {
+      target: { value: 'existing' }
+    })
+
+    const branchNameInput = screen.getByLabelText('Branch name')
+    const branchOptionValues = Array.from(
+      document.querySelectorAll('#loop-git-branch-options option')
+    ).map((option) => option.getAttribute('value'))
+
+    expect(branchNameInput).toHaveAttribute('list', 'loop-git-branch-options')
+    expect(branchOptionValues).toEqual(['main', 'release/2026.03'])
+  })
 })

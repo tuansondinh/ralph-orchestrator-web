@@ -36,6 +36,7 @@ import { HatsPresetService } from '../src/services/HatsPresetService.js'
 import { TaskService } from '../src/services/TaskService.js'
 import { GitService } from '../src/services/GitService.js'
 import type { BranchInfo } from '../src/services/GitService.js'
+import type { Context } from '../src/trpc/context.js'
 import { appRouter } from '../src/trpc/router.js'
 import { createApp } from '../src/app.js'
 
@@ -317,9 +318,28 @@ describe('loop tRPC routes', () => {
           branch: string
           remote: string
         }>
+        getRemoteUrl?: (projectPath: string, remote?: string) => Promise<string>
+        createPullRequest?: (options: {
+          owner: string
+          repo: string
+          title: string
+          body: string
+          head: string
+          base: string
+          draft?: boolean
+          token: string
+        }) => Promise<{
+          number: number
+          url: string
+          title: string
+        }>
         createBranch?: (projectPath: string, name: string, baseBranch: string) => Promise<void>
         checkoutBranch?: (projectPath: string, name: string) => Promise<void>
       }
+      githubService?: {
+        getDecryptedToken?: (userId: string) => Promise<string>
+      }
+      userId?: string
     } = {}
   ) {
     const tempDir = await createTempDir('loop')
@@ -369,7 +389,9 @@ describe('loop tRPC routes', () => {
       presetService: new PresetService(),
       settingsService: new SettingsService(connection.db),
       hatsPresetService: new HatsPresetService(),
-      taskService: new TaskService(connection.db)
+      taskService: new TaskService(connection.db),
+      githubService: options.githubService as Context['githubService'],
+      userId: options.userId
     })
 
     return { caller, connection, processManager, loopService, tempDir, binaryPath }
@@ -2206,6 +2228,192 @@ describe('loop tRPC routes', () => {
 
     expect(parsedConfig.pushed).toBe(true)
     expect(parsedConfig.pushError).toBeUndefined()
+  })
+
+  it('creates a pull request for a pushed loop and stores the PR metadata', async () => {
+    const createPullRequest = vi.fn(async () => ({
+      number: 42,
+      url: 'https://github.com/acme/project/pull/42',
+      title: 'Feature auto PR'
+    }))
+    const getRemoteUrl = vi.fn(async () => 'git@github.com:acme/project.git')
+    const getDecryptedToken = vi.fn(async () => 'ghp_test')
+    const { caller, connection, tempDir } = await setupCaller({
+      gitService: {
+        getRemoteUrl,
+        createPullRequest
+      },
+      githubService: {
+        getDecryptedToken
+      },
+      userId: 'user-123'
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'completed',
+        config: JSON.stringify({
+          gitBranch: {
+            mode: 'new',
+            name: 'feature-pr',
+            baseBranch: 'main'
+          },
+          pushed: true
+        }),
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: 1_000,
+        endedAt: 2_000
+      })
+      .run()
+
+    await expect(
+      caller.loop.createPullRequest({
+        loopId,
+        targetBranch: 'main',
+        title: 'Feature auto PR',
+        body: 'Implements the feature',
+        draft: true
+      })
+    ).resolves.toEqual({
+      number: 42,
+      url: 'https://github.com/acme/project/pull/42',
+      title: 'Feature auto PR',
+      targetBranch: 'main'
+    })
+
+    expect(getDecryptedToken).toHaveBeenCalledWith('user-123')
+    expect(getRemoteUrl).toHaveBeenCalledWith(projectPath)
+    expect(createPullRequest).toHaveBeenCalledWith({
+      owner: 'acme',
+      repo: 'project',
+      title: 'Feature auto PR',
+      body: 'Implements the feature',
+      head: 'feature-pr',
+      base: 'main',
+      draft: true,
+      token: 'ghp_test'
+    })
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, loopId))
+      .get()
+    const parsedConfig = JSON.parse(persisted?.config ?? '{}') as Record<string, unknown>
+
+    expect(parsedConfig.pullRequest).toEqual({
+      number: 42,
+      url: 'https://github.com/acme/project/pull/42',
+      title: 'Feature auto PR',
+      targetBranch: 'main'
+    })
+  })
+
+  it('rejects pull request creation when the loop has not been pushed', async () => {
+    const { caller, connection, tempDir } = await setupCaller({
+      githubService: {
+        getDecryptedToken: vi.fn(async () => 'ghp_test')
+      },
+      userId: 'user-123'
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'completed',
+        config: JSON.stringify({
+          gitBranch: {
+            mode: 'existing',
+            name: 'feature-pr'
+          }
+        }),
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: 1_000,
+        endedAt: 2_000
+      })
+      .run()
+
+    await expect(
+      caller.loop.createPullRequest({
+        loopId,
+        targetBranch: 'main'
+      })
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'Loop branch must be pushed before creating a pull request.'
+    })
+  })
+
+  it('rejects pull request creation when the user has no GitHub connection', async () => {
+    const { caller, connection, tempDir } = await setupCaller({
+      gitService: {
+        getRemoteUrl: vi.fn(async () => 'https://github.com/acme/project.git')
+      },
+      githubService: {
+        getDecryptedToken: vi.fn(async () => {
+          throw new Error('No GitHub connection found')
+        })
+      },
+      userId: 'user-123'
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'completed',
+        config: JSON.stringify({
+          gitBranch: {
+            mode: 'existing',
+            name: 'feature-pr'
+          },
+          pushed: true
+        }),
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: 1_000,
+        endedAt: 2_000
+      })
+      .run()
+
+    await expect(
+      caller.loop.createPullRequest({
+        loopId,
+        targetBranch: 'main'
+      })
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'No GitHub connection found'
+    })
   })
 
   it('includes uncommitted changes from an active worktree branch', async () => {

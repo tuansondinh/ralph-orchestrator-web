@@ -14,7 +14,7 @@ import { asLoopId, asPrimaryLoopId, asNumber, asRecord, asString, asPersistedGit
 import { LoopNotificationService } from './LoopNotificationService.js';
 import { LoopDiffService } from './LoopDiffService.js';
 import { LoopMetricsService } from './LoopMetricsService.js';
-import { GitService } from './GitService.js';
+import { GitService, parseGitHubRemoteUrl } from './GitService.js';
 export class LoopServiceError extends ServiceError {
     constructor(code, message) {
         super(code, message);
@@ -161,7 +161,9 @@ export class LoopService {
             getCurrentBranch: resolveGitServiceMethod(options.gitService, 'getCurrentBranch', defaultGitService.getCurrentBranch.bind(defaultGitService)),
             createBranch: resolveGitServiceMethod(options.gitService, 'createBranch', defaultGitService.createBranch.bind(defaultGitService)),
             checkoutBranch: resolveGitServiceMethod(options.gitService, 'checkoutBranch', defaultGitService.checkoutBranch.bind(defaultGitService)),
-            push: resolveGitServiceMethod(options.gitService, 'push', defaultGitService.push.bind(defaultGitService))
+            push: resolveGitServiceMethod(options.gitService, 'push', defaultGitService.push.bind(defaultGitService)),
+            getRemoteUrl: resolveGitServiceMethod(options.gitService, 'getRemoteUrl', defaultGitService.getRemoteUrl.bind(defaultGitService)),
+            createPullRequest: resolveGitServiceMethod(options.gitService, 'createPullRequest', defaultGitService.createPullRequest.bind(defaultGitService))
         };
         this.notificationService = new LoopNotificationService(repositories, this.events, this.now);
         this.diffService = new LoopDiffService();
@@ -494,6 +496,44 @@ export class LoopService {
         await this.pushLoopBranch(run, run.state);
         const refreshed = await this.requireLoop(loopId);
         return this.toSummary(refreshed);
+    }
+    async createPullRequest(options) {
+        const run = await this.requireLoop(options.loopId);
+        const rawConfig = parseConfigRecord(run.config);
+        const persistedConfig = parsePersistedConfig(run.config);
+        const gitBranch = persistedConfig.gitBranch;
+        if (!gitBranch || rawConfig.pushed !== true) {
+            throw new LoopServiceError('BAD_REQUEST', 'Loop branch must be pushed before creating a pull request.');
+        }
+        const project = await this.requireProject(run.projectId);
+        const remoteUrl = await this.gitService.getRemoteUrl(project.path);
+        const repoRef = parseGitHubRemoteUrl(remoteUrl);
+        if (!repoRef) {
+            throw new LoopServiceError('BAD_REQUEST', 'Project git remote must point to a GitHub repository.');
+        }
+        const result = await this.gitService.createPullRequest({
+            owner: repoRef.owner,
+            repo: repoRef.repo,
+            title: options.title?.trim() || `Ralph loop changes: ${gitBranch.name}`,
+            body: options.body ?? '',
+            head: gitBranch.name,
+            base: options.targetBranch,
+            draft: options.draft,
+            token: options.token
+        });
+        const pullRequest = {
+            number: result.number,
+            url: result.url,
+            title: result.title,
+            targetBranch: options.targetBranch
+        };
+        await this.loopRuns.update(run.id, {
+            config: JSON.stringify({
+                ...rawConfig,
+                pullRequest
+            })
+        });
+        return pullRequest;
     }
     async reconcileProjectLoops(projectId, options = {}) {
         const minIntervalMs = Math.max(0, options.minIntervalMs ?? PROJECT_RECONCILE_MIN_INTERVAL_MS);

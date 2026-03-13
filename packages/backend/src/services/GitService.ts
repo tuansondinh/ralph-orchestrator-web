@@ -30,6 +30,11 @@ export interface PRResult {
   title: string
 }
 
+export interface GitHubRepoRef {
+  owner: string
+  repo: string
+}
+
 type ExecFileResult = {
   stdout: string
   stderr: string
@@ -96,6 +101,40 @@ function parseBranchLine(line: string): BranchInfo | null {
     name: parts.slice(2).join('/'),
     current: false,
     remote: parts[1]
+  }
+}
+
+export function parseGitHubRemoteUrl(remoteUrl: string): GitHubRepoRef | null {
+  const trimmed = remoteUrl.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const sshMatch = /^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/i.exec(trimmed)
+  if (sshMatch) {
+    return {
+      owner: sshMatch[1],
+      repo: sshMatch[2]
+    }
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.hostname.toLowerCase() !== 'github.com') {
+      return null
+    }
+
+    const segments = parsed.pathname.replace(/^\/+/, '').split('/').filter(Boolean)
+    if (segments.length < 2) {
+      return null
+    }
+
+    return {
+      owner: segments[0],
+      repo: segments[1]?.replace(/\.git$/i, '') ?? ''
+    }
+  } catch {
+    return null
   }
 }
 
@@ -167,6 +206,18 @@ export class GitService {
       return { branch, remote }
     } catch (error) {
       throw new Error(`Failed to push branch: ${getErrorMessage(error)}`)
+    }
+  }
+
+  async getRemoteUrl(projectPath: string, remote = 'origin'): Promise<string> {
+    try {
+      const result = await this.execFile(['remote', 'get-url', remote], {
+        cwd: projectPath,
+        encoding: 'utf8'
+      })
+      return result.stdout.trim()
+    } catch (error) {
+      throw new Error(`Failed to read git remote URL: ${getErrorMessage(error)}`)
     }
   }
 

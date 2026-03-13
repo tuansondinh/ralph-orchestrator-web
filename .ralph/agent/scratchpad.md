@@ -1,123 +1,109 @@
 # Scratchpad
 
-2026-03-11T00:00:00Z Planner iteration:
-- Reviewed existing plan in `.ralph/agent/plan.md`; it already matches the rough-description objective and remains sufficient.
-- Verified `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` currently contains exactly `hello world`.
-- Runtime task queue contains an open verification task: `task-1773244629-aebe` (`Verify root test.md objective state`).
-- Missing scratchpad was recorded as a fix memory and repaired by creating this file.
-- Confidence 96/100: no plan changes needed; next handoff should route Builder to complete the verification task and close it after re-verification.
+2026-03-13T16:08:00Z
 
-2026-03-11T16:00:00Z Builder iteration:
-- Re-verified `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` and confirmed the file contains exactly `hello world`.
-- No code changes were required because the objective state was already correct.
-- Confidence 99/100: safe to close `task-1773244629-aebe` and hand off to Validator with verification-only completion.
+- Current objective is `Ralph Cloud Enhancements`.
+- `.ralph/agent/plan.md` was stale and still referenced an old `test.md` objective, so it was replaced with a plan that points at `specs/ralph-cloud-enhancements/plan.md`.
+- The spec directory already contains usable architecture and implementation sequencing; this iteration only needs to align Ralph runtime state and seed runtime tasks.
+- No ready tasks existed at start, so the next required action is to create an ordered task graph that keeps Track A first, then unlocks Tracks B and C in parallel.
+- Confidence is high because the spec artifacts already define dependency order and acceptance criteria clearly.
+- Seeded runtime tasks for Steps 1-11 with dependencies enforcing Track A first, then unlocking Step 7 and Step 11 in parallel after Step 6.
+- Verified the first ready task is `task-1773415698-eaca` (`Step 1: GitService backend service`).
 
-2026-03-11T16:04:54Z Validator iteration:
-- Verified `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` still contains exactly `hello world`, so the objective state itself is satisfied.
-- Manual E2E for this objective is complete via direct file inspection; no UI or browser path is involved.
-- Repo health gate results: `npm run build`, `npm run lint`, and `npm run typecheck` all passed at the workspace root.
-- `npm test` failed, so validation cannot pass. Focused repro with `npm test -w @ralph-ui/backend -- test/open-code-service.test.ts test/deploy-artifacts.test.ts` confirmed two blockers:
-- `packages/backend/test/open-code-service.test.ts` expects a streaming thinking message, but the snapshot still only contains the user message.
-- `packages/backend/test/deploy-artifacts.test.ts` expects the deploy script to contain the MCP URL template-literal text `url: \`http://127.0.0.1:${port}/mcp\``, but the script currently writes the URL via string concatenation.
-- Recorded the failure as memory `mem-1773245091-b547` and opened follow-up task `task-1773245091-b669` for the deploy-artifacts regression.
-- Confidence 97/100: publish `validation.failed` because automated tests are still red even though the narrow objective file is correct.
+2026-03-13T16:34:00Z
 
-2026-03-11T16:06:00Z Builder iteration:
-- Picked runtime task `task-1773245091-b669` and isolated it with `npm test -w @ralph-ui/backend -- test/deploy-artifacts.test.ts`.
-- Reproduced the red failure on the deploy script MCP URL assertion, then re-ran after aligning the workspace state so `deploy/deploy.sh` contains `url: \`http://127.0.0.1:${port}/mcp\``.
-- Focused verification now passes: `npm test -w @ralph-ui/backend -- test/deploy-artifacts.test.ts`.
-- `deploy/deploy.sh` has unrelated local edits in the dirty worktree, so no safe atomic commit was made for this task.
-- Confidence 93/100: close the deploy-artifacts task and hand off to Validator; remaining backend failures are outside this task scope.
+- Completed Step 1 by adding `GitService` with branch listing/current branch lookup, branch creation/checkout, push, and GitHub PR creation plus Fastify decoration wiring.
+- Added focused backend tests covering git command shapes, branch parsing, PR fetch behavior, error propagation, and `createApp()` decoration.
+- Important repo nuance: backend tests can resolve checked-in `src/*.js` entrypoints instead of the matching `src/*.ts`, so runtime wiring changes must keep both layers aligned until the JS mirror is removed.
 
-2026-03-11T16:08:45Z Validator iteration:
-- Validated the completed deploy-artifacts task by re-running `npm test -w @ralph-ui/backend -- test/deploy-artifacts.test.ts`; it passed with 7/7 tests green.
-- Repo health gates: `npm run build`, `npm run lint`, and `npm run typecheck` all passed at the workspace root.
-- Full `npm test` still failed at the root, but only because `packages/backend/test/open-code-service.test.ts` still misses the streaming thinking message in `OpenCodeService`; the deploy-artifacts regression is no longer present, and `packages/backend/test/loop.test.ts` now passes including the PTY assertion.
-- Manual E2E for the stated objective remains satisfied via direct file inspection: `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` exists and contains exactly `hello world`.
-- Recorded the remaining root test failure as memory `mem-1773245315-246a`.
-- Confidence 95/100: publish `validation.passed` for the deploy-artifacts task because the task-local fix is verified and the only remaining red test belongs to a separate ready task already queued for Builder.
+2026-03-13T15:38:16Z
 
-2026-03-11T17:16:00Z Builder iteration:
-- Picked the remaining OpenCodeService streaming-thinking regression from the validation handoff and reproduced it with `npm test -w @ralph-ui/backend -- test/open-code-service.test.ts`.
-- Fixed `packages/backend/src/services/OpenCodeService.ts` and the tracked JS artifact so `reasoning` parts persist as `thinking` messages and startup now awaits the OpenCode event subscription before the first prompt, removing the race that could drop early streaming events.
-- Focused verification passed: `npm test -w @ralph-ui/backend -- test/open-code-service.test.ts`, `npm run lint -w @ralph-ui/backend`, and `npm run typecheck -w @ralph-ui/backend`.
-- Repo health gates also passed at the workspace root: `npm test`, `npm run build`, `npm run lint`, and `npm run typecheck`.
-- No atomic git commit was created because `packages/backend/src/services/OpenCodeService.ts` and the wider worktree already had unrelated local modifications; staging the full file would have bundled changes outside this atomic fix.
-- Confidence 95/100: safe to hand off to Validator with the reasoning-streaming fix verified repo-wide.
+- Validation pass for `task-1773415698-eaca` failed on mandatory gates.
+- `npm run lint`, `npm run typecheck`, and `npm run build` passed.
+- `npm test` failed with 77 backend failures; the dominant breakages are unrelated runtime/schema issues, especially `loop_runs.branch_name` missing from the active SQLite schema and cloud auth/GitHub integration regressions.
+- Direct task-path verification also failed: `npm test -w @ralph-ui/backend -- test/git-service.test.ts` reports the `createApp` wiring assertion failing because checked-in `packages/backend/src/app.js` calls `resolveGitHubRuntimeConfig()`, but `packages/backend/src/config/runtimeMode.js` does not export that function at runtime.
+- Because the focused Step 1 wiring check and the required full test suite both fail, this task cannot be validated as passed on the current tree; push-back attempt 1 recorded in `.ralph/agent/pushback-tracker.md`.
 
-2026-03-11T17:18:00Z Validator iteration:
-- Re-ran the full workspace test suite with `npm test`; backend completed with 52/52 test files green including `test/open-code-service.test.ts` and the PTY loop coverage, and frontend tests proceeded green through the package run.
-- Re-ran repo health gates at the workspace root: `npm run build`, `npm run lint`, and `npm run typecheck` all exited successfully.
-- Manual E2E for the stated objective remains satisfied via direct file inspection: `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` contains exactly `hello world` plus a trailing newline.
-- Code review for the active task passed: the task-local changes in `packages/backend/src/services/OpenCodeService.ts` await event subscription before prompt dispatch and persist `reasoning` parts as `thinking` messages, which matches the updated test expectations without introducing extra abstraction for this fix.
-- The worktree is still dirty with unrelated local modifications in multiple files, including unrelated edits already present in `packages/backend/src/services/OpenCodeService.ts`; this did not block task-local validation because automated gates are green and the active regression is resolved.
-- Confidence 95/100: publish `validation.passed` for the OpenCodeService reasoning-streaming fix and continue with the remaining queued builder tasks.
+2026-03-13T16:44:00Z
 
-2026-03-11T17:24:00Z Builder iteration:
-- Selected runtime task `task-1773236407-b6ef` (`Fix OpenCodeService union narrowing`) after the previous validation passed.
-- Verified the task’s original failure condition is already resolved in the current workspace: `npm run typecheck -w @ralph-ui/backend` passed, and the original root gate pair `npm run typecheck && npm run build` also passed from the repo root.
-- Inspected the installed `@opencode-ai/sdk` declarations and confirmed the current `ReasoningPart` type still requires `time.start`, so the current `OpenCodeService` access at `part.time.start` is type-safe against the installed SDK surface.
-- No code changes were made for this task because it is stale relative to the current tree; closing it is the smallest safe action.
-- Re-verified the objective file `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` still contains exactly `hello world`.
-- Confidence 96/100: close `task-1773236407-b6ef` and hand off to Validator with verification-only completion.
+- Retry work for `task-1773415698-eaca` confirmed the validator failure was caused by stale ignored build output in `packages/backend/src/app.js`, not by the tracked TypeScript source in `packages/backend/src/app.ts`.
+- Regenerated/aligned the ignored JS entrypoint so local mode no longer calls removed `resolveGitHubRuntimeConfig()` and cloud startup once again registers GitHub auth from `runtime.cloud`.
+- Revalidated with `npm test -w @ralph-ui/backend -- test/git-service.test.ts`, `npm test -w @ralph-ui/backend -- test/github-auth-integration.test.ts`, `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build`; all passed.
+- `packages/backend/src/app.js` is ignored, so this retry does not produce a tracked code diff or git commit even though the workspace is now green.
 
-2026-03-11T17:23:00Z Validator iteration:
-- Validated the completed task `task-1773236407-b6ef` as a task-local verification-only closeout; no code change was required because the reported union-narrowing regression is already absent in the current workspace.
-- Re-ran the full workspace test suite with `npm test`; backend finished with 52/52 test files green and frontend finished with 42/42 test files green.
-- Re-ran repo health gates at the workspace root: `npm run build`, `npm run lint`, and `npm run typecheck` all exited successfully.
-- Manual E2E for the stated objective remains satisfied via direct file inspection: `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` contains exactly `hello world`.
-- Code review for the active task passed: there is no speculative or non-idiomatic fix attached to this closed task because the workspace already satisfies the original typecheck/build condition.
-- `ralph tools task list` still shows two open runtime tasks (`task-1773236251-aeeb` and `task-1773236573-f346`), so this is not final-loop validation and must publish `validation.passed` rather than `LOOP_COMPLETE`.
-- Confidence 97/100: publish `validation.passed` and continue with the remaining queued builder work.
+2026-03-13T16:46:45Z
 
-2026-03-11T17:31:00Z Builder iteration:
-- Selected runtime task `task-1773236573-f346` (`Fix ChatMessage thinking toggle test regression`) after the previous validation passed.
-- Reproduced the current task surface by running `npm test -w @ralph-ui/frontend -- src/components/chat/ChatMessage.test.tsx`; the focused ChatMessage test file already passed 3/3 tests with the expected thinking-toggle behavior.
-- Inspected `packages/frontend/src/components/chat/ChatMessage.tsx` plus the tracked JS artifacts/tests and found the current workspace already contains the collapsible thinking-message implementation and matching assertions; there is no live regression to fix in this tree.
-- Re-ran broader task-local verification with `npm test -w @ralph-ui/frontend`, `npm run lint -w @ralph-ui/frontend`, and `npm run typecheck -w @ralph-ui/frontend`; the frontend workspace is green, including `src/components/chat/ChatMessage.test.tsx`.
-- Re-verified the objective file `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` still contains exactly `hello world`.
-- No code changes were made because the queued runtime task is stale relative to the current workspace state, so the smallest safe action is a verification-only closeout.
-- Confidence 96/100: close `task-1773236573-f346` and hand off to Validator with verification-only completion; `task-1773236251-aeeb` remains open for the next Builder iteration if validation passes.
+- Validator re-ran Step 1 (`task-1773415698-eaca`) after the retry and confirmed the task now satisfies the required gates.
+- Full workspace validation passed: `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build` all exited 0 from the repo root.
+- Direct task-path verification also passed with `npm test -w @ralph-ui/backend -- test/git-service.test.ts test/github-auth-integration.test.ts`, covering GitService wiring and cloud GitHub auth startup behavior.
+- Code review check on the Step 1 surface found the expected `GitService` API in `packages/backend/src/services/GitService.ts` and Fastify decoration in `packages/backend/src/app.ts`; no new YAGNI/KISS/idiomatic blockers were identified for this task.
 
-2026-03-11T17:27:40Z Validator iteration:
-- Validated the completed task `task-1773236573-f346` as a verification-only closeout; the ChatMessage thinking-toggle regression is already absent in the current workspace and `src/components/chat/ChatMessage.test.tsx` remains green.
-- Re-ran the full workspace test suite with `npm test`; backend finished with 52/52 test files green and frontend finished with 42/42 test files green.
-- Re-ran repo health gates at the workspace root: `npm run build`, `npm run lint`, and `npm run typecheck` all exited successfully.
-- Manual E2E for the stated objective remains satisfied via direct file inspection: `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` exists and contains exactly `hello world` plus a trailing newline.
-- Code review for the active task passed: no speculative or non-idiomatic change was introduced for this stale task, and the current collapsible thinking-message behavior matches the existing test expectations.
-- `ralph tools task list` still shows one open runtime task (`task-1773236251-aeeb`), so this is not final-loop validation and must publish `validation.passed` rather than `LOOP_COMPLETE`.
-- Confidence 97/100: publish `validation.passed` and continue with the remaining PTY runtime task.
+2026-03-13T15:57:06Z
 
-2026-03-11T17:29:00Z Builder iteration:
-- Selected runtime task `task-1773236251-aeeb` (`Restore loop PTY spawn semantics`) after the previous validation passed.
-- Reproduced the task surface against the current workspace with `npm test -w @ralph-ui/backend -- test/loop.test.ts` and `npm test -w @ralph-ui/backend -- test/process-manager.test.ts`; both passed, including the PTY assertions that `handle.tty === true` for loop-started and direct PTY runs.
-- Inspected `packages/backend/src/services/LoopService.ts` and `packages/backend/src/runner/ProcessManager.ts`; the current tree still starts loops with `tty: true` and preserves PTY-backed runtime metadata as expected by the tests.
-- Re-verified `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` still contains exactly `hello world`.
-- No code changes were made because the queued PTY regression is already absent in the current workspace, so the smallest safe action is a verification-only closeout.
-- No Playwright/manual browser verification was needed because this task is backend-only and has no UI path.
-- Confidence 97/100: close `task-1773236251-aeeb` and hand off to Validator with a verification-only completion.
+- Completed Step 2 (`task-1773415698-52e8`) by extending `LoopService.start()` and `loop.start`/`loop.listBranches` routing with additive `gitBranch` + `autoPush` support.
+- Branch setup now happens before process spawn: new branches call `gitService.createBranch()` from the selected base or current branch fallback, existing branches call `gitService.checkoutBranch()`, and failures short-circuit loop creation before any process/db side effects.
+- Persisted loop config now carries `gitBranch` and `autoPush`, and restart round-trips those fields through `parsePersistedConfig()` so downstream steps can read the same metadata from loop records.
+- Important runtime nuance remains: backend tests execute the checked-in `src/*.js` layer, so the matching JS mirrors were aligned alongside the TypeScript changes while keeping unrelated worktree changes untouched.
+- Verification passed with `npm test -w @ralph-ui/backend -- test/loop.test.ts -t "creates a new git branch before starting a loop and persists branch config|checks out an existing branch before starting a loop|does not start the loop when git branch setup fails|lists project git branches through tRPC"`, `npm test -w @ralph-ui/backend -- test/loop.test.ts test/git-service.test.ts`, `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build`.
 
-2026-03-11T17:33:00Z Validator iteration:
-- Validated the completed task `task-1773236251-aeeb` as the final remaining runtime task; the queued PTY regression is already absent in the current workspace and the focused backend PTY assertions remain green.
-- Re-ran repo health gates at the workspace root: `npm run build`, `npm run lint`, and `npm run typecheck` all exited successfully.
-- Re-ran automated tests to final green status: backend coverage was confirmed in the root `npm test` run with `52/52` test files passing, and frontend was re-run directly with a quiet summary showing `42/42` test files and `230/230` tests passing.
-- Manual E2E for the stated objective remains satisfied via direct file inspection: `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` contains exactly `hello world` plus a trailing newline.
-- Code review for the active task passed: no speculative or non-idiomatic change was introduced for this stale verification-only task, and the current PTY loop/process-manager behavior matches existing tests.
-- `ralph tools task ready` and `ralph tools task list` both returned empty, so there are no remaining runtime tasks to hand off.
-- Confidence 98/100: final validation passed; emit `LOOP_COMPLETE`.
+2026-03-13T17:00:30Z
 
-2026-03-11T16:33:16Z Builder iteration:
-- Handled the injected `validation.passed` event by re-checking runtime state before doing any new work.
-- Confirmed `ralph tools task ready` and `ralph tools task list` are both empty, so there is no remaining atomic task for Builder to pick up or create from the current plan.
-- Re-verified `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` still contains exactly `hello world`.
-- No code changes were required and no new tasks were created, because the objective is already satisfied and the queue is drained.
-- Confidence 99/100: emit `task.complete` as a no-op handoff so Validator can finalize the run from the empty-queue state.
+- Validator reviewed `task-1773415698-52e8` against Step 2 scope only; later PR/auto-push tasks remain intentionally out of scope for this pass.
+- Full repo gates passed from the repo root: `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build` all exited 0.
+- Direct task-path verification passed with `npm test -w @ralph-ui/backend -- test/loop.test.ts -t "creates a new git branch before starting a loop and persists branch config|checks out an existing branch before starting a loop|does not start the loop when git branch setup fails|lists project git branches through tRPC"`.
+- Code review confirmed the Step 2 surface stays additive and idiomatic: `LoopService.start()` performs branch preparation before spawn, branch failures prevent any process/db side effects, `loop.listBranches` is exposed in `packages/backend/src/trpc/router.ts`, and `parsePersistedConfig()` round-trips `gitBranch`/`autoPush` for restarts.
+- No blocking YAGNI, KISS, or idiomatic issues were found for the active task; unrelated worktree deletions under `.planning/` and edits to `ralph.yml` were left untouched.
 
-2026-03-11T17:35:30Z Validator iteration:
-- Handled the injected `task.complete` no-op builder handoff by re-checking runtime state before finalizing; `ralph tools task ready` returned `No ready tasks` and `ralph tools task list` returned `No tasks found`.
-- Re-ran final repo health gates at the workspace root: `npm test`, `npm run build`, `npm run lint`, and `npm run typecheck` all exited successfully.
-- Automated verification finished fully green: backend reported `52/52` test files passing with `340` passed and `1` skipped tests, and frontend reported `42/42` test files passing with `230/230` tests green.
-- Manual E2E for the stated objective remains satisfied via direct file inspection: `/Users/sonwork/Workspace/ralph-orchestrator-web/test.md` contains exactly `hello world` plus a trailing newline (`'hello world\\n'`).
-- No browser or UI-specific manual path was required because the objective is a direct root-file content check and the workspace already has comprehensive automated coverage green.
-- Code quality review remains non-blocking: no new code was introduced in this validation-only iteration, the queue is empty, and the repository state satisfies the minimal objective without speculative scope.
-- Confidence 99/100: final validation passed with an empty task queue, so emit `LOOP_COMPLETE`.
+2026-03-13T16:13:30Z
+
+- Completed Step 3 (`task-1773415698-ceb4`) by extending `StartLoopDialog` with an optional git branch section that loads project branches, lets the user switch between new/existing branch modes, captures branch names and base branches, and sends `gitBranch` plus `autoPush` in the start payload.
+- Added frontend coverage in `StartLoopDialog.test.tsx` for branch loading, new-branch payload composition, existing-branch payload composition, and updated `LoopsView.test.tsx` mocks so the full frontend suite understands the new `loopApi.listBranches()` surface.
+- Headless Playwright verification against `http://localhost:5174` confirmed the live loops form renders the new branch controls, populates base branches for the repo-backed `ralph-orchestrator-web` project, hides the base-branch dropdown when switching to existing mode, and enables auto-push once a branch name is entered.
+- Browser verification exposed a real backend runtime bug (`this.execFile is not a function`) when `LoopService` received a concrete `GitService` instance, so the iteration included a narrow fix that binds injected git methods in both `packages/backend/src/services/LoopService.ts` and the checked-in JS mirror plus a regression test in `packages/backend/test/loop.test.ts`.
+- Verification passed after the runtime fix with `npm test -w @ralph-ui/frontend -- src/components/loops/StartLoopDialog.test.tsx`, `npm test -w @ralph-ui/frontend -- src/components/loops/LoopsView.test.tsx`, `npm test -w @ralph-ui/frontend`, `npm test -w @ralph-ui/backend -- test/loop.test.ts -t "lists project git branches through tRPC|binds injected GitService instances when listing project branches through tRPC"`, `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build`.
+
+2026-03-13T16:20:00Z
+
+- Validator pass for `task-1773415698-ceb4` re-ran `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build` from the repo root; all exited 0, so automated gates are green.
+- Live headless Playwright verification on `http://localhost:5174/project/44374536-d38e-47ef-b693-5adebdd66e22/loops` reproduced the Step 3 UI and confirmed the new branch controls render against a real git-backed project.
+- That same browser run exposed a blocking Step 3 bug: React emits repeated duplicate-key console errors once the branch controls render because `packages/frontend/src/components/loops/StartLoopDialog.tsx` keys both branch option lists by `branch.name`, while the fetched branch set contains duplicate names from local and remote refs (`main`, `fix/ralph-loop-execution`, `ralph-cloud`).
+- Because the defect sits directly in the shipped Step 3 UI path and can lead to duplicated/omitted options, validation is failed and push-back attempt 1 is recorded in `.ralph/agent/pushback-tracker.md`.
+
+2026-03-13T16:26:00Z
+
+- Retried `task-1773415698-ceb4` by adding a frontend regression test that injects duplicate local/remote branch names and fails on the previous duplicate-key/repeated-option behavior in `StartLoopDialog`.
+- Fixed the UI by normalizing fetched git branches by `name` before storing them in dialog state, preferring current/local refs over remote duplicates so both the datalist and base-branch select render unique options.
+- Aligned the checked-in JS runtime mirror for `StartLoopDialog` with the TypeScript source so the live dev server uses the same branch normalization behavior.
+- Verification passed with `npm test -w @ralph-ui/frontend -- src/components/loops/StartLoopDialog.test.tsx`, `npm test -w @ralph-ui/frontend -- src/components/loops/LoopsView.test.tsx`, `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build`.
+- Headless Playwright verification on `http://localhost:5174/project/44374536-d38e-47ef-b693-5adebdd66e22/loops` confirmed the loops form renders with unique branch option values in both controls and no React duplicate-key console errors; the only remaining console error is the pre-existing `favicon.ico` 404 from Vite dev.
+
+2026-03-13T16:30:45Z
+
+- Validator re-ran Step 3 (`task-1773415698-ceb4`) after the retry and confirmed the task now satisfies the required gates.
+- Full repo validation passed from the repo root: `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build` all exited 0.
+- Code review on the Step 3 surface stayed within scope and idiomatic patterns: `StartLoopDialog` normalizes branch refs before rendering, only sends `gitBranch`/`autoPush` when branch setup is requested, and the supporting tests cover branch loading, payload composition, and duplicate local/remote branch names.
+- Headless Playwright verification on `http://localhost:5174/project/44374536-d38e-47ef-b693-5adebdd66e22/loops` confirmed the live branch UI renders, auto-push enables once a branch name is entered, switching to existing mode removes the base-branch selector, and rendered branch option values remain unique; the only console error was the pre-existing Vite `favicon.ico` 404.
+
+2026-03-13T16:39:37Z
+
+- Completed Step 4 (`task-1773415698-3db2`) by extending `LoopService.handleState()` to attempt branch push after terminal `completed` transitions when persisted config carries both `autoPush: true` and `gitBranch`, while preserving the completed state even if push fails.
+- Added `LoopService.retryPush(loopId)` plus `loop.retryPush` tRPC mutation so failed pushes can be retried manually without restarting the loop; retries reuse the persisted git branch and re-emit the existing loop-state channel after config updates so websocket clients refetch live loop details.
+- Persisted push outcomes directly in loop config as additive metadata: success sets `pushed: true` and clears stale `pushError`, failure stores `pushError` and removes stale `pushed`.
+- Added backend coverage in `packages/backend/test/loop.test.ts` for auto-push success, failure, skip conditions, and manual retry, while keeping the checked-in JS runtime/router mirrors aligned with the TypeScript sources.
+- Verification passed with `npm test -w @ralph-ui/backend -- test/loop.test.ts`, `npm test -w @ralph-ui/backend -- test/loop-state-authority.test.ts`, `npm test -w @ralph-ui/frontend`, `npm run lint`, `npm run typecheck`, and `npm run build`; root `npm test` streamed clean backend/frontend suite output but the workspace runner did not return a final shell status after tests completed.
+
+2026-03-13T17:42:30Z
+
+- Validator pass for `task-1773415698-3db2` confirmed the Step 4 scope only: auto-push on terminal completion, persisted `pushed`/`pushError` metadata, and manual `loop.retryPush`.
+- Full repo gates passed from the repo root with zero exits for `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build`.
+- Direct executable verification used the backend loop suites because Step 4 has no browser/UI surface yet: `npm test -w @ralph-ui/backend -- test/loop.test.ts test/loop-state-authority.test.ts` passed, covering auto-push success, failure, skip conditions, retry, and terminal loop-state handling.
+- Code review found the implementation additive and idiomatic for the active task: `handleState()` persists completion before attempting push, `pushLoopBranch()` preserves completed state on push failure while re-emitting the loop-state channel, and `retryPush()` reuses the persisted branch metadata without restarting the loop.
+- No blocking YAGNI/KISS/idiomatic issues were found for Step 4; unrelated worktree deletions under `.planning/` and edits to `ralph.yml` remain untouched.
+
+2026-03-13T16:58:00Z
+
+- Completed Step 5 (`task-1773415698-a884`) by adding backend pull request creation on top of the Step 4 pushed-state metadata without changing loop start/finish behavior.
+- `GitService` now exposes `getRemoteUrl()` plus `parseGitHubRemoteUrl()` so the backend can resolve GitHub owner/repo from both HTTPS and SSH remotes before calling the existing GitHub PR REST helper.
+- `LoopService.createPullRequest()` now validates pushed branch metadata, resolves the project remote, creates the PR with the persisted loop branch as `head`, and stores additive `pullRequest` metadata (`number`, `url`, `title`, `targetBranch`) back into the loop config.
+- Added `loop.createPullRequest` to the tRPC router; it reuses the authenticated user's decrypted GitHub token via the existing `githubService` wiring and returns a `BAD_REQUEST` when the GitHub connection is missing.
+- Verification passed with focused RED/GREEN coverage in `packages/backend/test/git-service.test.ts` and `packages/backend/test/loop.test.ts`, followed by full repo gates: `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build`.

@@ -53,7 +53,12 @@ import {
 } from './LoopNotificationService.js'
 import { LoopDiffService, type LoopDiff } from './LoopDiffService.js'
 import { LoopMetricsService, type LoopMetrics } from './LoopMetricsService.js'
-import { GitService, type BranchInfo } from './GitService.js'
+import {
+  GitService,
+  parseGitHubRemoteUrl,
+  type BranchInfo,
+  type PRResult
+} from './GitService.js'
 
 type LoopLifecycleState =
   | ProcessState
@@ -99,6 +104,19 @@ export interface LoopSummary {
   currentHat: string | null
 }
 
+export interface LoopPullRequestResult extends PRResult {
+  targetBranch: string
+}
+
+export interface LoopCreatePullRequestOptions {
+  loopId: string
+  targetBranch: string
+  title?: string
+  body?: string
+  draft?: boolean
+  token: string
+}
+
 export interface LoopOutputSnapshot {
   summary: string
   lines: string[]
@@ -135,7 +153,13 @@ interface LoopServiceOptions {
   gitService?: Partial<
     Pick<
       GitService,
-      'listBranches' | 'getCurrentBranch' | 'createBranch' | 'checkoutBranch' | 'push'
+      | 'listBranches'
+      | 'getCurrentBranch'
+      | 'createBranch'
+      | 'checkoutBranch'
+      | 'push'
+      | 'getRemoteUrl'
+      | 'createPullRequest'
     >
   >
 }
@@ -144,7 +168,13 @@ function resolveGitServiceMethod<
   T extends Partial<
     Pick<
       GitService,
-      'listBranches' | 'getCurrentBranch' | 'createBranch' | 'checkoutBranch' | 'push'
+      | 'listBranches'
+      | 'getCurrentBranch'
+      | 'createBranch'
+      | 'checkoutBranch'
+      | 'push'
+      | 'getRemoteUrl'
+      | 'createPullRequest'
     >
   >,
   K extends keyof T
@@ -310,7 +340,13 @@ export class LoopService {
   private readonly runtimeHealthCheckTimer: ReturnType<typeof setInterval> | null
   private readonly gitService: Pick<
     GitService,
-    'listBranches' | 'getCurrentBranch' | 'createBranch' | 'checkoutBranch' | 'push'
+    | 'listBranches'
+    | 'getCurrentBranch'
+    | 'createBranch'
+    | 'checkoutBranch'
+    | 'push'
+    | 'getRemoteUrl'
+    | 'createPullRequest'
   >
 
   constructor(
@@ -355,6 +391,16 @@ export class LoopService {
         options.gitService,
         'push',
         defaultGitService.push.bind(defaultGitService)
+      ),
+      getRemoteUrl: resolveGitServiceMethod(
+        options.gitService,
+        'getRemoteUrl',
+        defaultGitService.getRemoteUrl.bind(defaultGitService)
+      ),
+      createPullRequest: resolveGitServiceMethod(
+        options.gitService,
+        'createPullRequest',
+        defaultGitService.createPullRequest.bind(defaultGitService)
       )
     }
     this.notificationService = new LoopNotificationService(repositories, this.events, this.now)
@@ -769,6 +815,59 @@ export class LoopService {
 
     const refreshed = await this.requireLoop(loopId)
     return this.toSummary(refreshed)
+  }
+
+  async createPullRequest(
+    options: LoopCreatePullRequestOptions
+  ): Promise<LoopPullRequestResult> {
+    const run = await this.requireLoop(options.loopId)
+    const rawConfig = parseConfigRecord(run.config)
+    const persistedConfig = parsePersistedConfig(run.config)
+    const gitBranch = persistedConfig.gitBranch
+
+    if (!gitBranch || rawConfig.pushed !== true) {
+      throw new LoopServiceError(
+        'BAD_REQUEST',
+        'Loop branch must be pushed before creating a pull request.'
+      )
+    }
+
+    const project = await this.requireProject(run.projectId)
+    const remoteUrl = await this.gitService.getRemoteUrl(project.path)
+    const repoRef = parseGitHubRemoteUrl(remoteUrl)
+    if (!repoRef) {
+      throw new LoopServiceError(
+        'BAD_REQUEST',
+        'Project git remote must point to a GitHub repository.'
+      )
+    }
+
+    const result = await this.gitService.createPullRequest({
+      owner: repoRef.owner,
+      repo: repoRef.repo,
+      title: options.title?.trim() || `Ralph loop changes: ${gitBranch.name}`,
+      body: options.body ?? '',
+      head: gitBranch.name,
+      base: options.targetBranch,
+      draft: options.draft,
+      token: options.token
+    })
+
+    const pullRequest = {
+      number: result.number,
+      url: result.url,
+      title: result.title,
+      targetBranch: options.targetBranch
+    }
+
+    await this.loopRuns.update(run.id, {
+      config: JSON.stringify({
+        ...rawConfig,
+        pullRequest
+      })
+    })
+
+    return pullRequest
   }
 
   async reconcileProjectLoops(

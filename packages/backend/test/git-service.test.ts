@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GitService } from '../src/services/GitService.js'
+import { GitService, parseGitHubRemoteUrl } from '../src/services/GitService.js'
 
 const mockExec = vi.fn<
   (args: string[], options: { cwd: string; encoding: 'utf8' }) => Promise<{ stdout: string; stderr: string }>
@@ -97,6 +97,22 @@ describe('GitService', () => {
     )
   })
 
+  it('reads a git remote URL for the project', async () => {
+    mockExec.mockResolvedValue({
+      stdout: 'git@github.com:acme/project.git\n',
+      stderr: ''
+    })
+
+    await expect(service.getRemoteUrl('/tmp/project')).resolves.toBe(
+      'git@github.com:acme/project.git'
+    )
+
+    expect(mockExec).toHaveBeenCalledWith(['remote', 'get-url', 'origin'], {
+      cwd: '/tmp/project',
+      encoding: 'utf8'
+    })
+  })
+
   it('creates a GitHub pull request and returns normalized fields', async () => {
     mockFetch.mockResolvedValue({
       ok: true,
@@ -169,6 +185,22 @@ describe('GitService', () => {
         token: 'ghp_test'
       })
     ).rejects.toThrow('Failed to create pull request: Validation Failed')
+  })
+})
+
+describe('parseGitHubRemoteUrl', () => {
+  it('parses HTTPS GitHub remotes', () => {
+    expect(parseGitHubRemoteUrl('https://github.com/acme/project.git')).toEqual({
+      owner: 'acme',
+      repo: 'project'
+    })
+  })
+
+  it('parses SSH GitHub remotes', () => {
+    expect(parseGitHubRemoteUrl('git@github.com:acme/project.git')).toEqual({
+      owner: 'acme',
+      repo: 'project'
+    })
   })
 })
 

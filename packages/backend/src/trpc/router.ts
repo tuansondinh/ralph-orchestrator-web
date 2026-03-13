@@ -425,6 +425,38 @@ const loopRouter = t.router({
     .mutation(({ ctx, input }) =>
       ctx.loopService.retryPush(input.loopId).catch((error) => asTRPCError(error))
     ),
+  createPullRequest: t.procedure
+    .input(
+      z.object({
+        loopId: z.string().min(1),
+        targetBranch: z.string().trim().min(1),
+        title: z.string().trim().min(1).optional(),
+        body: z.string().optional(),
+        draft: z.boolean().optional()
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = requireAuthenticatedUserId(ctx)
+      const githubService = requireGitHubService(ctx)
+      const githubToken = await githubService.getDecryptedToken(userId).catch((error) => {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            error instanceof Error ? error.message : 'Unable to read GitHub connection.'
+        })
+      })
+
+      return ctx.loopService
+        .createPullRequest({
+          loopId: input.loopId,
+          targetBranch: input.targetBranch,
+          title: input.title,
+          body: input.body,
+          draft: input.draft,
+          token: githubToken
+        })
+        .catch((error) => asTRPCError(error))
+    }),
   getMetrics: t.procedure
     .input(
       z.object({

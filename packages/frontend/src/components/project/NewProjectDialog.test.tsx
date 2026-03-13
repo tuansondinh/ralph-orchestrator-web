@@ -3,8 +3,7 @@ import {
   fireEvent,
   render,
   screen,
-  waitFor,
-  waitForElementToBeRemoved
+  waitFor
 } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
@@ -130,9 +129,11 @@ describe('NewProjectDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New Project' }))
 
     expect(await screen.findByRole('heading', { name: 'Create cloud project' })).toBeInTheDocument()
-    await waitForElementToBeRemoved(() => screen.queryByText('Loading GitHub connection...'))
-    expect(screen.getByLabelText('Repository name')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Repository name')).toBeInTheDocument()
     expect(screen.getByLabelText('Description')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading GitHub connection...')).not.toBeInTheDocument()
+    })
     expect(screen.getByRole('button', { name: 'Private' })).toHaveAttribute(
       'aria-pressed',
       'true'

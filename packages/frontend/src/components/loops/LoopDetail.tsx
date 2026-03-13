@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { CreatePRDialog } from '@/components/loops/CreatePRDialog'
 import { DiffViewer } from '@/components/loops/DiffViewer'
 import { LoopTerminalOutput } from '@/components/loops/LoopTerminalOutput'
-import type { LoopMetrics, LoopSummary } from '@/lib/loopApi'
+import { githubApi } from '@/lib/githubApi'
+import type { LoopConfig, LoopMetrics, LoopPullRequest, LoopSummary } from '@/lib/loopApi'
 
 interface LoopDetailProps {
   loop: LoopSummary | null
@@ -14,9 +16,28 @@ type LoopDetailTab = 'output' | 'review'
 const REVIEWABLE_STATES = new Set(['completed', 'needs-review', 'merged', 'stopped'])
 const ACTIVE_OUTPUT_STATES = new Set(['running', 'queued', 'merging'])
 
+function parseLoopConfig(config: string | null): LoopConfig {
+  if (!config) {
+    return {}
+  }
+
+  try {
+    const parsed = JSON.parse(config) as LoopConfig
+    return typeof parsed === 'object' && parsed !== null ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
 export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
   const [activeTab, setActiveTab] = useState<LoopDetailTab>('output')
+  const [isCreatePROpen, setIsCreatePROpen] = useState(false)
+  const [pullRequest, setPullRequest] = useState<LoopPullRequest | null>(null)
+  const [hasGitHubConnection, setHasGitHubConnection] = useState<boolean | null>(null)
   const showReviewTab = Boolean(loop && REVIEWABLE_STATES.has(loop.state))
+  const parsedConfig = useMemo(() => parseLoopConfig(loop?.config ?? null), [loop?.config])
+  const sourceBranch = parsedConfig.gitBranch?.name ?? ''
+  const canCreatePullRequest = showReviewTab && parsedConfig.pushed === true && !pullRequest
   const outputEmptyMessage = ACTIVE_OUTPUT_STATES.has(loop?.state ?? '')
     ? 'Waiting for loop output...'
     : 'No persisted logs found for this loop.'
@@ -26,10 +47,41 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
   }, [loop?.id])
 
   useEffect(() => {
+    setPullRequest(parsedConfig.pullRequest ?? null)
+    setIsCreatePROpen(false)
+  }, [parsedConfig.pullRequest, loop?.id])
+
+  useEffect(() => {
     if (!showReviewTab) {
       setActiveTab('output')
     }
   }, [showReviewTab])
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!canCreatePullRequest) {
+      setHasGitHubConnection(null)
+      return
+    }
+
+    githubApi
+      .getConnection()
+      .then((connection) => {
+        if (!cancelled) {
+          setHasGitHubConnection(connection !== null)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHasGitHubConnection(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [canCreatePullRequest, loop?.id])
 
   if (!loop) {
     return (
@@ -83,8 +135,59 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {showReviewTab && activeTab === 'review' ? (
-          <div className="h-full overflow-y-auto pr-1">
-            <DiffViewer loopId={loop.id} />
+          <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-2">
+              <div className="text-sm text-zinc-400">
+                {sourceBranch ? (
+                  <span>
+                    Source branch: <code>{sourceBranch}</code>
+                  </span>
+                ) : (
+                  <span>Review the loop diff before opening a pull request.</span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {pullRequest ? (
+                  <a
+                    className="rounded-md border border-emerald-500/60 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-500/20"
+                    href={pullRequest.url}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    View Pull Request
+                  </a>
+                ) : null}
+                {canCreatePullRequest ? (
+                  <button
+                    className="rounded-md border border-amber-500/60 bg-amber-500/15 px-3 py-2 text-sm font-medium text-amber-100 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={hasGitHubConnection !== true}
+                    onClick={() => setIsCreatePROpen(true)}
+                    type="button"
+                  >
+                    Create Pull Request
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {canCreatePullRequest && hasGitHubConnection === false ? (
+              <p className="text-sm text-amber-200">
+                Connect GitHub in Settings before creating a pull request.
+              </p>
+            ) : null}
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <DiffViewer loopId={loop.id} />
+            </div>
+            {isCreatePROpen && sourceBranch ? (
+              <CreatePRDialog
+                defaultTargetBranch={parsedConfig.gitBranch?.baseBranch}
+                loopId={loop.id}
+                projectId={loop.projectId}
+                prompt={loop.prompt}
+                sourceBranch={sourceBranch}
+                onClose={() => setIsCreatePROpen(false)}
+                onCreated={(createdPullRequest) => setPullRequest(createdPullRequest)}
+              />
+            ) : null}
           </div>
         ) : (
           <LoopTerminalOutput chunks={outputChunks} emptyMessage={outputEmptyMessage} />

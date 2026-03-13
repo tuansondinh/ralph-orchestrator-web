@@ -43,6 +43,21 @@ export interface StartLoopGitBranchInput {
   baseBranch?: string
 }
 
+export interface LoopPullRequest {
+  number: number
+  url: string
+  title: string
+  targetBranch?: string
+}
+
+export interface LoopConfig {
+  gitBranch?: StartLoopGitBranchInput
+  autoPush?: boolean
+  pushed?: boolean
+  pushError?: string
+  pullRequest?: LoopPullRequest
+}
+
 export type DiffStatus = 'M' | 'A' | 'D' | 'R'
 
 export interface DiffFile {
@@ -81,6 +96,14 @@ export interface StartLoopInput {
   autoPush?: boolean
 }
 
+export interface CreatePullRequestInput {
+  loopId: string
+  targetBranch: string
+  title?: string
+  body?: string
+  draft?: boolean
+}
+
 export const loopApi = {
   list(projectId: string): Promise<LoopSummary[]> {
     return trpcClient.loop.list.query({ projectId })
@@ -105,5 +128,8 @@ export const loopApi = {
   },
   getDiff(loopId: string): Promise<LoopDiff> {
     return trpcClient.loop.getDiff.query({ loopId })
+  },
+  createPullRequest(input: CreatePullRequestInput): Promise<LoopPullRequest> {
+    return trpcClient.loop.createPullRequest.mutate(input)
   }
 }

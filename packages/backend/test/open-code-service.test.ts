@@ -255,6 +255,19 @@ describe('OpenCodeService', () => {
     expect(identityPrompt).toContain(
       'Always refer to yourself as Ralph or Ralph Assistant'
     )
+    expect(identityPrompt).toContain(
+      'When the user requests "ralph plan" or "ralph task":'
+    )
+    expect(identityPrompt).toContain(
+      'Call list_projects to retrieve available projects'
+    )
+    expect(identityPrompt).toContain(
+      'Only after the user confirms a project, call activate_plan_mode or activate_task_mode with the projectId'
+    )
+    expect(identityPrompt).toContain(
+      'All generated spec files MUST be written inside {project.path}/specs/{task-name}/'
+    )
+    expect(identityPrompt).toContain('Never start planning without knowing the target project')
     expect(options.config?.mcp).toMatchObject({
       ralph: {
         type: 'remote',

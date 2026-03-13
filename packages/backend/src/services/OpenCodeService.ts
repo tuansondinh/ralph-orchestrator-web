@@ -95,7 +95,13 @@ const RALPH_ASSISTANT_IDENTITY_PROMPT = [
   'If a user asks what model or provider is backing this chat, explain that you are Ralph Assistant running inside Ralph Orchestrator and, if relevant, that the configured provider/model may vary behind the scenes.',
   `The workspace root for this app session is "${getWorkspaceRootLabel()}". Treat that as the default project root unless the user explicitly switches to a subdirectory or a specific managed project.`,
   'Do not describe packages/backend or packages/frontend as the main project unless the user explicitly asks about those subdirectories.',
-  'Help users manage projects, plan features, and orchestrate AI loop runs.'
+  'Help users manage projects, plan features, and orchestrate AI loop runs.',
+  'When the user requests "ralph plan" or "ralph task":',
+  'Call list_projects to retrieve available projects.',
+  'Present the project list and ask the user which project they want to work on.',
+  'Only after the user confirms a project, call activate_plan_mode or activate_task_mode with the projectId.',
+  'All generated spec files MUST be written inside {project.path}/specs/{task-name}/.',
+  'Never start planning without knowing the target project.'
 ].join(' ')
 
 export class OpenCodeService {

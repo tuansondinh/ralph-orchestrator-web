@@ -421,7 +421,7 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
 
-    const drawer = screen.getByRole('dialog', { name: 'Project navigation' })
+    const drawer = await screen.findByRole('dialog', { name: 'Project navigation' })
     expect(within(drawer).getByText('Alpha App')).toBeInTheDocument()
 
     fireEvent.click(within(drawer).getByRole('button', { name: 'Alpha App' }))

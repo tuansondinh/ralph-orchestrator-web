@@ -99,10 +99,11 @@ function createDependencies(): RalphMcpServerDependencies {
   }
 
   const projectService = {
-    list: vi.fn(async () => [{ id: 'project-1', name: 'Project 1' }]),
+    list: vi.fn(async () => [{ id: 'project-1', name: 'Project 1', path: '/tmp/project-1' }]),
     findByUserId: vi.fn(async (userId: string) => [{
       id: `${userId}-project`,
       name: `Project for ${userId}`,
+      path: `/tmp/${userId}-project`,
       userId
     }]),
     get: vi.fn(async (projectId: string) => ({
@@ -383,7 +384,7 @@ describe('RalphMcpServer read-only tools', () => {
     expect(tools.sort()).toEqual(ALL_MCP_TOOLS.slice().sort())
   })
 
-  it('list_projects calls ProjectService.list and returns JSON text', async () => {
+  it('list_projects calls ProjectService.list and returns JSON text including paths', async () => {
     const dependencies = createDependencies()
     const harness = await createHarness(dependencies)
     apps.push(harness.app)
@@ -392,7 +393,7 @@ describe('RalphMcpServer read-only tools', () => {
     const parsed = parseToolText(result, 3)
 
     expect(dependencies.projectService.list).toHaveBeenCalledTimes(1)
-    expect(parsed).toEqual([{ id: 'project-1', name: 'Project 1' }])
+    expect(parsed).toEqual([{ id: 'project-1', name: 'Project 1', path: '/tmp/project-1' }])
   })
 
   it('list_projects scopes to the authenticated cloud user when auth context is present', async () => {
@@ -412,7 +413,12 @@ describe('RalphMcpServer read-only tools', () => {
     expect(dependencies.projectService.findByUserId).toHaveBeenCalledWith('user-123')
     expect(dependencies.projectService.list).not.toHaveBeenCalled()
     expect(parsed).toEqual([
-      { id: 'user-123-project', name: 'Project for user-123', userId: 'user-123' }
+      {
+        id: 'user-123-project',
+        name: 'Project for user-123',
+        path: '/tmp/user-123-project',
+        userId: 'user-123'
+      }
     ])
   })
 
@@ -573,6 +579,96 @@ describe('RalphMcpServer read-only tools', () => {
       sourceDirectory: '/tmp/presets',
       presets: [{ id: 'builder.yml', name: 'builder' }]
     })
+  })
+
+  it('activate_plan_mode requires a projectId', async () => {
+    const dependencies = createDependencies()
+    const harness = await createHarness(dependencies)
+    apps.push(harness.app)
+
+    const result = await callTool(harness, 111, 'activate_plan_mode', {})
+    const error = parseToolError(result, 111)
+
+    expect(error).toContain('projectId')
+    expect(dependencies.projectService.get).not.toHaveBeenCalled()
+    expect(dependencies.sopService.getPlanGuide).not.toHaveBeenCalled()
+  })
+
+  it('activate_plan_mode returns plan instructions with project context', async () => {
+    const dependencies = createDependencies()
+    const harness = await createHarness(dependencies)
+    apps.push(harness.app)
+
+    const result = await callTool(harness, 112, 'activate_plan_mode', {
+      projectId: 'project-1'
+    })
+    const parsed = parseToolText(result, 112) as {
+      instructions: string
+      projectContext: {
+        id: string
+        name: string
+        path: string
+        specsPath: string
+      }
+      _meta: string
+    }
+
+    expect(dependencies.projectService.get).toHaveBeenCalledWith('project-1')
+    expect(dependencies.sopService.getPlanGuide).toHaveBeenCalledTimes(1)
+    expect(parsed.projectContext).toEqual({
+      id: 'project-1',
+      name: 'Project project-1',
+      path: '/tmp/project-1',
+      specsPath: '/tmp/project-1/specs/'
+    })
+    expect(parsed.instructions).toContain('# PDD Guide')
+    expect(parsed.instructions).toContain('/tmp/project-1/specs/')
+    expect(parsed._meta).toContain('/tmp/project-1/specs/')
+  })
+
+  it('activate_task_mode requires a projectId', async () => {
+    const dependencies = createDependencies()
+    const harness = await createHarness(dependencies)
+    apps.push(harness.app)
+
+    const result = await callTool(harness, 113, 'activate_task_mode', {})
+    const error = parseToolError(result, 113)
+
+    expect(error).toContain('projectId')
+    expect(dependencies.projectService.get).not.toHaveBeenCalled()
+    expect(dependencies.sopService.getTaskGuide).not.toHaveBeenCalled()
+  })
+
+  it('activate_task_mode returns task instructions with project context', async () => {
+    const dependencies = createDependencies()
+    const harness = await createHarness(dependencies)
+    apps.push(harness.app)
+
+    const result = await callTool(harness, 114, 'activate_task_mode', {
+      projectId: 'project-1'
+    })
+    const parsed = parseToolText(result, 114) as {
+      instructions: string
+      projectContext: {
+        id: string
+        name: string
+        path: string
+        specsPath: string
+      }
+      _meta: string
+    }
+
+    expect(dependencies.projectService.get).toHaveBeenCalledWith('project-1')
+    expect(dependencies.sopService.getTaskGuide).toHaveBeenCalledTimes(1)
+    expect(parsed.projectContext).toEqual({
+      id: 'project-1',
+      name: 'Project project-1',
+      path: '/tmp/project-1',
+      specsPath: '/tmp/project-1/specs/'
+    })
+    expect(parsed.instructions).toContain('# Task Guide')
+    expect(parsed.instructions).toContain('/tmp/project-1/specs/')
+    expect(parsed._meta).toContain('/tmp/project-1/specs/')
   })
 
   it('start_loop calls LoopService.start with projectId and parsed options', async () => {

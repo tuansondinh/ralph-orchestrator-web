@@ -313,6 +313,10 @@ describe('loop tRPC routes', () => {
       listedLoopEntries?: Array<Record<string, unknown>>
       gitService?: {
         listBranches?: (projectPath: string) => Promise<BranchInfo[]>
+        push?: (projectPath: string, branch: string, remote?: string) => Promise<{
+          branch: string
+          remote: string
+        }>
         createBranch?: (projectPath: string, name: string, baseBranch: string) => Promise<void>
         checkoutBranch?: (projectPath: string, name: string) => Promise<void>
       }
@@ -1989,6 +1993,219 @@ describe('loop tRPC routes', () => {
         })
       ])
     )
+  })
+
+  it('pushes a git branch when a loop completes with auto-push enabled', async () => {
+    const push = vi.fn(async () => ({ branch: 'feature-auto-push', remote: 'origin' }))
+    const { connection, loopService, tempDir } = await setupCaller({
+      gitService: {
+        push
+      }
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'running',
+        config: JSON.stringify({
+          gitBranch: {
+            mode: 'new',
+            name: 'feature-auto-push',
+            baseBranch: 'main'
+          },
+          autoPush: true
+        }),
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: 1_000,
+        endedAt: null
+      })
+      .run()
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (loopService as any).handleState(loopId, 'completed')
+
+    expect(push).toHaveBeenCalledWith(projectPath, 'feature-auto-push')
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, loopId))
+      .get()
+    const parsedConfig = JSON.parse(persisted?.config ?? '{}') as Record<string, unknown>
+
+    expect(persisted?.state).toBe('completed')
+    expect(parsedConfig.pushed).toBe(true)
+    expect(parsedConfig.pushError).toBeUndefined()
+  })
+
+  it('stores push errors without crashing loop completion', async () => {
+    const push = vi.fn(async () => {
+      throw new Error('remote rejected')
+    })
+    const { connection, loopService, tempDir } = await setupCaller({
+      gitService: {
+        push
+      }
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'running',
+        config: JSON.stringify({
+          gitBranch: {
+            mode: 'existing',
+            name: 'feature-auto-push'
+          },
+          autoPush: true
+        }),
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: 1_000,
+        endedAt: null
+      })
+      .run()
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (loopService as any).handleState(loopId, 'completed')
+
+    expect(push).toHaveBeenCalledWith(projectPath, 'feature-auto-push')
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, loopId))
+      .get()
+    const parsedConfig = JSON.parse(persisted?.config ?? '{}') as Record<string, unknown>
+
+    expect(persisted?.state).toBe('completed')
+    expect(parsedConfig.pushed).not.toBe(true)
+    expect(parsedConfig.pushError).toBe('remote rejected')
+  })
+
+  it('skips auto-push when branch metadata is missing or disabled', async () => {
+    const push = vi.fn(async () => ({ branch: 'feature-auto-push', remote: 'origin' }))
+    const { connection, loopService, tempDir } = await setupCaller({
+      gitService: {
+        push
+      }
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    for (const [loopId, config] of [
+      [
+        randomUUID(),
+        {
+          gitBranch: {
+            mode: 'existing',
+            name: 'feature-disabled'
+          },
+          autoPush: false
+        }
+      ],
+      [
+        randomUUID(),
+        {
+          autoPush: true
+        }
+      ]
+    ] as const) {
+      await connection.db
+        .insert(loopRuns)
+        .values({
+          id: loopId,
+          projectId,
+          state: 'running',
+          config: JSON.stringify(config),
+          prompt: null,
+          worktree: null,
+          iterations: 0,
+          tokensUsed: 0,
+          errors: 0,
+          startedAt: 1_000,
+          endedAt: null
+        })
+        .run()
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (loopService as any).handleState(loopId, 'completed')
+    }
+
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('retries pushing a completed loop through tRPC', async () => {
+    const push = vi.fn(async () => ({ branch: 'feature-retry', remote: 'origin' }))
+    const { caller, connection, tempDir } = await setupCaller({
+      gitService: {
+        push
+      }
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'completed',
+        config: JSON.stringify({
+          gitBranch: {
+            mode: 'new',
+            name: 'feature-retry',
+            baseBranch: 'main'
+          },
+          autoPush: true,
+          pushError: 'previous failure'
+        }),
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: 1_000,
+        endedAt: 2_000
+      })
+      .run()
+
+    const retried = await caller.loop.retryPush({ loopId })
+
+    expect(push).toHaveBeenCalledWith(projectPath, 'feature-retry')
+    expect(retried.state).toBe('completed')
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, loopId))
+      .get()
+    const parsedConfig = JSON.parse(persisted?.config ?? '{}') as Record<string, unknown>
+
+    expect(parsedConfig.pushed).toBe(true)
+    expect(parsedConfig.pushError).toBeUndefined()
   })
 
   it('includes uncommitted changes from an active worktree branch', async () => {

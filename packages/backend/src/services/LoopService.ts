@@ -135,14 +135,17 @@ interface LoopServiceOptions {
   gitService?: Partial<
     Pick<
       GitService,
-      'listBranches' | 'getCurrentBranch' | 'createBranch' | 'checkoutBranch'
+      'listBranches' | 'getCurrentBranch' | 'createBranch' | 'checkoutBranch' | 'push'
     >
   >
 }
 
 function resolveGitServiceMethod<
   T extends Partial<
-    Pick<GitService, 'listBranches' | 'getCurrentBranch' | 'createBranch' | 'checkoutBranch'>
+    Pick<
+      GitService,
+      'listBranches' | 'getCurrentBranch' | 'createBranch' | 'checkoutBranch' | 'push'
+    >
   >,
   K extends keyof T
 >(service: T | undefined, key: K, fallback: NonNullable<T[K]>): NonNullable<T[K]> {
@@ -307,7 +310,7 @@ export class LoopService {
   private readonly runtimeHealthCheckTimer: ReturnType<typeof setInterval> | null
   private readonly gitService: Pick<
     GitService,
-    'listBranches' | 'getCurrentBranch' | 'createBranch' | 'checkoutBranch'
+    'listBranches' | 'getCurrentBranch' | 'createBranch' | 'checkoutBranch' | 'push'
   >
 
   constructor(
@@ -347,6 +350,11 @@ export class LoopService {
         options.gitService,
         'checkoutBranch',
         defaultGitService.checkoutBranch.bind(defaultGitService)
+      ),
+      push: resolveGitServiceMethod(
+        options.gitService,
+        'push',
+        defaultGitService.push.bind(defaultGitService)
       )
     }
     this.notificationService = new LoopNotificationService(repositories, this.events, this.now)
@@ -748,6 +756,21 @@ export class LoopService {
     return this.gitService.listBranches(project.path)
   }
 
+  async retryPush(loopId: string): Promise<LoopSummary> {
+    const run = await this.requireLoop(loopId)
+    if (run.state === 'running' || run.state === 'queued' || run.state === 'merging') {
+      throw new LoopServiceError(
+        'BAD_REQUEST',
+        'Loop must be completed or stopped before retrying push.'
+      )
+    }
+
+    await this.pushLoopBranch(run, run.state as LoopLifecycleState)
+
+    const refreshed = await this.requireLoop(loopId)
+    return this.toSummary(refreshed)
+  }
+
   async reconcileProjectLoops(
     projectId: string,
     options: { minIntervalMs?: number } = {}
@@ -1114,6 +1137,13 @@ export class LoopService {
 
     this.events.emit(`${STATE_EVENT_PREFIX}${loopId}`, nextState)
     await this.notificationService.notifyForLoopState(loopId, nextState, runtime?.notified)
+
+    if (nextState === 'completed') {
+      const refreshed = await this.loopRuns.findById(loopId)
+      if (refreshed) {
+        await this.pushLoopBranch(refreshed, nextState)
+      }
+    }
 
     if (!runtime) {
       return
@@ -1622,6 +1652,42 @@ export class LoopService {
     const baseBranch =
       normalizedBranch.baseBranch ?? await this.gitService.getCurrentBranch(projectPath)
     await this.gitService.createBranch(projectPath, normalizedBranch.name, baseBranch)
+  }
+
+  private async pushLoopBranch(
+    run: LoopRunRecord,
+    stateToEmit: LoopLifecycleState
+  ): Promise<void> {
+    const persistedConfig = parsePersistedConfig(run.config)
+    const gitBranch = persistedConfig.gitBranch
+    if (!persistedConfig.autoPush || !gitBranch) {
+      return
+    }
+
+    const project = await this.requireProject(run.projectId)
+    const rawConfig = parseConfigRecord(run.config)
+
+    try {
+      await this.gitService.push(project.path, gitBranch.name)
+      const { pushError: _pushError, ...configWithoutPushError } = rawConfig
+      await this.loopRuns.update(run.id, {
+        config: JSON.stringify({
+          ...configWithoutPushError,
+          pushed: true
+        })
+      })
+    } catch (error) {
+      const { pushed: _pushed, ...configWithoutPushed } = rawConfig
+      await this.loopRuns.update(run.id, {
+        config: JSON.stringify({
+          ...configWithoutPushed,
+          pushError: getErrorOutput(error)
+        })
+      })
+      console.error(`[LoopService] Failed to push loop branch for ${run.id}:`, error)
+    }
+
+    this.events.emit(`${STATE_EVENT_PREFIX}${run.id}`, stateToEmit)
   }
 
   private async resolveHeadCommit(projectPath: string): Promise<string | null> {

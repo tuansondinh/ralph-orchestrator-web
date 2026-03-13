@@ -416,6 +416,15 @@ const loopRouter = t.router({
     .mutation(({ ctx, input }) =>
       ctx.loopService.restart(input.loopId).catch((error) => asTRPCError(error))
     ),
+  retryPush: t.procedure
+    .input(
+      z.object({
+        loopId: z.string().min(1)
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      ctx.loopService.retryPush(input.loopId).catch((error) => asTRPCError(error))
+    ),
   getMetrics: t.procedure
     .input(
       z.object({

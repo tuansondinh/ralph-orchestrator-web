@@ -160,7 +160,8 @@ export class LoopService {
             listBranches: resolveGitServiceMethod(options.gitService, 'listBranches', defaultGitService.listBranches.bind(defaultGitService)),
             getCurrentBranch: resolveGitServiceMethod(options.gitService, 'getCurrentBranch', defaultGitService.getCurrentBranch.bind(defaultGitService)),
             createBranch: resolveGitServiceMethod(options.gitService, 'createBranch', defaultGitService.createBranch.bind(defaultGitService)),
-            checkoutBranch: resolveGitServiceMethod(options.gitService, 'checkoutBranch', defaultGitService.checkoutBranch.bind(defaultGitService))
+            checkoutBranch: resolveGitServiceMethod(options.gitService, 'checkoutBranch', defaultGitService.checkoutBranch.bind(defaultGitService)),
+            push: resolveGitServiceMethod(options.gitService, 'push', defaultGitService.push.bind(defaultGitService))
         };
         this.notificationService = new LoopNotificationService(repositories, this.events, this.now);
         this.diffService = new LoopDiffService();
@@ -485,6 +486,15 @@ export class LoopService {
         const project = await this.requireProject(projectId);
         return this.gitService.listBranches(project.path);
     }
+    async retryPush(loopId) {
+        const run = await this.requireLoop(loopId);
+        if (run.state === 'running' || run.state === 'queued' || run.state === 'merging') {
+            throw new LoopServiceError('BAD_REQUEST', 'Loop must be completed or stopped before retrying push.');
+        }
+        await this.pushLoopBranch(run, run.state);
+        const refreshed = await this.requireLoop(loopId);
+        return this.toSummary(refreshed);
+    }
     async reconcileProjectLoops(projectId, options = {}) {
         const minIntervalMs = Math.max(0, options.minIntervalMs ?? PROJECT_RECONCILE_MIN_INTERVAL_MS);
         const nowMs = this.now().getTime();
@@ -772,6 +782,12 @@ export class LoopService {
         await this.loopRuns.update(loopId, updates);
         this.events.emit(`${STATE_EVENT_PREFIX}${loopId}`, nextState);
         await this.notificationService.notifyForLoopState(loopId, nextState, runtime?.notified);
+        if (nextState === 'completed') {
+            const refreshed = await this.loopRuns.findById(loopId);
+            if (refreshed) {
+                await this.pushLoopBranch(refreshed, nextState);
+            }
+        }
         if (!runtime) {
             return;
         }
@@ -1180,6 +1196,36 @@ export class LoopService {
         }
         const baseBranch = normalizedBranch.baseBranch ?? await this.gitService.getCurrentBranch(projectPath);
         await this.gitService.createBranch(projectPath, normalizedBranch.name, baseBranch);
+    }
+    async pushLoopBranch(run, stateToEmit) {
+        const persistedConfig = parsePersistedConfig(run.config);
+        const gitBranch = persistedConfig.gitBranch;
+        if (!persistedConfig.autoPush || !gitBranch) {
+            return;
+        }
+        const project = await this.requireProject(run.projectId);
+        const rawConfig = parseConfigRecord(run.config);
+        try {
+            await this.gitService.push(project.path, gitBranch.name);
+            const { pushError: _pushError, ...configWithoutPushError } = rawConfig;
+            await this.loopRuns.update(run.id, {
+                config: JSON.stringify({
+                    ...configWithoutPushError,
+                    pushed: true
+                })
+            });
+        }
+        catch (error) {
+            const { pushed: _pushed, ...configWithoutPushed } = rawConfig;
+            await this.loopRuns.update(run.id, {
+                config: JSON.stringify({
+                    ...configWithoutPushed,
+                    pushError: getErrorOutput(error)
+                })
+            });
+            console.error(`[LoopService] Failed to push loop branch for ${run.id}:`, error);
+        }
+        this.events.emit(`${STATE_EVENT_PREFIX}${run.id}`, stateToEmit);
     }
     async resolveHeadCommit(projectPath) {
         try {

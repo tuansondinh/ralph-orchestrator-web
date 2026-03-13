@@ -67,7 +67,7 @@ describe('GET /health', () => {
             terminal: false,
             preview: false,
             localDirectoryPicker: false,
-            mcp: false
+            mcp: true
           }
         }
       })

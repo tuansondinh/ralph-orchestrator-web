@@ -357,6 +357,104 @@ describe('createApp cloud service wiring', () => {
     expect(tools).toContain('activate_plan_mode')
   })
 
+  it('requires Supabase auth for the public cloud MCP endpoint', async () => {
+    const repositories: RepositoryBundle = {
+      projects: {
+        list: vi.fn().mockResolvedValue([]),
+        findById: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(null),
+        update: vi.fn().mockResolvedValue(null),
+        delete: vi.fn().mockResolvedValue(undefined),
+        findByUserId: vi.fn().mockResolvedValue([]),
+        findByGitHubRepo: vi.fn().mockResolvedValue(null)
+      },
+      loopRuns: {
+        listAll: vi.fn().mockResolvedValue([]),
+        listByProjectId: vi.fn().mockResolvedValue([]),
+        findById: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(null),
+        update: vi.fn().mockResolvedValue(null),
+        findByState: vi.fn().mockResolvedValue([])
+      },
+      chats: {
+        findSessionById: vi.fn().mockResolvedValue(null),
+        findLatestActiveSessionByProjectId: vi.fn().mockResolvedValue(null),
+        createSession: vi.fn().mockResolvedValue(null),
+        updateSession: vi.fn().mockResolvedValue(null),
+        listMessagesBySessionId: vi.fn().mockResolvedValue([]),
+        createMessage: vi.fn().mockResolvedValue(null)
+      },
+      notifications: {
+        list: vi.fn().mockResolvedValue([]),
+        findById: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(null),
+        update: vi.fn().mockResolvedValue(null),
+        delete: vi.fn().mockResolvedValue(undefined)
+      },
+      settings: {
+        list: vi.fn().mockResolvedValue([]),
+        get: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined)
+      },
+      githubConnections: {
+        findByUserId: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(null),
+        delete: vi.fn().mockResolvedValue(undefined)
+      },
+      loopOutput: {
+        append: vi.fn().mockResolvedValue(undefined),
+        getByLoopRunId: vi.fn().mockResolvedValue([]),
+        deleteByLoopRunId: vi.fn().mockResolvedValue(undefined)
+      }
+    }
+    const databaseProvider: DatabaseProvider = {
+      mode: 'cloud',
+      dialect: 'postgres',
+      client: {} as never,
+      db: {} as never,
+      metadata: {
+        connectionString: 'postgresql://postgres:postgres@localhost:5432/ralph'
+      },
+      close: vi.fn(async () => {})
+    }
+    createRepositoryBundle.mockReturnValue(repositories)
+
+    const app = createApp({
+      runtime: createTestRuntime('cloud'),
+      databaseProviderFactory: () => databaseProvider
+    })
+    apps.push(app)
+
+    const unauthorizedResponse = await app.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers: {
+        accept: 'application/json, text/event-stream',
+        'content-type': 'application/json'
+      },
+      payload: {
+        jsonrpc: '2.0',
+        id: 10,
+        method: 'initialize',
+        params: {
+          protocolVersion: LATEST_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: {
+            name: 'cloud-test-client',
+            version: '1.0.0'
+          }
+        }
+      }
+    })
+
+    expect(unauthorizedResponse.statusCode).toBe(401)
+    expect(unauthorizedResponse.json()).toEqual({
+      error: 'Missing authorization token'
+    })
+
+  })
+
   it('initializes auth middleware in local-cloud mode and still shuts down terminal resources on close', async () => {
     const repositories: RepositoryBundle = {
       projects: {

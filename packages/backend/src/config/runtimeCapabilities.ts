@@ -35,7 +35,7 @@ export const CLOUD_RUNTIME_CAPABILITIES = {
   terminal: false,
   preview: false,
   localDirectoryPicker: false,
-  mcp: false
+  mcp: true
 } satisfies RuntimeCapabilities
 
 export const LOCAL_CLOUD_RUNTIME_CAPABILITIES = {

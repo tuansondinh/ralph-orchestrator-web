@@ -42,7 +42,7 @@ describe('createApp database provider wiring', () => {
           terminal: false,
           preview: false,
           localDirectoryPicker: false,
-          mcp: false
+          mcp: true
         },
         cloud: {
           supabaseUrl: 'https://example.supabase.co',

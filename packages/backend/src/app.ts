@@ -4,6 +4,7 @@ import Fastify, {
   type FastifyRequest
 } from 'fastify'
 import crypto from 'crypto'
+import type { IncomingMessage } from 'node:http'
 import cors from '@fastify/cors'
 import fastifyStatic from '@fastify/static'
 import cookie from '@fastify/cookie'
@@ -62,6 +63,14 @@ function parseSettingInteger(value: string | undefined, fallback: number) {
 
 const API_ROUTE_PREFIXES = ['/trpc', '/chat', '/ws', '/mcp', '/health']
 const INTERNAL_MCP_AUTH_HEADER = 'x-ralph-internal-mcp-token'
+type AuthenticatedMcpRequest = IncomingMessage & {
+  auth?: {
+    token: string
+    clientId: string
+    scopes: string[]
+    extra?: Record<string, unknown>
+  }
+}
 
 function resolveStaticDirectory() {
   const configuredRoot = process.env.RALPH_UI_STATIC_ROOT
@@ -337,6 +346,18 @@ export function createApp(options: CreateAppOptions = {}) {
   })
 
   const handleMcpRequest = async (request: FastifyRequest, reply: FastifyReply) => {
+    const authHeader = request.headers.authorization
+    if (request.userId && authHeader?.startsWith('Bearer ')) {
+      ;(request.raw as AuthenticatedMcpRequest).auth = {
+        token: authHeader.slice('Bearer '.length),
+        clientId: 'supabase-user',
+        scopes: [],
+        extra: {
+          userId: request.userId
+        }
+      }
+    }
+
     reply.hijack()
     try {
       await ralphMcpServer.handleRequest(request.raw, reply.raw, request.body)

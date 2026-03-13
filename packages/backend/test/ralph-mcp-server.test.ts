@@ -67,6 +67,21 @@ function parseToolText(
   return JSON.parse(String(result.content?.[0]?.text))
 }
 
+function parseToolError(
+  message: Record<string, unknown>,
+  expectedId: number
+): string {
+  expect(message.id).toBe(expectedId)
+  const result = message.result as {
+    content?: Array<{ text?: unknown; type?: unknown }>
+    isError?: unknown
+  }
+  expect(result.isError).toBe(true)
+  expect(result.content?.[0]?.type).toBe('text')
+  expect(typeof result.content?.[0]?.text).toBe('string')
+  return String(result.content?.[0]?.text)
+}
+
 function createDependencies(): RalphMcpServerDependencies {
   const activePlanSession: ChatSessionSummary = {
     id: 'chat-session-1',
@@ -85,11 +100,17 @@ function createDependencies(): RalphMcpServerDependencies {
 
   const projectService = {
     list: vi.fn(async () => [{ id: 'project-1', name: 'Project 1' }]),
+    findByUserId: vi.fn(async (userId: string) => [{
+      id: `${userId}-project`,
+      name: `Project for ${userId}`,
+      userId
+    }]),
     get: vi.fn(async (projectId: string) => ({
       id: projectId,
       name: `Project ${projectId}`,
       path: `/tmp/${projectId}`,
-      ralphConfig: 'custom.yml'
+      ralphConfig: 'custom.yml',
+      userId: projectId === 'foreign-project' ? 'user-999' : 'user-123'
     })),
     create: vi.fn(async (input: { name: string; path: string; createIfMissing?: boolean }) => ({
       id: 'project-created',
@@ -230,6 +251,23 @@ async function createHarness(dependencies: RalphMcpServerDependencies) {
     method: ['GET', 'POST', 'DELETE'],
     url: '/mcp',
     handler: async (request, reply) => {
+      if (request.headers.authorization === 'Bearer valid-token') {
+        ;(request.raw as typeof request.raw & {
+          auth?: {
+            token: string
+            clientId: string
+            scopes: string[]
+            extra?: Record<string, unknown>
+          }
+        }).auth = {
+          token: 'valid-token',
+          clientId: 'ralph-test-client',
+          scopes: [],
+          extra: {
+            userId: 'user-123'
+          }
+        }
+      }
       reply.hijack()
       await mcpServer.handleRequest(request.raw, reply.raw, request.body)
     }
@@ -270,7 +308,8 @@ async function createHarness(dependencies: RalphMcpServerDependencies) {
 
 async function callMcp(
   input: { app: ReturnType<typeof Fastify>; sessionId: string },
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  headers: Record<string, string> = {}
 ) {
   const response = await input.app.inject({
     method: 'POST',
@@ -279,7 +318,8 @@ async function callMcp(
       accept: 'application/json, text/event-stream',
       'content-type': 'application/json',
       'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
-      'mcp-session-id': input.sessionId
+      'mcp-session-id': input.sessionId,
+      ...headers
     },
     payload
   })
@@ -292,7 +332,8 @@ async function callTool(
   input: { app: ReturnType<typeof Fastify>; sessionId: string },
   id: number,
   name: string,
-  args: Record<string, unknown> = {}
+  args: Record<string, unknown> = {},
+  headers: Record<string, string> = {}
 ) {
   const messages = await callMcp(input, {
     jsonrpc: '2.0',
@@ -302,7 +343,7 @@ async function callTool(
       name,
       arguments: args
     }
-  })
+  }, headers)
 
   const result = messages.find((message) => message.id === id)
   expect(result).toBeDefined()
@@ -354,6 +395,27 @@ describe('RalphMcpServer read-only tools', () => {
     expect(parsed).toEqual([{ id: 'project-1', name: 'Project 1' }])
   })
 
+  it('list_projects scopes to the authenticated cloud user when auth context is present', async () => {
+    const dependencies = createDependencies()
+    const harness = await createHarness(dependencies)
+    apps.push(harness.app)
+
+    const result = await callTool(
+      harness,
+      31,
+      'list_projects',
+      {},
+      { authorization: 'Bearer valid-token' }
+    )
+    const parsed = parseToolText(result, 31)
+
+    expect(dependencies.projectService.findByUserId).toHaveBeenCalledWith('user-123')
+    expect(dependencies.projectService.list).not.toHaveBeenCalled()
+    expect(parsed).toEqual([
+      { id: 'user-123-project', name: 'Project for user-123', userId: 'user-123' }
+    ])
+  })
+
   it('get_project calls ProjectService.get and returns JSON text', async () => {
     const dependencies = createDependencies()
     const harness = await createHarness(dependencies)
@@ -369,6 +431,24 @@ describe('RalphMcpServer read-only tools', () => {
       id: 'project-1',
       path: '/tmp/project-1'
     })
+  })
+
+  it('get_project rejects access to a foreign project when auth context is present', async () => {
+    const dependencies = createDependencies()
+    const harness = await createHarness(dependencies)
+    apps.push(harness.app)
+
+    const result = await callTool(
+      harness,
+      32,
+      'get_project',
+      { projectId: 'foreign-project' },
+      { authorization: 'Bearer valid-token' }
+    )
+    const error = parseToolError(result, 32)
+
+    expect(dependencies.projectService.get).toHaveBeenCalledWith('foreign-project')
+    expect(error).toContain('Project not found: foreign-project')
   })
 
   it('list_presets resolves project context and calls PresetService.listForProject', async () => {
@@ -515,6 +595,27 @@ describe('RalphMcpServer read-only tools', () => {
       id: 'project-1-started',
       state: 'queued'
     })
+  })
+
+  it('start_loop rejects access to a foreign project when auth context is present', async () => {
+    const dependencies = createDependencies()
+    const harness = await createHarness(dependencies)
+    apps.push(harness.app)
+
+    const result = await callTool(
+      harness,
+      33,
+      'start_loop',
+      {
+        projectId: 'foreign-project',
+        prompt: 'Ship it'
+      },
+      { authorization: 'Bearer valid-token' }
+    )
+    const error = parseToolError(result, 33)
+
+    expect(dependencies.loopService.start).not.toHaveBeenCalled()
+    expect(error).toContain('Project not found: foreign-project')
   })
 
   it('stop_loop calls LoopService.stop', async () => {

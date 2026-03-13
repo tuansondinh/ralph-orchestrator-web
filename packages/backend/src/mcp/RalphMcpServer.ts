@@ -89,6 +89,7 @@ export interface RalphMcpToolDefinition {
 export interface RalphMcpServerDependencies {
   projectService: {
     list: () => Promise<unknown>
+    findByUserId?: (userId: string) => Promise<unknown>
     get: (projectId: string) => Promise<ProjectWithPresetContext & Record<string, unknown>>
     create: (input: CreateProjectInput) => Promise<unknown>
     update: (
@@ -224,21 +225,80 @@ export class RalphMcpServer {
         readOnlyHint?: boolean
       }
     },
-    execute: (args: z.infer<TSchema>) => Promise<unknown>
+    execute: (args: z.infer<TSchema>, userId?: string) => Promise<unknown>
   ) {
-    const executeTool = async (args: unknown) => execute(options.inputSchema.parse(args))
-    const callback = async (args: z.infer<TSchema>) =>
-      this.asJsonToolResult(await execute(args))
+    const executeTool = async (args: unknown, userId?: string) =>
+      execute(options.inputSchema.parse(args), userId)
+    const callback = async (
+      args: z.infer<TSchema>,
+      extra?: { authInfo?: { extra?: Record<string, unknown> } }
+    ) =>
+      this.asJsonToolResult(
+        await execute(args, this.getUserIdFromAuth(extra?.authInfo))
+      )
 
     this.tools.set(name, {
       name,
       description: options.description,
       inputSchema: options.inputSchema,
       annotations: options.annotations,
-      execute: executeTool
+      execute: (args) => executeTool(args)
     })
 
     this.server.registerTool(name, options as never, callback as never)
+  }
+
+  private getUserIdFromAuth(authInfo?: { extra?: Record<string, unknown> }) {
+    const userId = authInfo?.extra?.userId
+    if (typeof userId !== 'string') {
+      return undefined
+    }
+
+    const trimmed = userId.trim()
+    return trimmed.length > 0 ? trimmed : undefined
+  }
+
+  private async listProjects(userId?: string) {
+    if (userId && this.dependencies.projectService.findByUserId) {
+      return this.dependencies.projectService.findByUserId(userId)
+    }
+
+    return this.dependencies.projectService.list()
+  }
+
+  private async requireProjectAccess(projectId: string, userId?: string) {
+    const project = await this.dependencies.projectService.get(projectId)
+    if (!userId) {
+      return project
+    }
+
+    const ownerId = (project as { userId?: string | null }).userId
+    if (ownerId !== userId) {
+      throw new Error(`Project not found: ${projectId}`)
+    }
+
+    return project
+  }
+
+  private async requireLoopProjectAccess(loopId: string, userId?: string) {
+    const loop = await this.dependencies.loopService.get(loopId)
+    if (!userId) {
+      return loop
+    }
+
+    const projectId = (loop as { projectId?: string | null }).projectId
+    if (typeof projectId !== 'string' || projectId.trim().length === 0) {
+      throw new Error(`Loop not found: ${loopId}`)
+    }
+
+    await this.requireProjectAccess(projectId, userId)
+    return loop
+  }
+
+  private rejectAuthenticatedMutation(toolName: string, userId?: string) {
+    if (userId) {
+      throw new Error(`${toolName} is not available in authenticated cloud sessions`)
+    }
   }
 
   private registerReadOnlyTools() {
@@ -249,7 +309,7 @@ export class RalphMcpServer {
         inputSchema: z.object({}),
         annotations: { readOnlyHint: true }
       },
-      async () => this.dependencies.projectService.list()
+      async (_args, userId) => this.listProjects(userId)
     )
 
     this.registerTool(
@@ -261,7 +321,7 @@ export class RalphMcpServer {
         }),
         annotations: { readOnlyHint: true }
       },
-      async (args) => this.dependencies.projectService.get(args.projectId)
+      async (args, userId) => this.requireProjectAccess(args.projectId, userId)
     )
 
     this.registerTool(
@@ -273,8 +333,8 @@ export class RalphMcpServer {
         }),
         annotations: { readOnlyHint: true }
       },
-      async (args) => {
-        const project = await this.dependencies.projectService.get(args.projectId)
+      async (args, userId) => {
+        const project = await this.requireProjectAccess(args.projectId, userId)
         return this.dependencies.presetService.listForProject({
           path: project.path,
           ralphConfig: project.ralphConfig
@@ -296,11 +356,12 @@ export class RalphMcpServer {
           }),
         annotations: { readOnlyHint: true }
       },
-      async (args: ReadOnlyLoopRunsInput) => {
+      async (args: ReadOnlyLoopRunsInput, userId) => {
         if (args.loopId) {
-          return this.dependencies.loopService.get(args.loopId)
+          return this.requireLoopProjectAccess(args.loopId, userId)
         }
 
+        await this.requireProjectAccess(String(args.projectId), userId)
         return this.dependencies.loopService.list(String(args.projectId))
       }
     )
@@ -315,7 +376,10 @@ export class RalphMcpServer {
         }),
         annotations: { readOnlyHint: true }
       },
-      async (args: LoopOutputInput) => this.dependencies.loopService.getOutput(args)
+      async (args: LoopOutputInput, userId) => {
+        await this.requireLoopProjectAccess(args.loopId, userId)
+        return this.dependencies.loopService.getOutput(args)
+      }
     )
 
     this.registerTool(
@@ -395,8 +459,9 @@ export class RalphMcpServer {
           worktree: z.string().trim().min(1).optional()
         })
       },
-      async (args: StartLoopInput) => {
+      async (args: StartLoopInput, userId) => {
         const { projectId, ...options } = args
+        await this.requireProjectAccess(projectId, userId)
         return this.dependencies.loopService.start(projectId, options)
       }
     )
@@ -409,7 +474,8 @@ export class RalphMcpServer {
           loopId: z.string().trim().min(1)
         })
       },
-      async (args: StopLoopInput) => {
+      async (args: StopLoopInput, userId) => {
+        await this.requireLoopProjectAccess(args.loopId, userId)
         await this.dependencies.loopService.stop(args.loopId)
         return null
       }
@@ -425,7 +491,10 @@ export class RalphMcpServer {
           createIfMissing: z.boolean().optional()
         })
       },
-      async (args: CreateProjectInput) => this.dependencies.projectService.create(args)
+      async (args: CreateProjectInput, userId) => {
+        this.rejectAuthenticatedMutation('create_project', userId)
+        return this.dependencies.projectService.create(args)
+      }
     )
 
     this.registerTool(
@@ -442,8 +511,9 @@ export class RalphMcpServer {
             message: 'At least one update field is required'
           })
       },
-      async (args: UpdateProjectInput) => {
+      async (args: UpdateProjectInput, userId) => {
         const { projectId, ...updates } = args
+        await this.requireProjectAccess(projectId, userId)
         return this.dependencies.projectService.update(projectId, updates)
       }
     )
@@ -456,7 +526,8 @@ export class RalphMcpServer {
           projectId: z.string().trim().min(1)
         })
       },
-      async (args: DeleteProjectInput) => {
+      async (args: DeleteProjectInput, userId) => {
+        await this.requireProjectAccess(args.projectId, userId)
         await this.dependencies.projectService.delete(args.projectId)
         return null
       }
@@ -470,7 +541,8 @@ export class RalphMcpServer {
           pid: z.number().int().positive()
         })
       },
-      async (args: KillProcessInput) => {
+      async (args: KillProcessInput, userId) => {
+        this.rejectAuthenticatedMutation('kill_process', userId)
         await this.dependencies.ralphProcessService.kill(args.pid)
         return null
       }
@@ -499,7 +571,10 @@ export class RalphMcpServer {
             .optional()
         })
       },
-      async (args: UpdateSettingsInput) => this.dependencies.settingsService.update(args)
+      async (args: UpdateSettingsInput, userId) => {
+        this.rejectAuthenticatedMutation('update_settings', userId)
+        return this.dependencies.settingsService.update(args)
+      }
     )
   }
 

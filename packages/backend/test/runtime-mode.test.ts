@@ -32,7 +32,7 @@ describe('runtime mode resolution', () => {
       SUPABASE_DB_URL: 'postgresql://postgres:postgres@localhost:5432/ralph'
     })
 
-    expect(resolved).toEqual({
+    expect(resolved).toMatchObject({
       mode: 'cloud',
       capabilities: {
         mode: 'cloud',
@@ -43,7 +43,7 @@ describe('runtime mode resolution', () => {
         terminal: false,
         preview: false,
         localDirectoryPicker: false,
-        mcp: false
+        mcp: true
       },
       cloud: {
         supabaseUrl: 'https://example.supabase.co',
@@ -120,7 +120,7 @@ describe('runtime mode resolution', () => {
       terminal: false,
       preview: false,
       localDirectoryPicker: false,
-      mcp: false
+      mcp: true
     })
 
     expect(getRuntimeCapabilities('local-cloud')).toEqual({

@@ -41,7 +41,7 @@ function createCloudRuntime(): ResolvedRuntimeMode {
       terminal: false,
       preview: false,
       localDirectoryPicker: false,
-      mcp: false
+      mcp: true
     },
     cloud: {
       supabaseUrl: 'https://test.supabase.co',

@@ -339,6 +339,17 @@ const loopRouter = t.router({
         .list(input.projectId)
         .catch((error) => asTRPCError(error))
     ),
+  listBranches: t.procedure
+    .input(
+      z.object({
+        projectId: z.string().min(1)
+      })
+    )
+    .query(({ ctx, input }) =>
+      ctx.loopService
+        .listBranches(input.projectId)
+        .catch((error) => asTRPCError(error))
+    ),
   start: t.procedure
     .input(
       z.object({
@@ -350,7 +361,15 @@ const loopRouter = t.router({
         promptFile: z.string().trim().min(1).optional(),
         backend: chatBackendSchema.optional(),
         exclusive: z.boolean().optional(),
-        worktree: z.string().trim().min(1).optional()
+        worktree: z.string().trim().min(1).optional(),
+        gitBranch: z
+          .object({
+            mode: z.enum(['new', 'existing']),
+            name: z.string().trim().min(1),
+            baseBranch: z.string().trim().min(1).optional()
+          })
+          .optional(),
+        autoPush: z.boolean().optional()
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -373,7 +392,9 @@ const loopRouter = t.router({
           promptFile: input.promptFile,
           backend: input.backend,
           exclusive: input.exclusive,
-          worktree: input.worktree
+          worktree: input.worktree,
+          gitBranch: input.gitBranch,
+          autoPush: input.autoPush
         })
         .catch((error) => asTRPCError(error))
     }),

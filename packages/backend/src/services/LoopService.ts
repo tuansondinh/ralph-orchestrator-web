@@ -32,6 +32,7 @@ import {
   asNumber,
   asRecord,
   asString,
+  asPersistedGitBranchConfig,
   extractIterationCandidates,
   isLikelyActiveLoopState,
   parseConfigRecord,
@@ -42,7 +43,8 @@ import {
   resolveDefaultLoopBackendFromEnv,
   uniqueLoopIds,
   usesLiveRuntime,
-  type LoopBackend
+  type LoopBackend,
+  type PersistedGitBranchConfig
 } from './loopUtils.js'
 import {
   LoopNotificationService,
@@ -51,6 +53,7 @@ import {
 } from './LoopNotificationService.js'
 import { LoopDiffService, type LoopDiff } from './LoopDiffService.js'
 import { LoopMetricsService, type LoopMetrics } from './LoopMetricsService.js'
+import { GitService, type BranchInfo } from './GitService.js'
 
 type LoopLifecycleState =
   | ProcessState
@@ -74,6 +77,8 @@ export interface LoopStartOptions {
   backend?: LoopBackend
   exclusive?: boolean
   worktree?: string
+  gitBranch?: PersistedGitBranchConfig
+  autoPush?: boolean
 }
 
 export interface LoopSummary {
@@ -127,6 +132,12 @@ interface LoopServiceOptions {
   bufferLines?: number
   healthCheckIntervalMs?: number
   isProcessAlive?: (pid: number) => boolean
+  gitService?: Partial<
+    Pick<
+      GitService,
+      'listBranches' | 'getCurrentBranch' | 'createBranch' | 'checkoutBranch'
+    >
+  >
 }
 
 interface StopLoopInput {
@@ -280,6 +291,10 @@ export class LoopService {
   private readonly diffService: LoopDiffService
   private readonly metricsService: LoopMetricsService
   private readonly runtimeHealthCheckTimer: ReturnType<typeof setInterval> | null
+  private readonly gitService: Pick<
+    GitService,
+    'listBranches' | 'getCurrentBranch' | 'createBranch' | 'checkoutBranch'
+  >
 
   constructor(
     source: RepositoryBundleSource,
@@ -297,6 +312,15 @@ export class LoopService {
     this.isProcessAlive = options.isProcessAlive ?? isProcessAliveByPid
     this.runtimeHealthCheckIntervalMs =
       options.healthCheckIntervalMs ?? DEFAULT_RUNTIME_HEALTH_CHECK_INTERVAL_MS
+    const defaultGitService = new GitService()
+    this.gitService = {
+      listBranches: options.gitService?.listBranches ?? defaultGitService.listBranches.bind(defaultGitService),
+      getCurrentBranch:
+        options.gitService?.getCurrentBranch ?? defaultGitService.getCurrentBranch.bind(defaultGitService),
+      createBranch: options.gitService?.createBranch ?? defaultGitService.createBranch.bind(defaultGitService),
+      checkoutBranch:
+        options.gitService?.checkoutBranch ?? defaultGitService.checkoutBranch.bind(defaultGitService)
+    }
     this.notificationService = new LoopNotificationService(repositories, this.events, this.now)
     this.diffService = new LoopDiffService()
     this.metricsService = new LoopMetricsService(this.now)
@@ -351,6 +375,8 @@ export class LoopService {
       runCwd = resolvedWorktreePath
     }
 
+    await this.prepareGitBranch(runCwd, effectiveOptions.gitBranch)
+
     const existingLoopIds = await this.listRalphLoopIds(binaryPath, runCwd)
     const markerBefore = await this.readCurrentLoopId(runCwd)
     const currentEventsBefore = await this.readCurrentEventsLoopId(runCwd)
@@ -389,6 +415,8 @@ export class LoopService {
       promptFile: effectiveOptions.promptFile ?? null,
       backend: effectiveOptions.backend ?? null,
       exclusive: Boolean(effectiveOptions.exclusive),
+      gitBranch: effectiveOptions.gitBranch ?? null,
+      autoPush: Boolean(effectiveOptions.autoPush),
       worktree: effectiveOptions.worktree ?? null,
       ralphLoopId: initialRalphLoopId,
       startCommit,
@@ -666,6 +694,8 @@ export class LoopService {
       promptFile: persistedConfig.promptFile,
       backend: persistedConfig.backend,
       exclusive: persistedConfig.exclusive,
+      gitBranch: persistedConfig.gitBranch,
+      autoPush: persistedConfig.autoPush,
       worktree: run.worktree ?? persistedConfig.worktree
     }
 
@@ -683,6 +713,11 @@ export class LoopService {
       .filter((row) => row.id !== '(primary)' && row.ralphLoopId !== '(primary)')
       .sort((a, b) => b.startedAt - a.startedAt)
       .map((row) => this.toSummary(row))
+  }
+
+  async listBranches(projectId: string): Promise<BranchInfo[]> {
+    const project = await this.requireProject(projectId)
+    return this.gitService.listBranches(project.path)
   }
 
   async reconcileProjectLoops(
@@ -1540,6 +1575,25 @@ export class LoopService {
       ...rawConfig,
       endCommit
     })
+  }
+
+  private async prepareGitBranch(
+    projectPath: string,
+    gitBranch: PersistedGitBranchConfig | undefined
+  ): Promise<void> {
+    const normalizedBranch = asPersistedGitBranchConfig(gitBranch)
+    if (!normalizedBranch) {
+      return
+    }
+
+    if (normalizedBranch.mode === 'existing') {
+      await this.gitService.checkoutBranch(projectPath, normalizedBranch.name)
+      return
+    }
+
+    const baseBranch =
+      normalizedBranch.baseBranch ?? await this.gitService.getCurrentBranch(projectPath)
+    await this.gitService.createBranch(projectPath, normalizedBranch.name, baseBranch)
   }
 
   private async resolveHeadCommit(projectPath: string): Promise<string | null> {

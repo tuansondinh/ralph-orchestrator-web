@@ -34,6 +34,7 @@ import { PresetService } from '../src/services/PresetService.js'
 import { SettingsService } from '../src/services/SettingsService.js'
 import { HatsPresetService } from '../src/services/HatsPresetService.js'
 import { TaskService } from '../src/services/TaskService.js'
+import type { BranchInfo } from '../src/services/GitService.js'
 import { appRouter } from '../src/trpc/router.js'
 import { createApp } from '../src/app.js'
 
@@ -309,6 +310,11 @@ describe('loop tRPC routes', () => {
       outputIterationHeader?: boolean
       listedLoopIds?: string[]
       listedLoopEntries?: Array<Record<string, unknown>>
+      gitService?: {
+        listBranches?: (projectPath: string) => Promise<BranchInfo[]>
+        createBranch?: (projectPath: string, name: string, baseBranch: string) => Promise<void>
+        checkoutBranch?: (projectPath: string, name: string) => Promise<void>
+      }
     } = {}
   ) {
     const tempDir = await createTempDir('loop')
@@ -337,7 +343,8 @@ describe('loop tRPC routes', () => {
     managers.push(processManager)
 
     const loopService = new LoopService(connection.db, processManager, {
-      resolveBinary: async () => binaryPath
+      resolveBinary: async () => binaryPath,
+      gitService: options.gitService
     })
     const chatService = new ChatService(connection.db, processManager, {
       resolveBinary: async () => binaryPath
@@ -479,6 +486,135 @@ describe('loop tRPC routes', () => {
         process.env.RALPH_UI_DEFAULT_BACKEND = previousDefaultBackend
       }
     }
+  })
+
+  it('creates a new git branch before starting a loop and persists branch config', async () => {
+    const createBranch = vi.fn(async () => {})
+    const checkoutBranch = vi.fn(async () => {})
+    const { caller, connection, processManager, tempDir } = await setupCaller({
+      gitService: {
+        createBranch,
+        checkoutBranch
+      }
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running',
+      gitBranch: {
+        mode: 'new',
+        name: 'feature/new-loop-flow',
+        baseBranch: 'main'
+      },
+      autoPush: true
+    })
+
+    expect(createBranch).toHaveBeenCalledWith(
+      projectPath,
+      'feature/new-loop-flow',
+      'main'
+    )
+    expect(checkoutBranch).not.toHaveBeenCalled()
+
+    const handle = processManager.list().find((proc) => proc.id === started.processId)
+    expect(handle).toBeDefined()
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+    const parsedConfig = JSON.parse(persisted?.config ?? '{}') as Record<string, unknown>
+    expect(parsedConfig.gitBranch).toEqual({
+      mode: 'new',
+      name: 'feature/new-loop-flow',
+      baseBranch: 'main'
+    })
+    expect(parsedConfig.autoPush).toBe(true)
+
+    await caller.loop.stop({ loopId: started.id })
+  })
+
+  it('checks out an existing branch before starting a loop', async () => {
+    const createBranch = vi.fn(async () => {})
+    const checkoutBranch = vi.fn(async () => {})
+    const { caller, connection, processManager, tempDir } = await setupCaller({
+      gitService: {
+        createBranch,
+        checkoutBranch
+      }
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running',
+      gitBranch: {
+        mode: 'existing',
+        name: 'feature/existing-branch'
+      }
+    })
+
+    expect(checkoutBranch).toHaveBeenCalledWith(projectPath, 'feature/existing-branch')
+    expect(createBranch).not.toHaveBeenCalled()
+    expect(processManager.list().some((proc) => proc.id === started.processId)).toBe(true)
+
+    await caller.loop.stop({ loopId: started.id })
+  })
+
+  it('does not start the loop when git branch setup fails', async () => {
+    const createBranch = vi.fn(async () => {
+      throw new Error('branch already exists')
+    })
+    const { caller, connection, processManager, tempDir } = await setupCaller({
+      gitService: {
+        createBranch
+      }
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    await expect(
+      caller.loop.start({
+        projectId,
+        prompt: 'keep-running',
+        gitBranch: {
+          mode: 'new',
+          name: 'feature/duplicate',
+          baseBranch: 'main'
+        }
+      })
+    ).rejects.toThrow('branch already exists')
+
+    expect(processManager.list()).toEqual([])
+    expect(connection.db.select().from(loopRuns).all()).toEqual([])
+  })
+
+  it('lists project git branches through tRPC', async () => {
+    const listBranches = vi.fn(async () => [
+      { name: 'main', current: true },
+      { name: 'feature/demo', current: false, remote: 'origin' }
+    ])
+    const { caller, connection, tempDir } = await setupCaller({
+      gitService: {
+        listBranches
+      }
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    await expect(caller.loop.listBranches({ projectId })).resolves.toEqual([
+      { name: 'main', current: true },
+      { name: 'feature/demo', current: false, remote: 'origin' }
+    ])
+    expect(listBranches).toHaveBeenCalledWith(projectPath)
   })
 
   it('captures the Ralph loop id from current-loop-id marker during start', async () => {

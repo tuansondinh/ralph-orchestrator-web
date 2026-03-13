@@ -10,10 +10,11 @@ import { resolveRalphBinary } from '../lib/ralph.js';
 import { OutputBuffer } from '../runner/OutputBuffer.js';
 import { RalphEventParser } from '../runner/RalphEventParser.js';
 import { ServiceError } from '../lib/ServiceError.js';
-import { asLoopId, asPrimaryLoopId, asNumber, asRecord, asString, extractIterationCandidates, isLikelyActiveLoopState, parseConfigRecord, parsePersistedConfig, primaryLoopIdFromEventsPath, primaryLoopIdFromTimestamp, readIterationValue, resolveDefaultLoopBackendFromEnv, uniqueLoopIds, usesLiveRuntime } from './loopUtils.js';
+import { asLoopId, asPrimaryLoopId, asNumber, asRecord, asString, asPersistedGitBranchConfig, extractIterationCandidates, isLikelyActiveLoopState, parseConfigRecord, parsePersistedConfig, primaryLoopIdFromEventsPath, primaryLoopIdFromTimestamp, readIterationValue, resolveDefaultLoopBackendFromEnv, uniqueLoopIds, usesLiveRuntime } from './loopUtils.js';
 import { LoopNotificationService } from './LoopNotificationService.js';
 import { LoopDiffService } from './LoopDiffService.js';
 import { LoopMetricsService } from './LoopMetricsService.js';
+import { GitService } from './GitService.js';
 export class LoopServiceError extends ServiceError {
     constructor(code, message) {
         super(code, message);
@@ -133,6 +134,7 @@ export class LoopService {
     diffService;
     metricsService;
     runtimeHealthCheckTimer;
+    gitService;
     constructor(source, processManager, options = {}) {
         this.processManager = processManager;
         const repositories = resolveRepositoryBundle(source);
@@ -146,6 +148,13 @@ export class LoopService {
         this.isProcessAlive = options.isProcessAlive ?? isProcessAliveByPid;
         this.runtimeHealthCheckIntervalMs =
             options.healthCheckIntervalMs ?? DEFAULT_RUNTIME_HEALTH_CHECK_INTERVAL_MS;
+        const defaultGitService = new GitService();
+        this.gitService = {
+            listBranches: options.gitService?.listBranches ?? defaultGitService.listBranches.bind(defaultGitService),
+            getCurrentBranch: options.gitService?.getCurrentBranch ?? defaultGitService.getCurrentBranch.bind(defaultGitService),
+            createBranch: options.gitService?.createBranch ?? defaultGitService.createBranch.bind(defaultGitService),
+            checkoutBranch: options.gitService?.checkoutBranch ?? defaultGitService.checkoutBranch.bind(defaultGitService)
+        };
         this.notificationService = new LoopNotificationService(repositories, this.events, this.now);
         this.diffService = new LoopDiffService();
         this.metricsService = new LoopMetricsService(this.now);
@@ -188,6 +197,7 @@ export class LoopService {
             }
             runCwd = resolvedWorktreePath;
         }
+        await this.prepareGitBranch(runCwd, effectiveOptions.gitBranch);
         const existingLoopIds = await this.listRalphLoopIds(binaryPath, runCwd);
         const markerBefore = await this.readCurrentLoopId(runCwd);
         const currentEventsBefore = await this.readCurrentEventsLoopId(runCwd);
@@ -222,6 +232,8 @@ export class LoopService {
             promptFile: effectiveOptions.promptFile ?? null,
             backend: effectiveOptions.backend ?? null,
             exclusive: Boolean(effectiveOptions.exclusive),
+            gitBranch: effectiveOptions.gitBranch ?? null,
+            autoPush: Boolean(effectiveOptions.autoPush),
             worktree: effectiveOptions.worktree ?? null,
             ralphLoopId: initialRalphLoopId,
             startCommit,
@@ -446,6 +458,8 @@ export class LoopService {
             promptFile: persistedConfig.promptFile,
             backend: persistedConfig.backend,
             exclusive: persistedConfig.exclusive,
+            gitBranch: persistedConfig.gitBranch,
+            autoPush: persistedConfig.autoPush,
             worktree: run.worktree ?? persistedConfig.worktree
         };
         await this.stop(loopId);
@@ -459,6 +473,10 @@ export class LoopService {
             .filter((row) => row.id !== '(primary)' && row.ralphLoopId !== '(primary)')
             .sort((a, b) => b.startedAt - a.startedAt)
             .map((row) => this.toSummary(row));
+    }
+    async listBranches(projectId) {
+        const project = await this.requireProject(projectId);
+        return this.gitService.listBranches(project.path);
     }
     async reconcileProjectLoops(projectId, options = {}) {
         const minIntervalMs = Math.max(0, options.minIntervalMs ?? PROJECT_RECONCILE_MIN_INTERVAL_MS);
@@ -1143,6 +1161,18 @@ export class LoopService {
             ...rawConfig,
             endCommit
         });
+    }
+    async prepareGitBranch(projectPath, gitBranch) {
+        const normalizedBranch = asPersistedGitBranchConfig(gitBranch);
+        if (!normalizedBranch) {
+            return;
+        }
+        if (normalizedBranch.mode === 'existing') {
+            await this.gitService.checkoutBranch(projectPath, normalizedBranch.name);
+            return;
+        }
+        const baseBranch = normalizedBranch.baseBranch ?? await this.gitService.getCurrentBranch(projectPath);
+        await this.gitService.createBranch(projectPath, normalizedBranch.name, baseBranch);
     }
     async resolveHeadCommit(projectPath) {
         try {

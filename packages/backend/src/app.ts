@@ -198,6 +198,7 @@ export function createApp(options: CreateAppOptions = {}) {
   const sopService = new SopService()
   const ralphProcessService = new RalphProcessService()
   const settingsService = new SettingsService(repositories)
+  const gitService = new GitService()
   const resolveConfiguredBinary =
     async () => {
       const current = await settingsService.get()
@@ -208,7 +209,8 @@ export function createApp(options: CreateAppOptions = {}) {
 
   const loopService =
     new LoopService(repositories, processManager, {
-      resolveBinary: resolveConfiguredBinary
+      resolveBinary: resolveConfiguredBinary,
+      gitService
     })
   
   // Recover stale loop state in the background - don't block app startup
@@ -263,7 +265,6 @@ export function createApp(options: CreateAppOptions = {}) {
 
   const taskService =
     new TaskService(repositories)
-  const gitService = new GitService()
   const internalMcpAuthToken = crypto.randomUUID()
   const openCodeService = new OpenCodeService({
     mcpEndpointUrl: `http://127.0.0.1:${Number(process.env.PORT ?? 3003)}/mcp`,

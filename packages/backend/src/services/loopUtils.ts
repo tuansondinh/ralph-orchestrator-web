@@ -14,6 +14,12 @@ export type LoopBackend =
   | 'copilot'
   | 'opencode'
 
+export interface PersistedGitBranchConfig {
+  mode: 'new' | 'existing'
+  name: string
+  baseBranch?: string
+}
+
 const PRIMARY_LOOP_ID_PATTERN = /^primary-\d{8}-\d{6}$/i
 const EVENTS_FILE_PATTERN = /^events-(\d{8})-(\d{6})\.jsonl$/i
 
@@ -72,6 +78,24 @@ export function asStringArray(value: unknown): string[] | undefined {
     .filter(Boolean)
 
   return items.length > 0 ? items : undefined
+}
+
+export function asPersistedGitBranchConfig(
+  value: unknown
+): PersistedGitBranchConfig | undefined {
+  const record = asRecord(value)
+  if (!record) {
+    return undefined
+  }
+
+  const mode = record.mode
+  const name = asString(record.name)
+  if ((mode !== 'new' && mode !== 'existing') || !name) {
+    return undefined
+  }
+
+  const baseBranch = asString(record.baseBranch)
+  return baseBranch ? { mode, name, baseBranch } : { mode, name }
 }
 
 export function isPrimaryLoopId(value: string): boolean {
@@ -173,6 +197,8 @@ export function parsePersistedConfig(config: string | null) {
     promptFile: asString(parsed.promptFile),
     backend: asLoopBackend(parsed.backend),
     exclusive: Boolean(parsed.exclusive),
+    gitBranch: asPersistedGitBranchConfig(parsed.gitBranch),
+    autoPush: Boolean(parsed.autoPush),
     worktree: asString(parsed.worktree),
     ralphLoopId: asString(parsed.ralphLoopId),
     startCommit: asString(parsed.startCommit),

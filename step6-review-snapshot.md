@@ -1,0 +1,368 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - heading "Ralph Orchestrator" [level=1] [ref=e7]
+        - paragraph [ref=e8]: Project workspaces
+      - paragraph [ref=e9]: Realtime connected
+      - button "New Project" [ref=e10]
+      - list [ref=e34]:
+        - listitem [ref=e35]:
+          - generic [ref=e36]:
+            - button "ui-verify-loop-branch" [ref=e37]:
+              - generic [ref=e39]: ui-verify-loop-branch
+            - button "Remove ui-verify-loop-branch" [ref=e40]: Remove
+        - listitem [ref=e41]:
+          - generic [ref=e42]:
+            - button "ralph-orchestrator-web" [ref=e43]:
+              - generic [ref=e45]: ralph-orchestrator-web
+            - button "Remove ralph-orchestrator-web" [ref=e46]: Remove
+      - link "Global settings" [ref=e16] [cursor=pointer]:
+        - /url: /settings
+  - main [ref=e17]:
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - button "Collapse sidebar" [ref=e20]:
+          - generic [ref=e21]: ‹
+        - paragraph [ref=e22]: This app is experimental and not fully implemented yet.
+      - button "Notifications" [ref=e26]:
+        - img [ref=e27]
+    - generic [ref=e29]:
+      - generic [ref=e47]:
+        - generic [ref=e48]:
+          - heading "ralph-orchestrator-web" [level=1] [ref=e49]
+          - generic [ref=e50]:
+            - generic [ref=e51]: node
+            - generic [ref=e52]: /Users/sonwork/Workspace/ralph-orchestrator-web
+        - navigation "Project sections" [ref=e53]:
+          - link "Loops" [ref=e54] [cursor=pointer]:
+            - /url: /project/44374536-d38e-47ef-b693-5adebdd66e22/loops
+          - link "Chat" [ref=e55] [cursor=pointer]:
+            - /url: /project/44374536-d38e-47ef-b693-5adebdd66e22/chat
+          - link "Tasks" [ref=e56] [cursor=pointer]:
+            - /url: /project/44374536-d38e-47ef-b693-5adebdd66e22/tasks
+          - link "Terminal" [ref=e57] [cursor=pointer]:
+            - /url: /project/44374536-d38e-47ef-b693-5adebdd66e22/terminal
+          - link "Hats presets" [ref=e58] [cursor=pointer]:
+            - /url: /project/44374536-d38e-47ef-b693-5adebdd66e22/hats-presets
+          - link "Settings" [ref=e59] [cursor=pointer]:
+            - /url: /project/44374536-d38e-47ef-b693-5adebdd66e22/settings
+          - link "Monitor" [ref=e60] [cursor=pointer]:
+            - /url: /project/44374536-d38e-47ef-b693-5adebdd66e22/monitor
+          - link "Preview" [ref=e61] [cursor=pointer]:
+            - /url: /project/44374536-d38e-47ef-b693-5adebdd66e22/preview
+        - generic [ref=e63]:
+          - generic [ref=e64]:
+            - generic [ref=e65]:
+              - heading "Loops" [level=2] [ref=e66]
+              - generic [ref=e67]: Live connected
+            - generic [ref=e68]:
+              - button "Ralph Plan" [ref=e69]
+              - button "Ralph Task" [ref=e70]
+            - paragraph [ref=e71]: "Pro tip: use ralph plan or ralph task to create a plan for Ralph."
+          - generic [ref=e72]:
+            - generic [ref=e75]:
+              - generic [ref=e76]:
+                - generic [ref=e77]: PROMPT.md
+                - textbox "PROMPT.md" [ref=e78]:
+                  - /placeholder: PUT YOUR PROMPT IN HERE
+                  - text: "# Ralph Cloud Enhancements ## Objective Improve ralph-orchestrator-web with cloud/local bridging, git-native loop workflows, PR integration, and a project-aware chat assistant. ## Full Design & Plan See `specs/ralph-cloud-enhancements/` for complete design, requirements, and research: - `design.md` — full architecture, components, data models, acceptance criteria - `plan.md` — 11-step implementation plan with dependencies - `requirements.md` — all Q&A from requirements clarification - `research/` — codebase research findings ## Implementation Tracks Execute as 3 tracks. Track A first, then B and C in parallel. --- ### Track A: Git Workflow + Pull Requests (Steps 1-6) **Step 1 — GitService** Create `packages/backend/src/services/GitService.ts` with: `listBranches()`, `getCurrentBranch()`, `createBranch()`, `checkoutBranch()`, `push()`, `createPullRequest()`. Use `child_process.execFile('git', ...)` pattern from LoopDiffService. Register as Fastify decoration. Write unit tests. **Step 2 — Loop branch backend** Extend `LoopStartOptions` with `gitBranch?: { mode: 'new' | 'existing', name: string, baseBranch?: string }` and `autoPush?: boolean`. In `LoopService.start()`, create/checkout branch before spawning process. Store config in loop record. Add `loop.listBranches` tRPC query. Write tests. **Step 3 — Loop branch frontend** In `StartLoopDialog.tsx`, add \"Git Branch\" section: toggle new/existing, branch name input, base branch dropdown. Fetch branches via tRPC. Pass `gitBranch` and `autoPush` to start API. Write component tests. **Step 4 — Auto-push** In `LoopService.handleState()` on 'completed': if `autoPush` and `gitBranch` set, call `gitService.push()`. Store `pushed: true` or `pushError` in loop config. Add `loop.retryPush` tRPC endpoint. Write tests. **Step 5 — PR backend** Add `loop.createPullRequest` tRPC mutation: validate loop is pushed, get GitHub token, parse owner/repo from remote URL, call `gitService.createPullRequest()`, store PR info in loop record. Write tests. **Step 6 — PR frontend** Add \"Create PR\" button in LoopDetail's Review Changes tab (visible when pushed, no existing PR). Dialog: target branch dropdown (default base), auto-generated title/body, draft checkbox. Show PR link after creation. Write tests. --- ### Track B: Local-Cloud Mode + New Project (Steps 7, 9, 10) **Step 7 — Local-cloud runtime mode** Add `local-cloud` mode to `runtimeMode.ts`: detected when SUPABASE vars + `RALPH_UI_LOCAL_CLOUD=true`. Add capability set in `runtimeCapabilities.ts`: cloud auth + local terminal/MCP. Update `dev:cloud` script. Ensure Supabase auth + terminal + MCP all initialize. Write tests. **Step 9 — New project backend** Add `GitHubService.createRepo(token, { name, description, private })` using `POST /user/repos`. Add `ProjectService.createFromGitHub(userId, opts)`: create repo → clone → register in DB. Add `project.createFromGitHub` tRPC mutation. Write tests. **Step 10 — New project frontend** Create `CreateProjectDialog.tsx`: name, description, public/private toggle. Add \"New Project\" button to sidebar (visible when `capabilities.githubProjects`). On submit call `project.createFromGitHub`, navigate to new project. Write tests. --- ### Track C: Chat Assistant + MCP Scoping (Steps 11, 8) **Step 11 — MCP cloud enablement & user scoping** Enable MCP in cloud mode (`runtimeCapabilities.ts`). In `RalphMcpServer.ts`: extract userId from auth, filter `list_projects` by userId, verify ownership on `get_project` and all destructive tools. Add `requireProjectAccess(projectId, userId)` helper. Write tests. **Step 8 — Chat assistant project awareness** In `OpenCodeService.ts`: enhance system prompt to require project selection before plan/task mode. Update `activate_plan_mode` and `activate_task_mode` to require `projectId` input and return project context (path, specsPath). Update `list_projects` to include paths. Write tests. --- ## Acceptance Criteria - Given `npm run dev:cloud` → app connects to Supabase, enables GitHub OAuth, retains terminal + MCP - Given loop started with \"new branch\" → branch created from base, loop runs on it - Given loop completes with autoPush → changes pushed to remote automatically - Given pushed loop → user can create PR via UI with target branch selection - Given \"ralph plan\" in chat → assistant asks which project first, writes specs to `{project}/specs/` - Given cloud user clicks \"New Project\" → GitHub repo created, cloned, registered - Given cloud mode → MCP tools only return/modify the authenticated user's projects"
+                - paragraph [ref=e79]:
+                  - text: Loaded from
+                  - code [ref=e80]: PROMPT.md
+                  - text: . You can edit this before starting the loop.
+              - generic [ref=e81]:
+                - generic [ref=e82]:
+                  - generic [ref=e83]: Hats preset
+                  - link "see hats presets config" [ref=e84] [cursor=pointer]:
+                    - /url: /project/44374536-d38e-47ef-b693-5adebdd66e22/hats-presets
+                - combobox "Hats preset" [ref=e85]:
+                  - option "Select a preset" [disabled]
+                  - option "Custom user setting"
+                  - option "bugfix.yml"
+                  - option "code-assist.yml"
+                  - option "custom/my-preset.yml"
+                  - option "debug.yml"
+                  - option "deploy.yml"
+                  - option "docs.yml"
+                  - option "feature.yml"
+                  - option "fresh-eyes.yml"
+                  - option "gap-analysis.yml"
+                  - option "hatless-baseline.yml" [selected]
+                  - option "pdd-to-code-assist.yml"
+                  - option "pr-review.yml"
+                  - option "refactor.yml"
+                  - option "research.yml"
+                  - option "review.yml"
+                  - option "spec-driven.yml"
+                - paragraph [ref=e86]: "Current default: hatless-baseline.yml"
+                - button "Save default preset" [ref=e87]
+              - generic [ref=e88]:
+                - generic [ref=e89]: Worktree (Optional)
+                - combobox "Worktree (Optional)" [ref=e90]:
+                  - option "Default workspace" [selected]
+                  - option "ralph-deploy.q15tCX (detached)" [disabled]
+                  - option "ralph-deploy.YAN0VJ (detached)" [disabled]
+                  - option "ralph-deploy.Yl7TdU (detached)" [disabled]
+                  - option "clear-fern (ralph/clear-fern)"
+                  - option "fresh-cedar (ralph/fresh-cedar)"
+                  - option "m001 (gsd/m001/M001/S02)"
+                  - option "merry-robin (ralph/merry-robin)"
+                  - option "perky-moss (ralph/perky-moss)"
+                  - option "pure-gull (ralph/pure-gull)"
+                  - option "slick-tulip (ralph/slick-tulip)"
+                  - option "true-brook (ralph/true-brook)"
+                  - option "zippy-otter (ralph/zippy-otter)"
+                - generic [ref=e91]:
+                  - textbox "New worktree name" [ref=e92]
+                  - button "Add Worktree" [ref=e93]
+              - generic [ref=e95]:
+                - generic [ref=e96]:
+                  - generic [ref=e97]: Branch mode
+                  - combobox "Branch mode" [ref=e98]:
+                    - option "Create new branch" [selected]
+                    - option "Use existing branch"
+                  - paragraph [ref=e99]: Leave branch name empty to run without git branch setup.
+                - generic [ref=e100]:
+                  - generic [ref=e101]: Branch name
+                  - combobox "Branch name" [ref=e102]
+                - generic [ref=e103]:
+                  - generic [ref=e104]: Base branch
+                  - combobox "Base branch" [ref=e105]:
+                    - option "cloud"
+                    - option "fix/ralph-loop-execution"
+                    - option "+ gsd/m001/M001/S02"
+                    - option "gsd/m001/S02"
+                    - option "main"
+                    - option "mcp-chat-bot"
+                    - option "mcp-server"
+                    - option "mcp-server-chat"
+                    - option "opencode_chat_mcp"
+                    - option "ralph-cloud (current)" [selected]
+                    - option "ralph/able-owl"
+                    - option "+ ralph/clear-fern"
+                    - option "ralph/clever-swan"
+                    - option "+ ralph/fresh-cedar"
+                    - option "ralph/lively-dove"
+                    - option "+ ralph/merry-robin"
+                    - option "ralph/nimble-teak"
+                    - option "+ ralph/perky-moss"
+                    - option "+ ralph/pure-gull"
+                    - option "ralph/savvy-cork"
+                    - option "ralph/sharp-birch"
+                    - option "+ ralph/slick-tulip"
+                    - option "ralph/swift-peacock"
+                    - option "+ ralph/true-brook"
+                    - option "+ ralph/zippy-otter"
+                    - option "ralph_cloud_son"
+                - generic [ref=e107]:
+                  - checkbox "Auto-push when loop completes" [disabled] [ref=e108]
+                  - text: Auto-push when loop completes
+              - generic [ref=e109]:
+                - generic [ref=e110]:
+                  - checkbox "Exclusive mode" [ref=e111]
+                  - text: Exclusive mode
+                - paragraph [ref=e112]: "On: wait for a single primary loop slot. Off: loop may run in a parallel worktree. Parallel worktrees auto-merge after completion by default."
+              - generic [ref=e113]:
+                - generic [ref=e114]: AI-BACKEND
+                - combobox "AI-BACKEND" [ref=e115]:
+                  - option "auto (default)" [selected]
+                  - option "claude"
+                  - option "kiro"
+                  - option "gemini"
+                  - option "codex"
+                  - option "amp"
+                  - option "copilot"
+                  - option "opencode"
+                - paragraph [ref=e116]: Auto leaves backend unset so Ralph config/auto-detection decides.
+              - button "Start" [ref=e118]
+            - generic [ref=e121]:
+              - article [ref=e122]:
+                - 'button "loop id: step6-playwright primary worktree ui id: 7dfd76dc-58a0-428a-bbb0-1706f14e9a36 Completed PID: n/a Iterations: 3 Runtime: 0s Tokens: 42 PROMPT.md" [ref=e123]':
+                  - generic [ref=e124]:
+                    - generic [ref=e125]:
+                      - paragraph [ref=e126]: "loop id: step6-playwright"
+                      - generic [ref=e127]:
+                        - generic [ref=e128]: primary worktree
+                        - generic [ref=e129]: "ui id: 7dfd76dc-58a0-428a-bbb0-1706f14e9a36"
+                    - generic [ref=e130]: Completed
+                  - generic [ref=e131]:
+                    - paragraph [ref=e132]: "PID: n/a"
+                    - paragraph [ref=e133]: "Iterations: 3"
+                    - paragraph [ref=e134]: "Runtime: 0s"
+                    - paragraph [ref=e135]: "Tokens: 42"
+                  - paragraph [ref=e136]:
+                    - generic "Ship it via Playwright" [ref=e137]: PROMPT.md
+                - generic [ref=e139]:
+                  - button "Stop" [ref=e140]
+                  - button "Restart" [ref=e141]
+              - article [ref=e142]:
+                - 'button "loop id: true-brook worktree: true-brook ui id: 719021e8-22fc-43f8-9bd9-1ceac310283d Stopped PID: n/a Iterations: 0 Runtime: 0s Tokens: 0 PROMPT.md" [ref=e143]':
+                  - generic [ref=e144]:
+                    - generic [ref=e145]:
+                      - paragraph [ref=e146]: "loop id: true-brook"
+                      - generic [ref=e147]:
+                        - generic [ref=e148]: "worktree: true-brook"
+                        - generic [ref=e149]: "ui id: 719021e8-22fc-43f8-9bd9-1ceac310283d"
+                    - generic [ref=e150]: Stopped
+                  - generic [ref=e151]:
+                    - paragraph [ref=e152]: "PID: n/a"
+                    - paragraph [ref=e153]: "Iterations: 0"
+                    - paragraph [ref=e154]: "Runtime: 0s"
+                    - paragraph [ref=e155]: "Tokens: 0"
+                  - paragraph [ref=e156]:
+                    - generic "Prompt snapshot was not saved for this loop. This can happen on older loops or when PROMPT.md was unavailable at loop start." [ref=e157]: PROMPT.md
+                - generic [ref=e159]:
+                  - button "Stop" [ref=e160]
+                  - button "Restart" [ref=e161]
+              - article [ref=e162]:
+                - 'button "loop id: zippy-otter worktree: zippy-otter ui id: 68c3b777-3fa5-477d-a12c-f64d7090be90 Stopped PID: n/a Iterations: 0 Runtime: 0s Tokens: 0 PROMPT.md" [ref=e163]':
+                  - generic [ref=e164]:
+                    - generic [ref=e165]:
+                      - paragraph [ref=e166]: "loop id: zippy-otter"
+                      - generic [ref=e167]:
+                        - generic [ref=e168]: "worktree: zippy-otter"
+                        - generic [ref=e169]: "ui id: 68c3b777-3fa5-477d-a12c-f64d7090be90"
+                    - generic [ref=e170]: Stopped
+                  - generic [ref=e171]:
+                    - paragraph [ref=e172]: "PID: n/a"
+                    - paragraph [ref=e173]: "Iterations: 0"
+                    - paragraph [ref=e174]: "Runtime: 0s"
+                    - paragraph [ref=e175]: "Tokens: 0"
+                  - paragraph [ref=e176]:
+                    - generic "Prompt snapshot was not saved for this loop. This can happen on older loops or when PROMPT.md was unavailable at loop start." [ref=e177]: PROMPT.md
+                - generic [ref=e179]:
+                  - button "Stop" [ref=e180]
+                  - button "Restart" [ref=e181]
+              - article [ref=e182]:
+                - 'button "loop id: fresh-cedar worktree: fresh-cedar ui id: bc5df93c-7175-46b7-beb9-bebb49c36218 Stopped PID: n/a Iterations: 0 Runtime: 0s Tokens: 0 PROMPT.md" [ref=e183]':
+                  - generic [ref=e184]:
+                    - generic [ref=e185]:
+                      - paragraph [ref=e186]: "loop id: fresh-cedar"
+                      - generic [ref=e187]:
+                        - generic [ref=e188]: "worktree: fresh-cedar"
+                        - generic [ref=e189]: "ui id: bc5df93c-7175-46b7-beb9-bebb49c36218"
+                    - generic [ref=e190]: Stopped
+                  - generic [ref=e191]:
+                    - paragraph [ref=e192]: "PID: n/a"
+                    - paragraph [ref=e193]: "Iterations: 0"
+                    - paragraph [ref=e194]: "Runtime: 0s"
+                    - paragraph [ref=e195]: "Tokens: 0"
+                  - paragraph [ref=e196]:
+                    - generic "Prompt snapshot was not saved for this loop. This can happen on older loops or when PROMPT.md was unavailable at loop start." [ref=e197]: PROMPT.md
+                - generic [ref=e199]:
+                  - button "Stop" [ref=e200]
+                  - button "Restart" [ref=e201]
+              - article [ref=e202]:
+                - 'button "loop id: merry-robin worktree: merry-robin ui id: 733e9c99-6180-4a9f-b4c7-ebdae0cadc27 Stopped PID: n/a Iterations: 0 Runtime: 0s Tokens: 0 PROMPT.md" [ref=e203]':
+                  - generic [ref=e204]:
+                    - generic [ref=e205]:
+                      - paragraph [ref=e206]: "loop id: merry-robin"
+                      - generic [ref=e207]:
+                        - generic [ref=e208]: "worktree: merry-robin"
+                        - generic [ref=e209]: "ui id: 733e9c99-6180-4a9f-b4c7-ebdae0cadc27"
+                    - generic [ref=e210]: Stopped
+                  - generic [ref=e211]:
+                    - paragraph [ref=e212]: "PID: n/a"
+                    - paragraph [ref=e213]: "Iterations: 0"
+                    - paragraph [ref=e214]: "Runtime: 0s"
+                    - paragraph [ref=e215]: "Tokens: 0"
+                  - paragraph [ref=e216]:
+                    - generic "Prompt snapshot was not saved for this loop. This can happen on older loops or when PROMPT.md was unavailable at loop start." [ref=e217]: PROMPT.md
+                - generic [ref=e219]:
+                  - button "Stop" [ref=e220]
+                  - button "Restart" [ref=e221]
+              - article [ref=e222]:
+                - 'button "loop id: perky-moss worktree: perky-moss ui id: b67c80c7-8ce0-45ca-8413-290239fd28c9 Stopped PID: n/a Iterations: 0 Runtime: 0s Tokens: 0 PROMPT.md" [ref=e223]':
+                  - generic [ref=e224]:
+                    - generic [ref=e225]:
+                      - paragraph [ref=e226]: "loop id: perky-moss"
+                      - generic [ref=e227]:
+                        - generic [ref=e228]: "worktree: perky-moss"
+                        - generic [ref=e229]: "ui id: b67c80c7-8ce0-45ca-8413-290239fd28c9"
+                    - generic [ref=e230]: Stopped
+                  - generic [ref=e231]:
+                    - paragraph [ref=e232]: "PID: n/a"
+                    - paragraph [ref=e233]: "Iterations: 0"
+                    - paragraph [ref=e234]: "Runtime: 0s"
+                    - paragraph [ref=e235]: "Tokens: 0"
+                  - paragraph [ref=e236]:
+                    - generic "Prompt snapshot was not saved for this loop. This can happen on older loops or when PROMPT.md was unavailable at loop start." [ref=e237]: PROMPT.md
+                - generic [ref=e239]:
+                  - button "Stop" [ref=e240]
+                  - button "Restart" [ref=e241]
+              - article [ref=e242]:
+                - 'button "loop id: pure-gull worktree: pure-gull ui id: b6ca2480-15c7-43fa-abe8-f381f1ba1db7 Stopped PID: n/a Iterations: 0 Runtime: 0s Tokens: 0 PROMPT.md" [ref=e243]':
+                  - generic [ref=e244]:
+                    - generic [ref=e245]:
+                      - paragraph [ref=e246]: "loop id: pure-gull"
+                      - generic [ref=e247]:
+                        - generic [ref=e248]: "worktree: pure-gull"
+                        - generic [ref=e249]: "ui id: b6ca2480-15c7-43fa-abe8-f381f1ba1db7"
+                    - generic [ref=e250]: Stopped
+                  - generic [ref=e251]:
+                    - paragraph [ref=e252]: "PID: n/a"
+                    - paragraph [ref=e253]: "Iterations: 0"
+                    - paragraph [ref=e254]: "Runtime: 0s"
+                    - paragraph [ref=e255]: "Tokens: 0"
+                  - paragraph [ref=e256]:
+                    - generic "Prompt snapshot was not saved for this loop. This can happen on older loops or when PROMPT.md was unavailable at loop start." [ref=e257]: PROMPT.md
+                - generic [ref=e259]:
+                  - button "Stop" [ref=e260]
+                  - button "Restart" [ref=e261]
+              - article [ref=e262]:
+                - 'button "loop id: slick-tulip worktree: slick-tulip ui id: 4a4dbf90-153a-4a83-86a5-04d6c34ca1b3 Stopped PID: n/a Iterations: 0 Runtime: 0s Tokens: 0 PROMPT.md" [ref=e263]':
+                  - generic [ref=e264]:
+                    - generic [ref=e265]:
+                      - paragraph [ref=e266]: "loop id: slick-tulip"
+                      - generic [ref=e267]:
+                        - generic [ref=e268]: "worktree: slick-tulip"
+                        - generic [ref=e269]: "ui id: 4a4dbf90-153a-4a83-86a5-04d6c34ca1b3"
+                    - generic [ref=e270]: Stopped
+                  - generic [ref=e271]:
+                    - paragraph [ref=e272]: "PID: n/a"
+                    - paragraph [ref=e273]: "Iterations: 0"
+                    - paragraph [ref=e274]: "Runtime: 0s"
+                    - paragraph [ref=e275]: "Tokens: 0"
+                  - paragraph [ref=e276]:
+                    - generic "Prompt snapshot was not saved for this loop. This can happen on older loops or when PROMPT.md was unavailable at loop start." [ref=e277]: PROMPT.md
+                - generic [ref=e279]:
+                  - button "Stop" [ref=e280]
+                  - button "Restart" [ref=e281]
+              - article [ref=e282]:
+                - 'button "loop id: clear-fern worktree: clear-fern ui id: 2bdf709f-3e27-4fd9-bd9a-d2ff2a3944d6 Stopped PID: n/a Iterations: 0 Runtime: 0s Tokens: 0 PROMPT.md" [ref=e283]':
+                  - generic [ref=e284]:
+                    - generic [ref=e285]:
+                      - paragraph [ref=e286]: "loop id: clear-fern"
+                      - generic [ref=e287]:
+                        - generic [ref=e288]: "worktree: clear-fern"
+                        - generic [ref=e289]: "ui id: 2bdf709f-3e27-4fd9-bd9a-d2ff2a3944d6"
+                    - generic [ref=e290]: Stopped
+                  - generic [ref=e291]:
+                    - paragraph [ref=e292]: "PID: n/a"
+                    - paragraph [ref=e293]: "Iterations: 0"
+                    - paragraph [ref=e294]: "Runtime: 0s"
+                    - paragraph [ref=e295]: "Tokens: 0"
+                  - paragraph [ref=e296]:
+                    - generic "Prompt snapshot was not saved for this loop. This can happen on older loops or when PROMPT.md was unavailable at loop start." [ref=e297]: PROMPT.md
+                - generic [ref=e299]:
+                  - button "Stop" [ref=e300]
+                  - button "Restart" [ref=e301]
+            - generic [ref=e304]:
+              - generic [ref=e305]:
+                - paragraph [ref=e306]: "Iterations: 3"
+                - paragraph [ref=e307]: "Runtime: 0s"
+                - paragraph [ref=e308]: "Tokens: 42"
+                - paragraph [ref=e309]: "Errors: 0"
+              - tablist "Loop detail sections" [ref=e310]:
+                - tab "Output" [ref=e311]
+                - tab "Review Changes" [active] [selected] [ref=e312]
+              - generic [ref=e320]:
+                - generic [ref=e321]:
+                  - generic [ref=e323]:
+                    - text: "Source branch:"
+                    - code [ref=e324]: ralph-cloud
+                  - button "Create Pull Request" [disabled] [ref=e326]
+                - paragraph [ref=e327]: Connect GitHub in Settings before creating a pull request.
+                - paragraph [ref=e330]: No worktree configured and commit-range metadata is unavailable for this loop.
+      - button "Open chat assistant" [ref=e33]: Chat

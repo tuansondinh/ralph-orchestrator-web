@@ -213,3 +213,65 @@
 - Focused verification passed: `npm test -w @ralph-ui/backend -- test/ralph-mcp-server.test.ts test/open-code-service.test.ts` and `npm test -w @ralph-ui/frontend -- src/App.test.tsx`.
 - Full repo gates passed from the repo root: `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build`.
 - Direct executable Step 8 verification also passed via `node --input-type=module`, where `RalphMcpServer.executeTool('list_projects', {})` returned `{ id, name, path }` and `executeTool('activate_plan_mode', { projectId: 'project-1' })` returned `projectContext.specsPath === '/tmp/project-1/specs/'` plus instructions/meta referencing that path.
+
+2026-03-13T19:44:26Z
+
+- Validator re-verified `task-1773415699-8214` against the Step 8 spec and found the acceptance scope satisfied.
+- Static inspection confirmed `packages/backend/src/mcp/RalphMcpServer.ts` now requires `projectId` for `activate_plan_mode` and `activate_task_mode`, returns `projectContext` with `path` and `specsPath`, and exposes `list_projects` results containing project paths; `packages/backend/src/services/OpenCodeService.ts` includes the required project-selection/spec-destination prompt guidance.
+- Full repo gates passed again from the repo root during validation: `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build` all exited 0. Root `npm test` finished green with `42` frontend files / `240` tests passing, including the previously failing `src/App.test.tsx` mobile drawer assertion.
+- Direct executable verification passed through live MCP server calls using `node --input-type=module`: `executeTool('list_projects', {})` returned a project entry with `path`, `executeTool('activate_plan_mode', { projectId: 'project-1' })` returned `projectContext.specsPath === '/tmp/project-1/specs/'`, and `executeTool('activate_task_mode', {})` failed with the expected `projectId` validation error while the valid task-mode call returned the same project context shape.
+- Decision confidence on loop termination was `72`, so `DEC-002` records the conservative choice to emit `validation.passed` rather than `LOOP_COMPLETE` because this iteration was triggered by a single Step 8 `task.complete` event and there is no task-file evidence that the entire objective is finished.
+
+2026-03-13T19:47:20Z
+
+- Builder iteration started from an empty runtime queue after the Step 8 `validation.passed` event, so I created a temporary Step 1 runtime task to reconcile the stale plan with the live codebase before doing any new work.
+- Direct inspection showed Track A is already present in the repository: `packages/backend/src/services/GitService.ts` plus `packages/backend/test/git-service.test.ts` cover Step 1; `packages/backend/src/services/LoopService.ts` and `packages/backend/src/trpc/router.ts` already contain branch setup, auto-push, retry-push, and PR creation paths; and the frontend already includes `packages/frontend/src/components/loops/StartLoopDialog.tsx`, `CreatePRDialog.tsx`, and `LoopDetail.tsx` with matching tests.
+- Focused verification passed without code changes: `npm test -w @ralph-ui/backend -- test/git-service.test.ts test/loop.test.ts` finished green with `64` tests, including branch creation/checkout, persisted git config, auto-push success/failure, retry push, and PR creation; `npm test -w @ralph-ui/frontend -- src/components/loops/StartLoopDialog.test.tsx src/components/loops/LoopDetail.test.tsx` finished green with `17` tests covering branch controls and PR UI behavior.
+- Because the runtime queue was empty and the allegedly pending Track A work is already implemented and green, I closed the temporary Step 1 task instead of inventing duplicate edits. `DEC-003` records the decision to stop and hand back to Ralph for coordination/termination rather than force another builder task.
+
+2026-03-13T18:48:16Z
+
+- Ralph reconciliation pass handled the `build.blocked` event after confirming the runtime queue was completely empty: `ralph tools task ready` returned `No ready tasks` and `ralph tools task list` returned `No tasks found`.
+- The objective appears substantially implemented in prior iterations (Track A/B/C steps reflected in this scratchpad), but there is not yet a single terminal acceptance task proving whether the whole `ralph-cloud-enhancements` objective is complete and whether `LOOP_COMPLETE` is justified.
+- I created runtime task `task-1773427696-36ef` (`Final objective acceptance audit`) as the next atomic unit. Scope: re-check the full objective against Steps 1-11 and the acceptance criteria, rerun repo-wide quality gates, verify any remaining browser/runtime evidence, and then either conclude completion or identify the smallest real remaining gap.
+- Decision confidence is 86: creating an explicit closeout/audit task is lower risk than declaring completion from fragmented prior evidence, and it keeps delegation aligned with the one-task-per-iteration rule.
+
+2026-03-13T18:53:01Z
+
+- Final objective acceptance audit reran the repo-wide quality gates from the repo root: `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build` all exited 0 during this iteration. Root `npm test` finished green with `53` backend files and `378` tests (including `1` skipped) plus `42` frontend files and `240` tests.
+- Direct executable acceptance probes confirmed the remaining non-UI criteria: `resolveRuntimeMode()` with `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_DB_URL`, and `RALPH_UI_LOCAL_CLOUD=true` resolves to `local-cloud` with `auth`, `githubProjects`, `terminal`, `preview`, and `mcp` all enabled; a live `RalphMcpServer.executeTool('activate_plan_mode', { projectId: 'project-1' })` call returned `projectContext.specsPath === '/tmp/project-1/specs/'`; and the focused backend acceptance subset `npm test -w @ralph-ui/backend -- test/app-cloud-services.test.ts test/ralph-mcp-server.test.ts test/loop.test.ts test/trpc-cloud-routes.test.ts` passed with `87` tests, covering local-cloud wiring, MCP project scoping, loop branch/auto-push/PR flows, and cloud project creation routes.
+- The final audit did find one concrete remaining gap: the focused frontend rerun `npm test -w @ralph-ui/frontend -- src/components/project/NewProjectDialog.test.tsx` fails reproducibly in `renders the cloud project creation form in cloud mode` because `waitForElementToBeRemoved(() => screen.queryByText('Loading GitHub status…'))` sometimes observes the loading text already gone. The same area still passes in the full root suite, so this looks like a brittle isolated assertion rather than a product regression, but it is a real repo-health issue discovered during closeout.
+- I opened follow-up runtime task `task-1773427978-79a5` (`Stabilize NewProjectDialog cloud-mode test`) instead of declaring the overall objective complete. `DEC-004` records the conservative choice to treat that isolated reproducible failure as the smallest real remaining gap.
+
+2026-03-13T19:56:40Z
+
+- Validator rechecked the completed final-audit task rather than the still-open follow-up. Current runtime queue still contains only `task-1773427978-79a5`, and `pushback-tracker.md` has no entries for that task.
+- Repo-wide gates passed again from the repo root during validation: `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build` all exited 0. Root `npm test` again finished green with `53` backend files / `378` tests (`1` skipped) and `42` frontend files / `240` tests.
+- The `NewProjectDialog` cloud-mode test remains a real flake exactly as the audit described. A first isolated run of `npm test -w @ralph-ui/frontend -- src/components/project/NewProjectDialog.test.tsx` passed, but an immediate rerun failed in `renders the cloud project creation form in cloud mode` at `waitForElementToBeRemoved(() => screen.queryByText('Loading GitHub connection...'))` because the loading text had already disappeared before the wait attached.
+- That pass-then-fail pattern confirms the audit result is trustworthy: the product and root suite are green, but the focused dialog test is brittle and still justifies follow-up task `task-1773427978-79a5` instead of `LOOP_COMPLETE`.
+
+2026-03-13T18:59:32Z
+
+- Completed `task-1773427978-79a5` by stabilizing `packages/frontend/src/components/project/NewProjectDialog.test.tsx` without changing runtime behavior. The cloud-mode render test now waits for the durable form fields (`Repository name`, `Description`) and then asserts the transient `Loading GitHub connection...` copy is gone, rather than calling `waitForElementToBeRemoved` on a node that may already have disappeared.
+- Red step was reproduced directly before editing: two parallel isolated runs of `npm test -w @ralph-ui/frontend -- src/components/project/NewProjectDialog.test.tsx` produced one pass and one failure at `waitForElementToBeRemoved`, matching the validator/audit diagnosis.
+- Focused verification after the edit passed in the failure mode that previously flaked: five consecutive isolated runs of `npm test -w @ralph-ui/frontend -- src/components/project/NewProjectDialog.test.tsx` all exited 0, and the paired frontend rerun `npm test -w @ralph-ui/frontend -- src/components/project/NewProjectDialog.test.tsx src/App.test.tsx` also exited 0 with `40` tests passing.
+- Repo-wide gates passed again from the repo root after the test fix: `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build` all exited 0. Root `npm test` finished green with `53` backend files / `378` tests (`1` skipped) and `42` frontend files / `240` tests.
+
+2026-03-13T20:02:18Z
+
+- Final validator pass for `task-1773427978-79a5` confirms the remaining closeout gap is resolved and no further runtime tasks remain: `ralph tools task ready` returned `No ready tasks`, `ralph tools task list` returned `No tasks found`, and `find specs/ralph-cloud-enhancements -path '*/tasks/*.code-task.md' -print` returned no code-task files to hold open final completion.
+- Full repo gates were rerun from the repo root during validation and all passed again: `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build` exited 0. The root test run finished green with `53` backend files / `378` tests (`1` skipped) and `42` frontend files / `240` tests.
+- Direct executable verification for the completed task also passed through the narrowest relevant path: five consecutive isolated runs of `npm test -w @ralph-ui/frontend -- src/components/project/NewProjectDialog.test.tsx` all passed, confirming the cloud-mode dialog assertion no longer flakes when run independently.
+- Code-quality review for the task remained clean: the test change is minimal, avoids speculative behavior, and matches the existing RTL pattern of waiting on durable UI instead of transient loading text. With the queue empty and all acceptance coverage already validated in prior closeout checks, the objective is ready for `LOOP_COMPLETE`.
+
+2026-03-13T20:06:10Z
+
+- Builder received another `validation.passed` event after the final closeout work, rechecked the live queues, and confirmed there is still nothing left to implement: `ralph tools task ready` returned `No ready tasks`, `ralph tools task list` returned `No tasks found`, and `find specs/ralph-cloud-enhancements -path '*/tasks/*.code-task.md' -print` returned no task files.
+- Because this hat must complete exactly one atomic implementation task and there are no remaining tasks, the safe action is to stop rather than fabricate new work. Confidence is 97 because the queue and spec-task surfaces are both empty and the prior scratchpad entries already capture passing acceptance evidence.
+- I am emitting `build.blocked` so Ralph can terminate the loop cleanly or publish `LOOP_COMPLETE`; starting another builder task here would duplicate validated work and violate the one-task-per-iteration rule.
+
+2026-03-13T20:10:32Z
+
+- Ralph handled the follow-up `build.blocked` coordination pass by rechecking all remaining work surfaces before termination: `ralph tools task ready` again returned `No ready tasks`, `ralph tools task list` again returned `No tasks found`, and `find specs/ralph-cloud-enhancements -path '*/tasks/*.code-task.md' -print` again returned no task files.
+- The objective now has end-to-end acceptance evidence captured in prior iterations, including repeated green repo-wide gates (`npm test`, `npm run lint`, `npm run typecheck`, `npm run build`) and focused runtime/browser checks for the cloud, MCP, loop, PR, and project-creation flows. There is no residual open task to delegate.
+- Decision confidence is 99: the correct action is to emit `LOOP_COMPLETE` immediately rather than publish another routing event, because emitting a non-terminal event with an empty queue would only spin the loop without producing new work.

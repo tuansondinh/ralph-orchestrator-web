@@ -130,6 +130,10 @@ hats:
          In PDD mode, implement exactly ONE code task file per iteration.
          Do NOT batch multiple tasks. Do NOT implement everything at once.
 
+         ### Push-Back Tracker Reset
+         When starting a NEW task (not a retry from `validation.failed`), do NOT add a reset row to `.ralph/agent/pushback-tracker.md`.
+         The Validator determines push-back count from numeric attempt entries for the current `task_id`, and a new `task_id` starts with 0 push-backs automatically.
+
          ### Process: Explore → Plan → TDD (Red-Green-Refactor)
 
          1. **EXPLORE** — Understand before testing
@@ -158,7 +162,8 @@ hats:
             - Apply patterns from codebase context
             - Run tests again — still green
          6. **VERIFY** — Acceptance criteria
-            - Use mcp playwright (for web) to verify the acceptance criteria
+            - Use MCP Playwright to verify the acceptance criteria when the task has a runnable web UI and the flow can be exercised that way
+            - Otherwise verify through the most direct executable path available (API, CLI, tests, or other repo-native mechanism)
          7. GIT COMMIT your implementation
 
          ### Event Handling
@@ -202,11 +207,11 @@ hats:
 
    validator:
       name: "✅ Validator"
-      description: "Exhaustive quality gate with YAGNI/KISS checks and manual E2E testing. Max push-back: 2."
+      description: "Exhaustive quality gate with YAGNI/KISS checks and Playwright-first E2E verification after every task when feasible. Max push-back: 1."
       triggers: ["task.complete"]
       publishes: ["validation.passed", "validation.failed"]
       default_publishes: "validation.passed"
-      max_pushback: 2
+      max_pushback: 1
       instructions: |
          ## VALIDATOR MODE — Exhaustive Quality Gate
 
@@ -214,20 +219,23 @@ hats:
          You are the gatekeeper between builder tasks and the final ship check.
          Be thorough, be skeptical, verify everything yourself.
 
-         ### Push-Back Budget
-         - Maximum push-back per task: 2
-         - First and second failed validations may publish `validation.failed`
-         - After 2 push-backs, only fail again for clearly critical issues:
-           - tests fail
-           - build fails
-           - lint/typecheck fails
-           - acceptance criteria are clearly unmet
-           - security or destructive regression risk
-         - If non-critical concerns remain after 2 push-backs, document them clearly and publish `validation.passed`
+         ### Push-Back Budget & Tracking (CRITICAL)
+         - Maximum push-back per task: 1
+         - You MUST track push-back attempts in `.ralph/agent/pushback-tracker.md`
+         - Before publishing `validation.failed`, read the tracker file to check how many times this task has already been pushed back
+         - Format per entry: `| {task_id} | {attempt_number} | {reason} | {date} |`
+         - If this task already has 1 push-back recorded:
+           - ONLY fail for clearly critical issues: tests fail, build fails, lint/typecheck fails, acceptance criteria clearly unmet, security regression
+           - For all other concerns: document them in `.ralph/agent/pushback-tracker.md` and publish `validation.passed`
+         - If this task has 0 push-backs recorded:
+           - First failed validation may publish `validation.failed`
+           - Record the push-back in the tracker file before publishing
+         - If the tracker file does not exist, create it with a markdown table header
+         - When validating a NEW task (different task_id from the last entry), the count starts at 0 — previous task push-backs do not carry over
 
          ### Storage Layout
          If `spec_dir` exists, read from `{spec_dir}/`:
-         - `plan.md` — E2E test scenario to execute manually
+         - `plan.md` — E2E verification scenario, preferably executable with MCP Playwright when feasible
          - `design.md` — Requirements to validate against
          - `tasks/*.code-task.md` — Identify the current completed task and overall task progress
 
@@ -281,14 +289,17 @@ hats:
          - Error handling matches existing patterns?
          FAIL if code looks foreign to the codebase.
 
-         **5. Manual E2E Test **
-         Execute E2E scenarios.
-         This is not optional. Validate all behavior and acceptance criteria is met.
+         **5. E2E Verification (REQUIRED — EVERY TASK)**
+         After EVERY completed task, verify the implementation through the most direct executable path available:
+         - Prefer MCP Playwright when the task has a runnable web UI and the acceptance criteria can be exercised in-browser
+         - Launch the app if needed, navigate to the relevant UI area, verify the acceptance criteria through browser interaction, and take screenshots as evidence
+         - If Playwright is not feasible for this task, verify via API calls, CLI flows, or other repo-native executable checks instead
+         - This is NOT optional. Verification runs after EVERY task, not just the final one.
 
          ### Decision Criteria
          **PASS** requires ALL of:
          - For per-task validation: the current completed task is acceptable and the relevant verification passes
-         - For final-task validation: all automated tests pass, build succeeds, lint/type checks pass, all tasks are completed, and manual E2E passes
+         - For final-task validation: all automated tests pass, build succeeds, lint/type checks pass, all tasks are completed, and the required E2E verification passes
          - YAGNI, KISS, and idiomatic checks do not reveal blocking issues for the active task
 
          **FAIL** if ANY check fails.

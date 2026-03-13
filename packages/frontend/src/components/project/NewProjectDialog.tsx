@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
-import { GitHubRepoSelector } from '@/components/project/GitHubRepoSelector'
+import { CreateProjectDialog } from '@/components/project/CreateProjectDialog'
 import { capabilitiesApi, type RuntimeCapabilities } from '@/lib/capabilitiesApi'
 import { projectApi, type ProjectRecord } from '@/lib/projectApi'
 import { useProjectStore } from '@/stores/projectStore'
@@ -8,6 +8,7 @@ interface NewProjectDialogProps {
   triggerLabel?: string
   onCreated: (project: ProjectRecord) => void
   enableGlobalShortcut?: boolean
+  showTrigger?: boolean
 }
 
 function deriveProjectName(projectPath: string) {
@@ -42,7 +43,8 @@ function buildCreateProjectPath(basePath: string, projectName: string) {
 export function NewProjectDialog({
   triggerLabel = 'New Project',
   onCreated,
-  enableGlobalShortcut = false
+  enableGlobalShortcut = false,
+  showTrigger = true
 }: NewProjectDialogProps) {
   const addProject = useProjectStore((state) => state.addProject)
   const setActiveProject = useProjectStore((state) => state.setActiveProject)
@@ -167,13 +169,15 @@ export function NewProjectDialog({
 
   return (
     <>
-      <button
-        className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white"
-        onClick={() => setIsOpen(true)}
-        type="button"
-      >
-        {triggerLabel}
-      </button>
+      {showTrigger ? (
+        <button
+          className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white"
+          onClick={() => setIsOpen(true)}
+          type="button"
+        >
+          {triggerLabel}
+        </button>
+      ) : null}
       {isOpen ? (
         <div
           aria-label="Create project dialog"
@@ -184,7 +188,7 @@ export function NewProjectDialog({
           <div className="w-full max-w-md space-y-4 rounded-lg border border-zinc-800 bg-zinc-900 p-5">
             {isCloudProjectMode ? (
               <>
-                <GitHubRepoSelector onProjectCreated={handleProjectCreated} />
+                <CreateProjectDialog onProjectCreated={handleProjectCreated} />
                 <div className="flex justify-end">
                   <button
                     className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800"

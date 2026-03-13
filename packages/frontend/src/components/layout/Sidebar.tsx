@@ -9,6 +9,7 @@ interface SidebarProps {
   onProjectCreated: (project: ProjectRecord) => void
   connectionStatus: 'connected' | 'reconnecting' | 'connecting'
   reconnectAttempt: number
+  showCloudProjectButton?: boolean
 }
 
 export function Sidebar({
@@ -16,7 +17,8 @@ export function Sidebar({
   onProjectDelete,
   onProjectCreated,
   connectionStatus,
-  reconnectAttempt
+  reconnectAttempt,
+  showCloudProjectButton = false
 }: SidebarProps) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-5">
@@ -39,7 +41,11 @@ export function Sidebar({
             : 'Connecting...'}
       </p>
 
-      <NewProjectDialog enableGlobalShortcut onCreated={onProjectCreated} />
+      <NewProjectDialog
+        enableGlobalShortcut
+        onCreated={onProjectCreated}
+        showTrigger={showCloudProjectButton}
+      />
 
       <div className="flex-1 overflow-y-auto">
         <ProjectList onDelete={onProjectDelete} onSelect={onProjectSelect} />

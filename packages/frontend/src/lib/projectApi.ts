@@ -25,12 +25,20 @@ export interface SelectDirectoryResult {
   path: string
 }
 
-export interface CreateGitHubProjectInput {
+export interface CreateNewGitHubProjectInput {
+  name: string
+  description?: string
+  private: boolean
+}
+
+export interface ImportGitHubProjectInput {
   owner: string
   repo: string
   defaultBranch: string
   name?: string
 }
+
+export type CreateGitHubProjectInput = CreateNewGitHubProjectInput | ImportGitHubProjectInput
 
 export interface ProjectPromptSnapshot {
   projectId: string

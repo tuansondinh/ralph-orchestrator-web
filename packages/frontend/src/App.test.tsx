@@ -658,6 +658,36 @@ describe('App', () => {
     expect(within(projectSections).getByRole('link', { name: 'Monitor' })).toBeInTheDocument()
   })
 
+  it('shows the sidebar New Project button when GitHub projects are enabled', async () => {
+    seedProjects([
+      {
+        id: 'alpha',
+        name: 'Alpha App',
+        path: '/tmp/alpha-app',
+        type: 'node',
+        ralphConfig: 'ralph.yml',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ])
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    })
+    mockAuthenticatedCloudSession()
+
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: 'New Project' })).toBeInTheDocument()
+  })
+
   it('redirects unauthenticated cloud users to sign-in before rendering the app shell', async () => {
     vi.mocked(capabilitiesApi.get).mockResolvedValue({
       mode: 'cloud',

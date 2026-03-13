@@ -1,9 +1,17 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  waitForElementToBeRemoved
+} from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { NewProjectDialog } from '@/components/project/NewProjectDialog'
 import { capabilitiesApi } from '@/lib/capabilitiesApi'
 import { githubApi } from '@/lib/githubApi'
+import { projectApi } from '@/lib/projectApi'
 import { resetProjectStore } from '@/stores/projectStore'
 
 vi.mock('@/lib/capabilitiesApi', () => ({
@@ -28,6 +36,21 @@ vi.mock('@/lib/projectApi', () => ({
 }))
 
 describe('NewProjectDialog', () => {
+  const createdProject = {
+    id: 'project-1',
+    name: 'hello-world',
+    path: '/srv/ralph/hello-world',
+    type: 'node',
+    ralphConfig: 'ralph.yml',
+    createdAt: 1,
+    updatedAt: 1,
+    userId: 'user-1',
+    githubOwner: 'octocat',
+    githubRepo: 'hello-world',
+    defaultBranch: 'main',
+    workspacePath: '/srv/ralph/hello-world'
+  }
+
   beforeEach(() => {
     vi.clearAllMocks()
     resetProjectStore()
@@ -67,7 +90,7 @@ describe('NewProjectDialog', () => {
     expect(screen.getByRole('button', { name: 'Open Existing' })).toBeInTheDocument()
   })
 
-  it('renders the GitHub repository selector in cloud mode', async () => {
+  it('renders the cloud project creation form in cloud mode', async () => {
     vi.mocked(capabilitiesApi.get).mockResolvedValue({
       mode: 'cloud',
       database: true,
@@ -107,8 +130,61 @@ describe('NewProjectDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New Project' }))
 
     expect(await screen.findByRole('heading', { name: 'Create cloud project' })).toBeInTheDocument()
-    expect(screen.queryByLabelText('Project name')).not.toBeInTheDocument()
-    expect(await screen.findByText('octocat/hello-world')).toBeInTheDocument()
+    await waitForElementToBeRemoved(() => screen.queryByText('Loading GitHub connection...'))
+    expect(screen.getByLabelText('Repository name')).toBeInTheDocument()
+    expect(screen.getByLabelText('Description')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Private' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+  })
+
+  it('creates a cloud project from the dialog form', async () => {
+    const onCreated = vi.fn()
+
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    })
+    vi.mocked(githubApi.getConnection).mockResolvedValue({
+      githubUserId: 42,
+      githubUsername: 'octocat',
+      scope: 'repo',
+      connectedAt: Date.UTC(2026, 2, 10, 8, 0, 0)
+    })
+    vi.mocked(projectApi.createFromGitHub).mockResolvedValue(createdProject)
+
+    render(
+      <MemoryRouter>
+        <NewProjectDialog onCreated={onCreated} />
+      </MemoryRouter>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Project' }))
+    fireEvent.change(await screen.findByLabelText('Repository name'), {
+      target: { value: 'hello-world' }
+    })
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'Fresh repo' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Public' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create Project' }))
+
+    await waitFor(() => {
+      expect(projectApi.createFromGitHub).toHaveBeenCalledWith({
+        name: 'hello-world',
+        description: 'Fresh repo',
+        private: false
+      })
+      expect(onCreated).toHaveBeenCalledWith(createdProject)
+    })
   })
 
   it('uses stacked mobile layout primitives inside the local project dialog', async () => {

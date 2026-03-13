@@ -317,6 +317,7 @@ export function AppShellRoutes({
             onProjectDelete={handleProjectDelete}
             onProjectSelect={handleProjectSelect}
             reconnectAttempt={reconnectAttempt}
+            showCloudProjectButton={capabilities.githubProjects}
           />
         }
         navigationKey={location.pathname}

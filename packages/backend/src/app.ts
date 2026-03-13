@@ -39,6 +39,7 @@ import { HatsPresetService } from './services/HatsPresetService.js'
 import { SopService } from './services/SopService.js'
 import { OpenCodeService } from './services/OpenCodeService.js'
 import { TaskService } from './services/TaskService.js'
+import { GitService } from './services/GitService.js'
 import { RalphMcpServer } from './mcp/RalphMcpServer.js'
 import { resolveRalphBinary } from './lib/ralph.js'
 import { isOriginAllowed, parseAllowedOrigins } from './lib/origin.js'
@@ -262,6 +263,7 @@ export function createApp(options: CreateAppOptions = {}) {
 
   const taskService =
     new TaskService(repositories)
+  const gitService = new GitService()
   const internalMcpAuthToken = crypto.randomUUID()
   const openCodeService = new OpenCodeService({
     mcpEndpointUrl: `http://127.0.0.1:${Number(process.env.PORT ?? 3003)}/mcp`,
@@ -295,6 +297,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.decorate('settingsService', settingsService)
   app.decorate('hatsPresetService', hatsPresetService)
   app.decorate('taskService', taskService)
+  app.decorate('gitService', gitService)
 
   app.register(cookie)
 

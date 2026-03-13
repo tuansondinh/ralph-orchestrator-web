@@ -137,6 +137,48 @@ export class GitHubService {
     };
   }
 
+  async createRepo(
+    token: string,
+    options: {
+      name: string
+      description?: string
+      private: boolean
+    }
+  ): Promise<{
+    fullName: string
+    cloneUrl: string
+    htmlUrl: string
+    defaultBranch: string
+  }> {
+    const response = await fetch('https://api.github.com/user/repos', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: options.name,
+        description: options.description,
+        private: options.private,
+      }),
+    });
+    const data = await response.json() as Record<string, unknown>;
+
+    if (!response.ok) {
+      const message =
+        typeof data.message === 'string' ? data.message : 'Failed to create GitHub repository';
+      throw new Error(message);
+    }
+
+    return {
+      fullName: String(data.full_name),
+      cloneUrl: String(data.clone_url),
+      htmlUrl: String(data.html_url),
+      defaultBranch: String(data.default_branch ?? 'main'),
+    };
+  }
+
   encrypt(plaintext: string): string {
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, this.encryptionKey, iv);

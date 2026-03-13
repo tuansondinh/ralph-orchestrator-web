@@ -11,6 +11,7 @@ import type { NotificationRepository, ProjectRepository, ProjectRecord } from '.
 import { resolveRepositoryBundle, type RepositoryBundleSource } from '../db/repositories/index.js'
 import { ServiceError, type ServiceErrorCode } from '../lib/ServiceError.js'
 import { asLoopBackend, type LoopBackend } from './loopUtils.js'
+import type { GitHubService } from './GitHubService.js'
 
 export class ProjectServiceError extends ServiceError {
   constructor(code: ServiceErrorCode, message: string) {
@@ -424,6 +425,7 @@ export class ProjectService {
   private readonly projects: ProjectRepository
   private readonly notifications: NotificationRepository
   private workspaceManager?: import('./WorkspaceManager.js').WorkspaceManager
+  private githubService?: Pick<GitHubService, 'getDecryptedToken' | 'createRepo'>
 
   constructor(source: RepositoryBundleSource) {
     const repositories = resolveRepositoryBundle(source)
@@ -435,7 +437,16 @@ export class ProjectService {
     this.workspaceManager = manager
   }
 
+  setGitHubService(service: Pick<GitHubService, 'getDecryptedToken' | 'createRepo'>) {
+    this.githubService = service
+  }
+
   async createFromGitHub(params: {
+    userId: string
+    name: string
+    description?: string
+    private: boolean
+  } | {
     userId: string
     githubOwner: string
     githubRepo: string
@@ -447,27 +458,61 @@ export class ProjectService {
       throw new ProjectServiceError('BAD_REQUEST', 'WorkspaceManager not configured')
     }
 
-    const name = params.name ?? params.githubRepo
+    const isLegacyImport = 'githubOwner' in params
+    let name: string
+    let githubOwner: string
+    let githubRepo: string
+    let defaultBranch: string
+    let githubToken: string
+
+    if (isLegacyImport) {
+      name = params.name ?? params.githubRepo
+      githubOwner = params.githubOwner
+      githubRepo = params.githubRepo
+      defaultBranch = params.defaultBranch
+      githubToken = params.githubToken
+    } else {
+      if (!this.githubService) {
+        throw new ProjectServiceError('BAD_REQUEST', 'GitHub connector is not configured')
+      }
+
+      name = normalizeName(params.name)
+      githubToken = await this.githubService.getDecryptedToken(params.userId)
+      const repository = await this.githubService.createRepo(githubToken, {
+        name,
+        description: params.description,
+        private: params.private
+      })
+      const [repoOwner, repoName] = repository.fullName.split('/', 2)
+
+      if (!repoOwner || !repoName) {
+        throw new ProjectServiceError('BAD_REQUEST', 'GitHub repository metadata is invalid')
+      }
+
+      githubOwner = repoOwner
+      githubRepo = repoName
+      defaultBranch = repository.defaultBranch
+    }
 
     const existing = await this.projects.findByGitHubRepo?.(
       params.userId,
-      params.githubOwner,
-      params.githubRepo
+      githubOwner,
+      githubRepo
     )
     if (existing) {
       throw new ProjectServiceError(
         'BAD_REQUEST',
-        `Project already exists for ${params.githubOwner}/${params.githubRepo}`
+        `Project already exists for ${githubOwner}/${githubRepo}`
       )
     }
 
     const projectId = randomUUID()
     const workspacePath = await this.workspaceManager.prepare({
       projectId,
-      githubOwner: params.githubOwner,
-      githubRepo: params.githubRepo,
-      branch: params.defaultBranch,
-      token: params.githubToken
+      githubOwner,
+      githubRepo,
+      branch: defaultBranch,
+      token: githubToken
     })
 
     const now = Date.now()
@@ -483,9 +528,9 @@ export class ProjectService {
       createdAt: now,
       updatedAt: now,
       userId: params.userId,
-      githubOwner: params.githubOwner,
-      githubRepo: params.githubRepo,
-      defaultBranch: params.defaultBranch,
+      githubOwner,
+      githubRepo,
+      defaultBranch,
       workspacePath
     }
 

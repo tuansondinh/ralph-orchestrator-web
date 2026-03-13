@@ -5,10 +5,7 @@ import { createTestRuntime } from './test-helpers.js'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 describe('project tRPC router', () => {
-  it('creates a cloud project from the authenticated GitHub repository', async () => {
-    const githubService = {
-      getDecryptedToken: vi.fn().mockResolvedValue('token-123')
-    }
+  it('creates a cloud project from a new GitHub repository request', async () => {
     const projectService = {
       createFromGitHub: vi.fn().mockResolvedValue({
         id: 'project-1',
@@ -39,15 +36,15 @@ describe('project tRPC router', () => {
       settingsService: {} as any,
       hatsPresetService: {} as any,
       taskService: {} as any,
-      githubService: githubService as any,
+      githubService: {} as any,
       userId: 'user-123'
     })
 
     await expect(
       caller.project.createFromGitHub({
-        owner: 'octocat',
-        repo: 'hello-world',
-        defaultBranch: 'main'
+        name: 'hello-world',
+        description: 'Demo app',
+        private: false
       })
     ).resolves.toMatchObject({
       id: 'project-1',
@@ -55,14 +52,11 @@ describe('project tRPC router', () => {
       githubRepo: 'hello-world'
     })
 
-    expect(githubService.getDecryptedToken).toHaveBeenCalledWith('user-123')
     expect(projectService.createFromGitHub).toHaveBeenCalledWith({
       userId: 'user-123',
-      githubOwner: 'octocat',
-      githubRepo: 'hello-world',
-      defaultBranch: 'main',
-      githubToken: 'token-123',
-      name: undefined
+      name: 'hello-world',
+      description: 'Demo app',
+      private: false
     })
   })
 })

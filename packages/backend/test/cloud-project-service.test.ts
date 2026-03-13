@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { ProjectService } from '../src/services/ProjectService.js'
 import type { ProjectRepository, ProjectRecord, RepositoryBundle } from '../src/db/repositories/contracts.js'
+import type { GitHubService } from '../src/services/GitHubService.js'
 import type { WorkspaceManager } from '../src/services/WorkspaceManager.js'
 
 vi.mock('node:fs/promises', () => ({
@@ -22,6 +23,7 @@ describe('CloudProjectService', () => {
   let mockFindByGitHubRepo: Mock<NonNullable<ProjectRepository['findByGitHubRepo']>>
   let mockFindByUserId: Mock<NonNullable<ProjectRepository['findByUserId']>>
   let mockWorkspaceManager: WorkspaceManager
+  let mockGitHubService: Pick<GitHubService, 'getDecryptedToken' | 'createRepo'>
   let projectService: ProjectService
   let createdProjects: Map<string, ProjectRecord>
 
@@ -53,6 +55,15 @@ describe('CloudProjectService', () => {
       pushBranch: vi.fn().mockResolvedValue(undefined),
       cleanup: vi.fn().mockResolvedValue(undefined),
       exists: vi.fn().mockResolvedValue(false)
+    }
+    mockGitHubService = {
+      getDecryptedToken: vi.fn().mockResolvedValue('gho_test_token'),
+      createRepo: vi.fn().mockResolvedValue({
+        fullName: 'acme/my-app',
+        cloneUrl: 'https://github.com/acme/my-app.git',
+        htmlUrl: 'https://github.com/acme/my-app',
+        defaultBranch: 'main'
+      })
     }
 
     const mockRepos = {
@@ -100,21 +111,26 @@ describe('CloudProjectService', () => {
 
     projectService = new ProjectService(mockRepos as RepositoryBundle)
     projectService.setWorkspaceManager(mockWorkspaceManager)
+    projectService.setGitHubService(mockGitHubService as GitHubService)
   })
 
   describe('createFromGitHub', () => {
-    it('creates project and clones repo', async () => {
+    it('creates a GitHub repo, then clones and registers the project', async () => {
       const params = {
         userId: 'user-123',
-        githubOwner: 'acme',
-        githubRepo: 'my-app',
-        defaultBranch: 'main',
-        githubToken: 'gho_test_token',
-        name: 'My App'
+        name: 'My App',
+        description: 'Demo project',
+        private: true
       }
 
       const project = await projectService.createFromGitHub(params)
 
+      expect(mockGitHubService.getDecryptedToken).toHaveBeenCalledWith('user-123')
+      expect(mockGitHubService.createRepo).toHaveBeenCalledWith('gho_test_token', {
+        name: 'My App',
+        description: 'Demo project',
+        private: true
+      })
       expect(mockWorkspaceManager.prepare).toHaveBeenCalledWith({
         projectId: expect.any(String),
         githubOwner: 'acme',
@@ -139,20 +155,6 @@ describe('CloudProjectService', () => {
       expect(project.path).toBe('/workspace/project-123')
     })
 
-    it('uses repo name as project name when not provided', async () => {
-      const params = {
-        userId: 'user-123',
-        githubOwner: 'acme',
-        githubRepo: 'my-app',
-        defaultBranch: 'main',
-        githubToken: 'gho_test_token'
-      }
-
-      const project = await projectService.createFromGitHub(params)
-
-      expect(project.name).toBe('my-app')
-    })
-
     it('rejects duplicate GitHub repos', async () => {
       mockFindByGitHubRepo.mockResolvedValueOnce({
         id: 'existing-project',
@@ -171,10 +173,8 @@ describe('CloudProjectService', () => {
 
       const params = {
         userId: 'user-123',
-        githubOwner: 'acme',
-        githubRepo: 'my-app',
-        defaultBranch: 'main',
-        githubToken: 'gho_test_token'
+        name: 'My App',
+        private: true
       }
 
       await expect(projectService.createFromGitHub(params)).rejects.toThrow(
@@ -183,6 +183,23 @@ describe('CloudProjectService', () => {
 
       expect(mockWorkspaceManager.prepare).not.toHaveBeenCalled()
       expect(mockProjectRepo.create).not.toHaveBeenCalled()
+    })
+
+    it('surfaces missing GitHub connection errors', async () => {
+      vi.mocked(mockGitHubService.getDecryptedToken).mockRejectedValueOnce(
+        new Error('No GitHub connection found')
+      )
+
+      await expect(
+        projectService.createFromGitHub({
+          userId: 'user-123',
+          name: 'My App',
+          private: true
+        })
+      ).rejects.toThrow('No GitHub connection found')
+
+      expect(mockGitHubService.createRepo).not.toHaveBeenCalled()
+      expect(mockWorkspaceManager.prepare).not.toHaveBeenCalled()
     })
   })
 

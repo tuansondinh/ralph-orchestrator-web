@@ -164,6 +164,7 @@ async function cloudStartupPlugin(
     )
 
     app.decorate('githubService', githubService)
+    projectService.setGitHubService(githubService)
     registerGitHubAuthRoutes(app)
   }
 }

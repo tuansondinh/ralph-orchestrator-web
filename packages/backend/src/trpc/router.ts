@@ -33,12 +33,21 @@ const githubRepoListInputSchema = z
     perPage: z.number().int().positive().max(100).optional()
   })
   .optional()
-const createGitHubProjectInputSchema = z.object({
+const createNewGitHubProjectInputSchema = z.object({
+  name: z.string().trim().min(1),
+  description: z.string().trim().optional(),
+  private: z.boolean()
+})
+const importGitHubProjectInputSchema = z.object({
   owner: z.string().trim().min(1),
   repo: z.string().trim().min(1),
   defaultBranch: z.string().trim().min(1),
   name: z.string().trim().min(1).optional()
 })
+const createGitHubProjectInputSchema = z.union([
+  createNewGitHubProjectInputSchema,
+  importGitHubProjectInputSchema
+])
 
 function asTRPCError(error: unknown): never {
   if (error instanceof ServiceError) {
@@ -155,22 +164,34 @@ const projectRouter = t.router({
     .mutation(async ({ ctx, input }) => {
       const userId = requireAuthenticatedCloudUser(ctx)
       const githubService = requireGitHubService(ctx)
-      const githubToken = await githubService.getDecryptedToken(userId).catch((error) => {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message:
-            error instanceof Error ? error.message : 'Unable to read GitHub connection.'
+
+      if ('owner' in input) {
+        const githubToken = await githubService.getDecryptedToken(userId).catch((error) => {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              error instanceof Error ? error.message : 'Unable to read GitHub connection.'
+          })
         })
-      })
+
+        return ctx.projectService
+          .createFromGitHub({
+            userId,
+            githubOwner: input.owner,
+            githubRepo: input.repo,
+            defaultBranch: input.defaultBranch,
+            githubToken,
+            name: input.name
+          })
+          .catch((error) => asTRPCError(error))
+      }
 
       return ctx.projectService
         .createFromGitHub({
           userId,
-          githubOwner: input.owner,
-          githubRepo: input.repo,
-          defaultBranch: input.defaultBranch,
-          githubToken,
-          name: input.name
+          name: input.name,
+          description: input.description,
+          private: input.private
         })
         .catch((error) => asTRPCError(error))
     }),

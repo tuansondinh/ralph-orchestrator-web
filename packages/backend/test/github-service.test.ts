@@ -245,6 +245,67 @@ describe('GitHubService', () => {
     });
   });
 
+  describe('createRepo', () => {
+    it('should create a repo and return normalized fields', async () => {
+      const token = 'ghp_testtoken123456';
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          full_name: 'octocat/hello-world',
+          clone_url: 'https://github.com/octocat/hello-world.git',
+          html_url: 'https://github.com/octocat/hello-world',
+          default_branch: 'main',
+        }),
+      });
+
+      await expect(
+        service.createRepo(token, {
+          name: 'hello-world',
+          description: 'Demo repository',
+          private: true,
+        })
+      ).resolves.toEqual({
+        fullName: 'octocat/hello-world',
+        cloneUrl: 'https://github.com/octocat/hello-world.git',
+        htmlUrl: 'https://github.com/octocat/hello-world',
+        defaultBranch: 'main',
+      });
+
+      expect(global.fetch).toHaveBeenCalledWith('https://api.github.com/user/repos', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ghp_testtoken123456',
+          Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'hello-world',
+          description: 'Demo repository',
+          private: true,
+        }),
+      });
+    });
+
+    it('should surface GitHub repo creation errors', async () => {
+      const token = 'ghp_testtoken123456';
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({
+          message: 'Repository creation failed',
+        }),
+      });
+
+      await expect(
+        service.createRepo(token, {
+          name: 'hello-world',
+          private: false,
+        })
+      ).rejects.toThrow('Repository creation failed');
+    });
+  });
+
   describe('getAuthenticatedUser', () => {
     it('should return user info', async () => {
       const token = 'ghp_testtoken123456';

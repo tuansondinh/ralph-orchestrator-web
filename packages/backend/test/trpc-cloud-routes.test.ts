@@ -46,9 +46,8 @@ describe('cloud tRPC routes', () => {
     })
     await expect(
       caller.project.createFromGitHub({
-        owner: 'acme',
-        repo: 'platform',
-        defaultBranch: 'main'
+        name: 'platform',
+        private: true
       })
     ).rejects.toMatchObject({
       code: 'UNAUTHORIZED'
@@ -201,7 +200,6 @@ describe('cloud tRPC routes', () => {
       ],
       hasMore: false
     })
-    const getDecryptedToken = vi.fn().mockResolvedValue('gho_test_token')
     const createFromGitHub = vi.fn().mockResolvedValue({
       id: 'project-123',
       name: 'Platform',
@@ -224,8 +222,7 @@ describe('cloud tRPC routes', () => {
           createFromGitHub
         },
         githubService: {
-          listConnectedRepos,
-          getDecryptedToken
+          listConnectedRepos
         }
       })
     )
@@ -247,10 +244,9 @@ describe('cloud tRPC routes', () => {
 
     await expect(
       caller.project.createFromGitHub({
-        owner: 'acme',
-        repo: 'platform',
-        defaultBranch: 'main',
-        name: 'Platform'
+        name: 'Platform',
+        description: 'Cloud repo',
+        private: true
       })
     ).resolves.toEqual(
       expect.objectContaining({
@@ -259,14 +255,11 @@ describe('cloud tRPC routes', () => {
         githubRepo: 'platform'
       })
     )
-    expect(getDecryptedToken).toHaveBeenCalledWith('user-123')
     expect(createFromGitHub).toHaveBeenCalledWith({
       userId: 'user-123',
-      githubOwner: 'acme',
-      githubRepo: 'platform',
-      defaultBranch: 'main',
-      githubToken: 'gho_test_token',
-      name: 'Platform'
+      name: 'Platform',
+      description: 'Cloud repo',
+      private: true
     })
   })
 })

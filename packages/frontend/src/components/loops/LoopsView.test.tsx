@@ -22,6 +22,7 @@ vi.mock('@/components/loops/LoopTerminalOutput', () => ({
 vi.mock('@/lib/loopApi', () => ({
   loopApi: {
     list: vi.fn(),
+    listBranches: vi.fn(),
     start: vi.fn(),
     stop: vi.fn(),
     restart: vi.fn(),
@@ -166,6 +167,10 @@ describe('LoopsView', () => {
     vi.spyOn(Date, 'now').mockReturnValue(fixedNow)
 
     vi.mocked(loopApi.list).mockResolvedValue([])
+    vi.mocked(loopApi.listBranches).mockResolvedValue([
+      { name: 'main', current: true },
+      { name: 'feature/existing', current: false }
+    ])
     vi.mocked(loopApi.start).mockResolvedValue(baseLoop)
     vi.mocked(loopApi.stop).mockResolvedValue(undefined)
     vi.mocked(loopApi.restart).mockResolvedValue(baseLoop)

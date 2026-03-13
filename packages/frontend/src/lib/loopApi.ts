@@ -30,6 +30,19 @@ export interface LoopMetrics {
   filesChanged: string[]
 }
 
+export interface GitBranchInfo {
+  name: string
+  current: boolean
+  remote?: string
+  lastCommit?: string
+}
+
+export interface StartLoopGitBranchInput {
+  mode: 'new' | 'existing'
+  name: string
+  baseBranch?: string
+}
+
 export type DiffStatus = 'M' | 'A' | 'D' | 'R'
 
 export interface DiffFile {
@@ -64,11 +77,16 @@ export interface StartLoopInput {
   backend?: LoopBackend
   exclusive?: boolean
   worktree?: string
+  gitBranch?: StartLoopGitBranchInput
+  autoPush?: boolean
 }
 
 export const loopApi = {
   list(projectId: string): Promise<LoopSummary[]> {
     return trpcClient.loop.list.query({ projectId })
+  },
+  listBranches(projectId: string): Promise<GitBranchInfo[]> {
+    return trpcClient.loop.listBranches.query({ projectId })
   },
   start(projectId: string, input: StartLoopInput): Promise<LoopSummary> {
     return trpcClient.loop.start.mutate({

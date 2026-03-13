@@ -21,6 +21,13 @@ export class LoopServiceError extends ServiceError {
         this.name = 'LoopServiceError';
     }
 }
+function resolveGitServiceMethod(service, key, fallback) {
+    const method = service?.[key];
+    if (typeof method !== 'function') {
+        return fallback;
+    }
+    return method.bind(service);
+}
 const STOP_ATTEMPTS = 3;
 const STOP_WAIT_MS_PER_ATTEMPT = 700;
 const PROJECT_RECONCILE_MIN_INTERVAL_MS = 2_000;
@@ -150,10 +157,10 @@ export class LoopService {
             options.healthCheckIntervalMs ?? DEFAULT_RUNTIME_HEALTH_CHECK_INTERVAL_MS;
         const defaultGitService = new GitService();
         this.gitService = {
-            listBranches: options.gitService?.listBranches ?? defaultGitService.listBranches.bind(defaultGitService),
-            getCurrentBranch: options.gitService?.getCurrentBranch ?? defaultGitService.getCurrentBranch.bind(defaultGitService),
-            createBranch: options.gitService?.createBranch ?? defaultGitService.createBranch.bind(defaultGitService),
-            checkoutBranch: options.gitService?.checkoutBranch ?? defaultGitService.checkoutBranch.bind(defaultGitService)
+            listBranches: resolveGitServiceMethod(options.gitService, 'listBranches', defaultGitService.listBranches.bind(defaultGitService)),
+            getCurrentBranch: resolveGitServiceMethod(options.gitService, 'getCurrentBranch', defaultGitService.getCurrentBranch.bind(defaultGitService)),
+            createBranch: resolveGitServiceMethod(options.gitService, 'createBranch', defaultGitService.createBranch.bind(defaultGitService)),
+            checkoutBranch: resolveGitServiceMethod(options.gitService, 'checkoutBranch', defaultGitService.checkoutBranch.bind(defaultGitService))
         };
         this.notificationService = new LoopNotificationService(repositories, this.events, this.now);
         this.diffService = new LoopDiffService();

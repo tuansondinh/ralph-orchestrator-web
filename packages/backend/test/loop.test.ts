@@ -34,6 +34,7 @@ import { PresetService } from '../src/services/PresetService.js'
 import { SettingsService } from '../src/services/SettingsService.js'
 import { HatsPresetService } from '../src/services/HatsPresetService.js'
 import { TaskService } from '../src/services/TaskService.js'
+import { GitService } from '../src/services/GitService.js'
 import type { BranchInfo } from '../src/services/GitService.js'
 import { appRouter } from '../src/trpc/router.js'
 import { createApp } from '../src/app.js'
@@ -615,6 +616,35 @@ describe('loop tRPC routes', () => {
       { name: 'feature/demo', current: false, remote: 'origin' }
     ])
     expect(listBranches).toHaveBeenCalledWith(projectPath)
+  })
+
+  it('binds injected GitService instances when listing project branches through tRPC', async () => {
+    const execFile = vi.fn(async (args: string[]) => {
+      if (args[0] === 'branch' && args[1] === '-a') {
+        return {
+          stdout: '* main\n  feature/existing\n',
+          stderr: ''
+        }
+      }
+
+      throw new Error(`Unexpected git args: ${args.join(' ')}`)
+    })
+    const gitService = new GitService({ execFile })
+    const { caller, connection, tempDir } = await setupCaller({
+      gitService
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    await expect(caller.loop.listBranches({ projectId })).resolves.toEqual([
+      { name: 'main', current: true },
+      { name: 'feature/existing', current: false }
+    ])
+    expect(execFile).toHaveBeenCalledWith(['branch', '-a', '--no-color'], {
+      cwd: projectPath,
+      encoding: 'utf8'
+    })
   })
 
   it('captures the Ralph loop id from current-loop-id marker during start', async () => {

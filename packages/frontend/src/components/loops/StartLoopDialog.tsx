@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { LoopBackend, StartLoopInput } from '@/lib/loopApi'
+import { loopApi, type GitBranchInfo, type LoopBackend, type StartLoopInput } from '@/lib/loopApi'
 import { RALPH_BACKENDS } from '@/lib/backends'
 import { presetApi, type PresetSummary } from '@/lib/presetApi'
 import { settingsApi } from '@/lib/settingsApi'
@@ -16,6 +16,7 @@ interface StartLoopDialogProps {
 
 const FALLBACK_PRESET_FILENAME = 'hatless-baseline.yml'
 type BackendSelection = 'auto' | LoopBackend
+type GitBranchMode = 'new' | 'existing'
 const CUSTOM_USER_SETTING_LABEL = 'Custom user setting'
 
 function selectAvailablePreset(presets: PresetSummary[], preferred: string) {
@@ -39,6 +40,14 @@ function formatPresetDisplayName(filename: string) {
   return filename
 }
 
+function getBranchDisplayName(branch: GitBranchInfo) {
+  return branch.current ? `${branch.name} (current)` : branch.name
+}
+
+function getDefaultBaseBranch(branches: GitBranchInfo[]) {
+  return branches.find((branch) => branch.current)?.name ?? branches[0]?.name ?? ''
+}
+
 export function StartLoopDialog({
   projectId,
   onStart,
@@ -51,6 +60,7 @@ export function StartLoopDialog({
   const [isSavingPrompt, setIsSavingPrompt] = useState(false)
   const [isPresetLoading, setIsPresetLoading] = useState(false)
   const [isWorktreeLoading, setIsWorktreeLoading] = useState(false)
+  const [isBranchLoading, setIsBranchLoading] = useState(false)
   const [isCreatingWorktree, setIsCreatingWorktree] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
@@ -58,12 +68,17 @@ export function StartLoopDialog({
   const [promptDirty, setPromptDirty] = useState(false)
   const [presets, setPresets] = useState<PresetSummary[]>([])
   const [worktrees, setWorktrees] = useState<WorktreeSummary[]>([])
+  const [branches, setBranches] = useState<GitBranchInfo[]>([])
   const [selectedWorktree, setSelectedWorktree] = useState('')
   const [newWorktreeName, setNewWorktreeName] = useState('')
   const [defaultPreset, setDefaultPreset] = useState(FALLBACK_PRESET_FILENAME)
   const [selectedPreset, setSelectedPreset] = useState(FALLBACK_PRESET_FILENAME)
   const [selectedBackend, setSelectedBackend] = useState<BackendSelection>('auto')
   const [exclusive, setExclusive] = useState(false)
+  const [gitBranchMode, setGitBranchMode] = useState<GitBranchMode>('new')
+  const [gitBranchName, setGitBranchName] = useState('')
+  const [baseBranch, setBaseBranch] = useState('')
+  const [autoPush, setAutoPush] = useState(false)
 
   const resetForm = useCallback(() => {
     setPrompt(initialPrompt)
@@ -73,9 +88,13 @@ export function StartLoopDialog({
     setSelectedWorktree('')
     setNewWorktreeName('')
     setExclusive(false)
+    setGitBranchMode('new')
+    setGitBranchName('')
+    setBaseBranch(getDefaultBaseBranch(branches))
+    setAutoPush(false)
     setError(null)
     setStatusMessage(null)
-  }, [defaultPreset, initialPrompt, presets])
+  }, [branches, defaultPreset, initialPrompt, presets])
 
   useEffect(() => {
     setPromptDirty(false)
@@ -170,6 +189,50 @@ export function StartLoopDialog({
     }
   }, [projectId])
 
+  useEffect(() => {
+    let cancelled = false
+    setIsBranchLoading(true)
+
+    loopApi
+      .listBranches(projectId)
+      .then((nextBranches) => {
+        if (!cancelled) {
+          setBranches(nextBranches)
+        }
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setError(
+            nextError instanceof Error ? nextError.message : 'Failed to load git branches'
+          )
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsBranchLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    const defaultBaseBranch = getDefaultBaseBranch(branches)
+    if (!defaultBaseBranch) {
+      if (baseBranch) {
+        setBaseBranch('')
+      }
+      return
+    }
+
+    const selectedBranchStillExists = branches.some((branch) => branch.name === baseBranch)
+    if (!baseBranch || !selectedBranchStillExists) {
+      setBaseBranch(defaultBaseBranch)
+    }
+  }, [baseBranch, branches])
+
 
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -203,6 +266,20 @@ export function StartLoopDialog({
 
       if (selectedWorktree) {
         payload.worktree = selectedWorktree
+      }
+
+      const normalizedGitBranchName = gitBranchName.trim()
+      if (normalizedGitBranchName) {
+        payload.gitBranch = {
+          mode: gitBranchMode,
+          name: normalizedGitBranchName
+        }
+
+        if (gitBranchMode === 'new' && baseBranch) {
+          payload.gitBranch.baseBranch = baseBranch
+        }
+
+        payload.autoPush = autoPush
       }
 
       await onStart(payload)
@@ -412,6 +489,93 @@ export function StartLoopDialog({
             >
               Add Worktree
             </button>
+          </div>
+        </div>
+        <div className="space-y-1">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
+            <div className="space-y-1">
+              <label className="block text-xs uppercase text-zinc-400" htmlFor="loop-git-branch-mode">
+                Branch mode
+              </label>
+              <select
+                id="loop-git-branch-mode"
+                className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+                value={gitBranchMode}
+                onChange={(event) => {
+                  setGitBranchMode(event.target.value as GitBranchMode)
+                  setError(null)
+                }}
+              >
+                <option value="new">Create new branch</option>
+                <option value="existing">Use existing branch</option>
+              </select>
+              <p className="text-xs text-zinc-500">
+                Leave branch name empty to run without git branch setup.
+              </p>
+            </div>
+            <div className="mt-3 space-y-1">
+              <label className="block text-xs uppercase text-zinc-400" htmlFor="loop-git-branch-name">
+                Branch name
+              </label>
+              <input
+                id="loop-git-branch-name"
+                className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+                list="loop-git-branch-options"
+                placeholder={
+                  gitBranchMode === 'new' ? 'feature/your-branch' : 'Select an existing branch'
+                }
+                value={gitBranchName}
+                onChange={(event) => {
+                  setGitBranchName(event.target.value)
+                  setError(null)
+                }}
+              />
+              <datalist id="loop-git-branch-options">
+                {branches.map((branch) => (
+                  <option key={branch.name} value={branch.name} />
+                ))}
+              </datalist>
+            </div>
+            {gitBranchMode === 'new' ? (
+              <div className="mt-3 space-y-1">
+                <label className="block text-xs uppercase text-zinc-400" htmlFor="loop-base-branch">
+                  Base branch
+                </label>
+                <select
+                  id="loop-base-branch"
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+                  value={baseBranch}
+                  disabled={isBranchLoading || branches.length === 0}
+                  onChange={(event) => {
+                    setBaseBranch(event.target.value)
+                    setError(null)
+                  }}
+                >
+                  {branches.length === 0 ? (
+                    <option value="">
+                      {isBranchLoading ? 'Loading branches...' : 'No branches available'}
+                    </option>
+                  ) : (
+                    branches.map((branch) => (
+                      <option key={branch.name} value={branch.name}>
+                        {getBranchDisplayName(branch)}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            ) : null}
+            <div className="mt-3 space-y-1">
+              <label className="flex items-center gap-2 text-sm text-zinc-300">
+                <input
+                  checked={autoPush}
+                  disabled={!gitBranchName.trim()}
+                  type="checkbox"
+                  onChange={(event) => setAutoPush(event.target.checked)}
+                />
+                Auto-push when loop completes
+              </label>
+            </div>
           </div>
         </div>
         <div className="space-y-1">

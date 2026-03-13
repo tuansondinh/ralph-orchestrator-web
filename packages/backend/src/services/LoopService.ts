@@ -140,6 +140,20 @@ interface LoopServiceOptions {
   >
 }
 
+function resolveGitServiceMethod<
+  T extends Partial<
+    Pick<GitService, 'listBranches' | 'getCurrentBranch' | 'createBranch' | 'checkoutBranch'>
+  >,
+  K extends keyof T
+>(service: T | undefined, key: K, fallback: NonNullable<T[K]>): NonNullable<T[K]> {
+  const method = service?.[key]
+  if (typeof method !== 'function') {
+    return fallback
+  }
+
+  return method.bind(service) as NonNullable<T[K]>
+}
+
 interface StopLoopInput {
   binaryPath: string
   loopId: string
@@ -314,12 +328,26 @@ export class LoopService {
       options.healthCheckIntervalMs ?? DEFAULT_RUNTIME_HEALTH_CHECK_INTERVAL_MS
     const defaultGitService = new GitService()
     this.gitService = {
-      listBranches: options.gitService?.listBranches ?? defaultGitService.listBranches.bind(defaultGitService),
-      getCurrentBranch:
-        options.gitService?.getCurrentBranch ?? defaultGitService.getCurrentBranch.bind(defaultGitService),
-      createBranch: options.gitService?.createBranch ?? defaultGitService.createBranch.bind(defaultGitService),
-      checkoutBranch:
-        options.gitService?.checkoutBranch ?? defaultGitService.checkoutBranch.bind(defaultGitService)
+      listBranches: resolveGitServiceMethod(
+        options.gitService,
+        'listBranches',
+        defaultGitService.listBranches.bind(defaultGitService)
+      ),
+      getCurrentBranch: resolveGitServiceMethod(
+        options.gitService,
+        'getCurrentBranch',
+        defaultGitService.getCurrentBranch.bind(defaultGitService)
+      ),
+      createBranch: resolveGitServiceMethod(
+        options.gitService,
+        'createBranch',
+        defaultGitService.createBranch.bind(defaultGitService)
+      ),
+      checkoutBranch: resolveGitServiceMethod(
+        options.gitService,
+        'checkoutBranch',
+        defaultGitService.checkoutBranch.bind(defaultGitService)
+      )
     }
     this.notificationService = new LoopNotificationService(repositories, this.events, this.now)
     this.diffService = new LoopDiffService()

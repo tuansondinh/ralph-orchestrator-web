@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StartLoopDialog } from '@/components/loops/StartLoopDialog'
+import { loopApi } from '@/lib/loopApi'
 import { presetApi } from '@/lib/presetApi'
 import { settingsApi } from '@/lib/settingsApi'
 import { worktreeApi } from '@/lib/worktreeApi'
@@ -27,6 +28,17 @@ vi.mock('@/lib/worktreeApi', () => ({
   }
 }))
 
+vi.mock('@/lib/loopApi', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/loopApi')>('@/lib/loopApi')
+  return {
+    ...actual,
+    loopApi: {
+      ...actual.loopApi,
+      listBranches: vi.fn()
+    }
+  }
+})
+
 describe('StartLoopDialog', () => {
   const renderDialog = (props: Parameters<typeof StartLoopDialog>[0]) =>
     render(
@@ -51,6 +63,11 @@ describe('StartLoopDialog', () => {
       branch: 'feature-a',
       isPrimary: false
     })
+    vi.mocked(loopApi.listBranches).mockResolvedValue([
+      { name: 'main', current: true },
+      { name: 'release/2026.03', current: false },
+      { name: 'feature/existing', current: false }
+    ])
   })
 
   afterEach(() => {
@@ -212,6 +229,78 @@ describe('StartLoopDialog', () => {
         prompt: 'Ship with custom settings',
         exclusive: false,
         presetFilename: 'ralph.yml'
+      })
+    })
+  })
+
+  it('loads git branches and starts a loop with a new branch and auto-push enabled', async () => {
+    const onStart = vi.fn().mockResolvedValue(undefined)
+    const projectId = 'test-project-id'
+    renderDialog({ projectId, onStart })
+
+    await waitFor(() => {
+      expect(loopApi.listBranches).toHaveBeenCalledWith(projectId)
+    })
+    expect(await screen.findByLabelText('Branch mode')).toHaveValue('new')
+    expect(screen.getByLabelText('Base branch')).toHaveValue('main')
+    expect(screen.getByRole('option', { name: 'main (current)' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Branch name'), {
+      target: { value: 'feature/branch-ui' }
+    })
+    fireEvent.change(screen.getByLabelText('Base branch'), {
+      target: { value: 'release/2026.03' }
+    })
+    fireEvent.click(screen.getByLabelText('Auto-push when loop completes'))
+    fireEvent.change(screen.getByLabelText('PROMPT.md'), {
+      target: { value: 'Ship branch workflow UI' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+
+    await waitFor(() => {
+      expect(onStart).toHaveBeenCalledWith({
+        prompt: 'Ship branch workflow UI',
+        exclusive: false,
+        presetFilename: 'hatless-baseline.yml',
+        gitBranch: {
+          mode: 'new',
+          name: 'feature/branch-ui',
+          baseBranch: 'release/2026.03'
+        },
+        autoPush: true
+      })
+    })
+  })
+
+  it('starts a loop against an existing branch without sending a base branch', async () => {
+    const onStart = vi.fn().mockResolvedValue(undefined)
+    renderDialog({ projectId: 'test-project-id', onStart })
+
+    await screen.findByLabelText('Branch mode')
+    fireEvent.change(screen.getByLabelText('Branch mode'), {
+      target: { value: 'existing' }
+    })
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Base branch')).not.toBeInTheDocument()
+    })
+    fireEvent.change(screen.getByLabelText('Branch name'), {
+      target: { value: 'feature/existing' }
+    })
+    fireEvent.change(screen.getByLabelText('PROMPT.md'), {
+      target: { value: 'Reuse existing branch' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+
+    await waitFor(() => {
+      expect(onStart).toHaveBeenCalledWith({
+        prompt: 'Reuse existing branch',
+        exclusive: false,
+        presetFilename: 'hatless-baseline.yml',
+        gitBranch: {
+          mode: 'existing',
+          name: 'feature/existing'
+        },
+        autoPush: false
       })
     })
   })

@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { CreateProjectDialog } from '@/components/project/CreateProjectDialog'
+import { GitHubRepoSelector } from '@/components/project/GitHubRepoSelector'
 import { capabilitiesApi, type RuntimeCapabilities } from '@/lib/capabilitiesApi'
 import { projectApi, type ProjectRecord } from '@/lib/projectApi'
 import { useProjectStore } from '@/stores/projectStore'
@@ -57,11 +58,13 @@ export function NewProjectDialog({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSelectingPath, setIsSelectingPath] = useState(false)
   const [capabilities, setCapabilities] = useState<RuntimeCapabilities | null>(null)
+  const [cloudMode, setCloudMode] = useState<'create' | 'clone'>('create')
 
   const close = useCallback(() => {
     setIsOpen(false)
     setError(null)
     setMode('create')
+    setCloudMode('create')
     setName('')
     setCreatePath('')
     setPath('')
@@ -188,7 +191,38 @@ export function NewProjectDialog({
           <div className="w-full max-w-md space-y-4 rounded-lg border border-zinc-800 bg-zinc-900 p-5">
             {isCloudProjectMode ? (
               <>
-                <CreateProjectDialog onProjectCreated={handleProjectCreated} />
+                <div className="space-y-4">
+                  <div className="flex rounded-md border border-zinc-700 bg-zinc-950 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setCloudMode('create')}
+                      className={`flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors ${
+                        cloudMode === 'create'
+                          ? 'bg-zinc-800 text-zinc-100 shadow-sm'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Create Repo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCloudMode('clone')}
+                      className={`flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors ${
+                        cloudMode === 'clone'
+                          ? 'bg-zinc-800 text-zinc-100 shadow-sm'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Clone Repo
+                    </button>
+                  </div>
+
+                  {cloudMode === 'create' ? (
+                    <CreateProjectDialog onProjectCreated={handleProjectCreated} />
+                  ) : (
+                    <GitHubRepoSelector onProjectCreated={handleProjectCreated} />
+                  )}
+                </div>
                 <div className="flex justify-end">
                   <button
                     className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800"

@@ -1,4 +1,5 @@
 import { NewProjectDialog } from '@/components/project/NewProjectDialog'
+import { GitHubConnectCard } from '@/components/settings/GitHubConnectCard'
 import type { ProjectRecord } from '@/lib/projectApi'
 
 interface EmptyStateProps {
@@ -61,6 +62,8 @@ export function EmptyState({ onProjectCreated }: EmptyStateProps) {
           </div>
         </div>
       </div>
+
+      <GitHubConnectCard />
 
       <div className="mx-auto max-w-2xl space-y-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-8 text-center">
         <h1 className="text-2xl font-semibold">No projects yet</h1>

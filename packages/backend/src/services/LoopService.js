@@ -207,7 +207,10 @@ export class LoopService {
             }
             runCwd = resolvedWorktreePath;
         }
-        await this.prepareGitBranch(runCwd, effectiveOptions.gitBranch);
+        const resolvedGitBranch = await this.prepareGitBranch(runCwd, effectiveOptions.gitBranch);
+        const autoPush = resolvedGitBranch
+            ? effectiveOptions.autoPush ?? true
+            : false;
         const existingLoopIds = await this.listRalphLoopIds(binaryPath, runCwd);
         const markerBefore = await this.readCurrentLoopId(runCwd);
         const currentEventsBefore = await this.readCurrentEventsLoopId(runCwd);
@@ -242,8 +245,8 @@ export class LoopService {
             promptFile: effectiveOptions.promptFile ?? null,
             backend: effectiveOptions.backend ?? null,
             exclusive: Boolean(effectiveOptions.exclusive),
-            gitBranch: effectiveOptions.gitBranch ?? null,
-            autoPush: Boolean(effectiveOptions.autoPush),
+            gitBranch: resolvedGitBranch ?? null,
+            autoPush,
             worktree: effectiveOptions.worktree ?? null,
             ralphLoopId: initialRalphLoopId,
             startCommit,
@@ -505,8 +508,12 @@ export class LoopService {
         if (!gitBranch || rawConfig.pushed !== true) {
             throw new LoopServiceError('BAD_REQUEST', 'Loop branch must be pushed before creating a pull request.');
         }
-        const project = await this.requireProject(run.projectId);
-        const remoteUrl = await this.gitService.getRemoteUrl(project.path);
+        const existingPullRequest = asRecord(rawConfig.pullRequest);
+        if (existingPullRequest && asString(existingPullRequest.url)) {
+            throw new LoopServiceError('BAD_REQUEST', 'A pull request already exists for this loop.');
+        }
+        const { cwd } = await this.resolveLoopGitContext(run);
+        const remoteUrl = await this.gitService.getRemoteUrl(cwd);
         const repoRef = parseGitHubRemoteUrl(remoteUrl);
         if (!repoRef) {
             throw new LoopServiceError('BAD_REQUEST', 'Project git remote must point to a GitHub repository.');
@@ -1228,14 +1235,18 @@ export class LoopService {
     async prepareGitBranch(projectPath, gitBranch) {
         const normalizedBranch = asPersistedGitBranchConfig(gitBranch);
         if (!normalizedBranch) {
-            return;
+            return undefined;
         }
         if (normalizedBranch.mode === 'existing') {
             await this.gitService.checkoutBranch(projectPath, normalizedBranch.name);
-            return;
+            return normalizedBranch;
         }
         const baseBranch = normalizedBranch.baseBranch ?? await this.gitService.getCurrentBranch(projectPath);
         await this.gitService.createBranch(projectPath, normalizedBranch.name, baseBranch);
+        return {
+            ...normalizedBranch,
+            baseBranch
+        };
     }
     async pushLoopBranch(run, stateToEmit) {
         const persistedConfig = parsePersistedConfig(run.config);
@@ -1243,10 +1254,10 @@ export class LoopService {
         if (!persistedConfig.autoPush || !gitBranch) {
             return;
         }
-        const project = await this.requireProject(run.projectId);
+        const { cwd } = await this.resolveLoopGitContext(run);
         const rawConfig = parseConfigRecord(run.config);
         try {
-            await this.gitService.push(project.path, gitBranch.name);
+            await this.gitService.push(cwd, gitBranch.name);
             const { pushError: _pushError, ...configWithoutPushError } = rawConfig;
             await this.loopRuns.update(run.id, {
                 config: JSON.stringify({
@@ -1266,6 +1277,18 @@ export class LoopService {
             console.error(`[LoopService] Failed to push loop branch for ${run.id}:`, error);
         }
         this.events.emit(`${STATE_EVENT_PREFIX}${run.id}`, stateToEmit);
+    }
+    async resolveLoopGitContext(run) {
+        const project = await this.requireProject(run.projectId);
+        if (!run.worktree) {
+            return {
+                cwd: project.path
+            };
+        }
+        const worktreePath = await this.diffService.resolveWorktreePath(project.path, run.worktree);
+        return {
+            cwd: worktreePath ?? project.path
+        };
     }
     async resolveHeadCommit(projectPath) {
         try {

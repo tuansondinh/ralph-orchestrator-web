@@ -314,6 +314,7 @@ describe('loop tRPC routes', () => {
       listedLoopEntries?: Array<Record<string, unknown>>
       gitService?: {
         listBranches?: (projectPath: string) => Promise<BranchInfo[]>
+        getCurrentBranch?: (projectPath: string) => Promise<string>
         push?: (projectPath: string, branch: string, remote?: string) => Promise<{
           branch: string
           remote: string
@@ -559,6 +560,51 @@ describe('loop tRPC routes', () => {
       mode: 'new',
       name: 'feature/new-loop-flow',
       baseBranch: 'main'
+    })
+    expect(parsedConfig.autoPush).toBe(true)
+
+    await caller.loop.stop({ loopId: started.id })
+  })
+
+  it('defaults auto-push on and persists the resolved base branch for new git branches', async () => {
+    const createBranch = vi.fn(async () => {})
+    const getCurrentBranch = vi.fn(async () => 'release/2026.03')
+    const { caller, connection, tempDir } = await setupCaller({
+      gitService: {
+        createBranch,
+        getCurrentBranch
+      }
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+
+    const started = await caller.loop.start({
+      projectId,
+      prompt: 'keep-running',
+      gitBranch: {
+        mode: 'new',
+        name: 'feature/default-auto-push'
+      }
+    })
+
+    expect(getCurrentBranch).toHaveBeenCalledWith(projectPath)
+    expect(createBranch).toHaveBeenCalledWith(
+      projectPath,
+      'feature/default-auto-push',
+      'release/2026.03'
+    )
+
+    const persisted = connection.db
+      .select()
+      .from(loopRuns)
+      .where(eq(loopRuns.id, started.id))
+      .get()
+    const parsedConfig = JSON.parse(persisted?.config ?? '{}') as Record<string, unknown>
+    expect(parsedConfig.gitBranch).toEqual({
+      mode: 'new',
+      name: 'feature/default-auto-push',
+      baseBranch: 'release/2026.03'
     })
     expect(parsedConfig.autoPush).toBe(true)
 
@@ -2124,6 +2170,62 @@ describe('loop tRPC routes', () => {
     expect(parsedConfig.pushError).toBe('remote rejected')
   })
 
+  it('pushes a completed worktree loop from the resolved worktree path', async () => {
+    const push = vi.fn(async () => ({ branch: 'feature-auto-push', remote: 'origin' }))
+    const { connection, loopService, tempDir } = await setupCaller({
+      gitService: {
+        push
+      }
+    })
+    const projectPath = join(tempDir, 'project')
+    const worktreePath = join(tempDir, 'project-feature')
+    const srcPath = join(projectPath, 'src')
+    await mkdir(srcPath, { recursive: true })
+
+    await runGit(projectPath, ['init', '-b', 'main'])
+    await runGit(projectPath, ['config', 'user.name', 'Test User'])
+    await runGit(projectPath, ['config', 'user.email', 'test@example.com'])
+    await writeFile(join(srcPath, 'app.ts'), 'const value = 1;\n', 'utf8')
+    await runGit(projectPath, ['add', '.'])
+    await runGit(projectPath, ['commit', '-m', 'initial'])
+    await runGit(projectPath, ['worktree', 'add', '-b', 'feature-auto-push', worktreePath, 'HEAD'])
+
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'running',
+        config: JSON.stringify({
+          gitBranch: {
+            mode: 'new',
+            name: 'feature-auto-push',
+            baseBranch: 'main'
+          },
+          autoPush: true
+        }),
+        prompt: null,
+        worktree: 'feature-auto-push',
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: 1_000,
+        endedAt: null
+      })
+      .run()
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (loopService as any).handleState(loopId, 'completed')
+
+    expect(push).toHaveBeenCalledWith(
+      expect.stringMatching(/project-feature$/),
+      'feature-auto-push'
+    )
+  })
+
   it('skips auto-push when branch metadata is missing or disabled', async () => {
     const push = vi.fn(async () => ({ branch: 'feature-auto-push', remote: 'origin' }))
     const { connection, loopService, tempDir } = await setupCaller({
@@ -2318,6 +2420,72 @@ describe('loop tRPC routes', () => {
       title: 'Feature auto PR',
       targetBranch: 'main'
     })
+  })
+
+  it('rejects creating a second pull request for the same loop', async () => {
+    const createPullRequest = vi.fn(async () => ({
+      number: 42,
+      url: 'https://github.com/acme/project/pull/42',
+      title: 'Feature auto PR'
+    }))
+    const getRemoteUrl = vi.fn(async () => 'git@github.com:acme/project.git')
+    const getDecryptedToken = vi.fn(async () => 'ghp_test')
+    const { caller, connection, tempDir } = await setupCaller({
+      gitService: {
+        getRemoteUrl,
+        createPullRequest
+      },
+      githubService: {
+        getDecryptedToken
+      },
+      userId: 'user-123'
+    })
+    const projectPath = join(tempDir, 'project')
+    await mkdir(projectPath, { recursive: true })
+    const projectId = await createProject(connection, projectPath)
+    const loopId = randomUUID()
+
+    await connection.db
+      .insert(loopRuns)
+      .values({
+        id: loopId,
+        projectId,
+        state: 'completed',
+        config: JSON.stringify({
+          gitBranch: {
+            mode: 'new',
+            name: 'feature-pr',
+            baseBranch: 'main'
+          },
+          pushed: true,
+          pullRequest: {
+            number: 7,
+            url: 'https://github.com/acme/project/pull/7',
+            title: 'Existing PR',
+            targetBranch: 'main'
+          }
+        }),
+        prompt: null,
+        worktree: null,
+        iterations: 0,
+        tokensUsed: 0,
+        errors: 0,
+        startedAt: 1_000,
+        endedAt: 2_000
+      })
+      .run()
+
+    await expect(
+      caller.loop.createPullRequest({
+        loopId,
+        targetBranch: 'main'
+      })
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'A pull request already exists for this loop.'
+    })
+
+    expect(createPullRequest).not.toHaveBeenCalled()
   })
 
   it('rejects pull request creation when the loop has not been pushed', async () => {

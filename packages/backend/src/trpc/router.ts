@@ -349,6 +349,17 @@ const projectRouter = t.router({
 })
 
 const loopRouter = t.router({
+  get: t.procedure
+    .input(
+      z.object({
+        loopId: z.string().min(1)
+      })
+    )
+    .query(({ ctx, input }) =>
+      ctx.loopService
+        .get(input.loopId)
+        .catch((error) => asTRPCError(error))
+    ),
   list: t.procedure
     .input(
       z.object({

@@ -2,14 +2,25 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoopDetail } from '@/components/loops/LoopDetail'
 import { githubApi } from '@/lib/githubApi'
-import { loopApi, type LoopMetrics, type LoopSummary } from '@/lib/loopApi'
+import {
+  loopApi,
+  type LoopMetrics,
+  type LoopOutputEntry,
+  type LoopSummary
+} from '@/lib/loopApi'
 
 vi.mock('@/components/loops/DiffViewer', () => ({
   DiffViewer: ({ loopId }: { loopId: string }) => <div>DiffViewer for {loopId}</div>
 }))
 
 vi.mock('@/components/loops/LoopTerminalOutput', () => ({
-  LoopTerminalOutput: ({ chunks, emptyMessage }: { chunks: string[], emptyMessage?: string }) => (
+  LoopTerminalOutput: ({
+    chunks,
+    emptyMessage
+  }: {
+    chunks: LoopOutputEntry[]
+    emptyMessage?: string
+  }) => (
     <div data-testid="loop-terminal-output">
       {chunks.length === 0 ? emptyMessage : `${chunks.length} chunks`}
     </div>
@@ -31,6 +42,7 @@ vi.mock('@/lib/loopApi', async () => {
       ...actual.loopApi,
       listBranches: vi.fn(),
       getDiff: vi.fn(),
+      retryPush: vi.fn(),
       createPullRequest: vi.fn()
     }
   }
@@ -60,6 +72,11 @@ const metrics: LoopMetrics = {
   errors: 0,
   lastOutputSize: 10,
   filesChanged: ['src/example.ts']
+}
+
+const outputChunk: LoopOutputEntry = {
+  stream: 'stdout',
+  data: 'chunk-1'
 }
 
 describe('LoopDetail', () => {
@@ -99,6 +116,19 @@ describe('LoopDetail', () => {
       url: 'https://github.com/acme/project/pull/42',
       title: 'ralph: Ship it'
     })
+    vi.mocked(loopApi.retryPush).mockResolvedValue({
+      ...baseLoop,
+      state: 'completed',
+      config: JSON.stringify({
+        gitBranch: {
+          mode: 'new',
+          name: 'feature/loop-1',
+          baseBranch: 'main'
+        },
+        pushed: true
+      }),
+      endedAt: 1_770_768_010_000
+    })
   })
 
   afterEach(() => {
@@ -114,7 +144,7 @@ describe('LoopDetail', () => {
   })
 
   it('hides the Review Changes tab for non-reviewable loop states', () => {
-    render(<LoopDetail loop={baseLoop} metrics={metrics} outputChunks={['chunk-1']} />)
+    render(<LoopDetail loop={baseLoop} metrics={metrics} outputChunks={[outputChunk]} />)
 
     expect(screen.queryByRole('tab', { name: 'Review Changes' })).not.toBeInTheDocument()
     expect(screen.getByText('1 chunks')).toBeInTheDocument()
@@ -125,7 +155,7 @@ describe('LoopDetail', () => {
       <LoopDetail
         loop={{ ...baseLoop, state: 'completed' }}
         metrics={metrics}
-        outputChunks={['chunk-1']}
+        outputChunks={[outputChunk]}
       />
     )
 
@@ -170,7 +200,7 @@ describe('LoopDetail', () => {
           })
         }}
         metrics={metrics}
-        outputChunks={['chunk-1']}
+        outputChunks={[outputChunk]}
       />
     )
 
@@ -196,7 +226,7 @@ describe('LoopDetail', () => {
           })
         }}
         metrics={metrics}
-        outputChunks={['chunk-1']}
+        outputChunks={[outputChunk]}
       />
     )
 
@@ -230,7 +260,7 @@ describe('LoopDetail', () => {
           })
         }}
         metrics={metrics}
-        outputChunks={['chunk-1']}
+        outputChunks={[outputChunk]}
       />
     )
 
@@ -273,7 +303,7 @@ describe('LoopDetail', () => {
           })
         }}
         metrics={metrics}
-        outputChunks={['chunk-1']}
+        outputChunks={[outputChunk]}
       />
     )
 
@@ -283,5 +313,36 @@ describe('LoopDetail', () => {
 
     expect(await screen.findByText('GitHub rejected the PR')).toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: 'Create pull request dialog' })).toBeInTheDocument()
+  })
+
+  it('shows push failures and retries the branch push from the review tab', async () => {
+    render(
+      <LoopDetail
+        loop={{
+          ...baseLoop,
+          state: 'completed',
+          config: JSON.stringify({
+            gitBranch: {
+              mode: 'new',
+              name: 'feature/loop-1',
+              baseBranch: 'main'
+            },
+            pushError: 'remote rejected'
+          })
+        }}
+        metrics={metrics}
+        outputChunks={[outputChunk]}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Review Changes' }))
+    expect(await screen.findByText('Push failed: remote rejected')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Push' }))
+
+    await waitFor(() => {
+      expect(loopApi.retryPush).toHaveBeenCalledWith('loop-1')
+    })
+    expect(await screen.findByRole('button', { name: 'Create Pull Request' })).toBeInTheDocument()
   })
 })

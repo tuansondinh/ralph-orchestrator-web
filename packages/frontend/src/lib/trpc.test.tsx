@@ -32,13 +32,72 @@ describe('resolveTrpcBaseUrl', () => {
     ).toBe('/trpc')
   })
 
-  it('defaults to 127.0.0.1 backend origin for local non-dev hosts (production build on localhost)', () => {
+  it('uses relative /trpc for local non-dev hosts when the configured backend is the same loopback server', () => {
+    expect(
+      resolveTrpcBaseUrl(
+        {
+          DEV: false,
+          VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://127.0.0.1:3003'
+        },
+        {
+          hostname: 'localhost',
+          port: '3003',
+          protocol: 'http:'
+        }
+      )
+    ).toBe('/trpc')
+
+    expect(
+      resolveTrpcBaseUrl(
+        {
+          DEV: false,
+          VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://localhost:3003'
+        },
+        {
+          hostname: '127.0.0.1',
+          port: '3003',
+          protocol: 'http:'
+        }
+      )
+    ).toBe('/trpc')
+  })
+
+  it('defaults to 127.0.0.1 backend origin for local non-dev hosts when the app is served from a different port', () => {
     expect(resolveTrpcBaseUrl({ DEV: false }, { hostname: 'localhost' })).toBe(
       'http://127.0.0.1:3003/trpc'
     )
     expect(resolveTrpcBaseUrl({ DEV: false }, { hostname: '127.0.0.1' })).toBe(
       'http://127.0.0.1:3003/trpc'
     )
+  })
+
+  it('keeps the explicit backend origin for local non-dev hosts when the configured backend port differs', () => {
+    expect(
+      resolveTrpcBaseUrl(
+        {
+          DEV: false,
+          VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN: 'http://127.0.0.1:3003'
+        },
+        {
+          hostname: 'localhost',
+          port: '4173',
+          protocol: 'http:'
+        }
+      )
+    ).toBe('http://127.0.0.1:3003/trpc')
+  })
+
+  it('uses relative /trpc for local non-dev hosts when the app itself is served from port 3003', () => {
+    expect(
+      resolveTrpcBaseUrl(
+        { DEV: false },
+        {
+          hostname: 'localhost',
+          port: '3003',
+          protocol: 'http:'
+        }
+      )
+    ).toBe('/trpc')
   })
 
   it('uses relative /trpc for non-local non-dev hosts', () => {

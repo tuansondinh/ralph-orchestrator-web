@@ -138,6 +138,7 @@ describe('NewProjectDialog', () => {
       'aria-pressed',
       'true'
     )
+    expect(screen.getByRole('button', { name: 'Clone Repo' })).toBeInTheDocument()
   })
 
   it('creates a cloud project from the dialog form', async () => {
@@ -183,6 +184,62 @@ describe('NewProjectDialog', () => {
         name: 'hello-world',
         description: 'Fresh repo',
         private: false
+      })
+      expect(onCreated).toHaveBeenCalledWith(createdProject)
+    })
+  })
+
+  it('clones an existing GitHub repository from the cloud dialog', async () => {
+    const onCreated = vi.fn()
+
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    })
+    vi.mocked(githubApi.getConnection).mockResolvedValue({
+      githubUserId: 42,
+      githubUsername: 'octocat',
+      scope: 'repo',
+      connectedAt: Date.UTC(2026, 2, 10, 8, 0, 0)
+    })
+    vi.mocked(githubApi.listRepos).mockResolvedValue({
+      repos: [
+        {
+          id: 100,
+          fullName: 'octocat/hello-world',
+          private: true,
+          defaultBranch: 'main',
+          htmlUrl: 'https://github.com/octocat/hello-world'
+        }
+      ],
+      hasMore: false
+    })
+    vi.mocked(projectApi.createFromGitHub).mockResolvedValue(createdProject)
+
+    render(
+      <MemoryRouter>
+        <NewProjectDialog onCreated={onCreated} />
+      </MemoryRouter>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Project' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Clone Repo' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Create from octocat/hello-world' })
+    )
+
+    await waitFor(() => {
+      expect(projectApi.createFromGitHub).toHaveBeenCalledWith({
+        owner: 'octocat',
+        repo: 'hello-world',
+        defaultBranch: 'main'
       })
       expect(onCreated).toHaveBeenCalledWith(createdProject)
     })

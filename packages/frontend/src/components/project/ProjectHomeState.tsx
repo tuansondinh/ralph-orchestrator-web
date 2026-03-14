@@ -1,4 +1,5 @@
 import { NewProjectDialog } from '@/components/project/NewProjectDialog'
+import { GitHubConnectCard } from '@/components/settings/GitHubConnectCard'
 import type { ProjectRecord } from '@/lib/projectApi'
 
 interface ProjectHomeStateProps {
@@ -99,6 +100,8 @@ export function ProjectHomeState({
           </div>
         </div>
       </div>
+
+      <GitHubConnectCard />
 
       <section className="space-y-3">
         <h2 className="text-xl font-semibold text-zinc-100">Active Projects</h2>

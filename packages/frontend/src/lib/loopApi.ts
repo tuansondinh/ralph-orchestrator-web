@@ -30,6 +30,12 @@ export interface LoopMetrics {
   filesChanged: string[]
 }
 
+export interface LoopOutputEntry {
+  stream: 'stdout' | 'stderr'
+  data: string
+  timestamp?: string
+}
+
 export interface GitBranchInfo {
   name: string
   current: boolean
@@ -105,6 +111,9 @@ export interface CreatePullRequestInput {
 }
 
 export const loopApi = {
+  get(loopId: string): Promise<LoopSummary> {
+    return trpcClient.loop.get.query({ loopId })
+  },
   list(projectId: string): Promise<LoopSummary[]> {
     return trpcClient.loop.list.query({ projectId })
   },
@@ -128,6 +137,9 @@ export const loopApi = {
   },
   getDiff(loopId: string): Promise<LoopDiff> {
     return trpcClient.loop.getDiff.query({ loopId })
+  },
+  retryPush(loopId: string): Promise<LoopSummary> {
+    return trpcClient.loop.retryPush.mutate({ loopId })
   },
   createPullRequest(input: CreatePullRequestInput): Promise<LoopPullRequest> {
     return trpcClient.loop.createPullRequest.mutate(input)

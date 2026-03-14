@@ -47,6 +47,13 @@ export function Sidebar({
         showTrigger={showCloudProjectButton}
       />
 
+      <Link
+        className="rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+        to="/"
+      >
+        Dashboard
+      </Link>
+
       <div className="flex-1 overflow-y-auto">
         <ProjectList onDelete={onProjectDelete} onSelect={onProjectSelect} />
       </div>

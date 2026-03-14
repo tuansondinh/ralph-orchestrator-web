@@ -2,7 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoopsView } from '@/components/loops/LoopsView'
-import { loopApi, type LoopMetrics, type LoopSummary } from '@/lib/loopApi'
+import {
+  loopApi,
+  type LoopMetrics,
+  type LoopOutputEntry,
+  type LoopSummary
+} from '@/lib/loopApi'
 import { presetApi } from '@/lib/presetApi'
 import { projectApi } from '@/lib/projectApi'
 import { settingsApi } from '@/lib/settingsApi'
@@ -12,21 +17,31 @@ import { resetLoopStore, useLoopStore } from '@/stores/loopStore'
 import { resetTerminalStore } from '@/stores/terminalStore'
 
 vi.mock('@/components/loops/LoopTerminalOutput', () => ({
-  LoopTerminalOutput: ({ chunks, emptyMessage }: { chunks: string[], emptyMessage?: string }) => (
+  LoopTerminalOutput: ({
+    chunks,
+    emptyMessage
+  }: {
+    chunks: LoopOutputEntry[]
+    emptyMessage?: string
+  }) => (
     <div data-testid="loop-terminal-output">
-      {chunks.length === 0 ? emptyMessage : chunks.map((c, i) => <span key={i}>{c}</span>)}
+      {chunks.length === 0
+        ? emptyMessage
+        : chunks.map((chunk, index) => <span key={index}>{chunk.data}</span>)}
     </div>
   )
 }))
 
 vi.mock('@/lib/loopApi', () => ({
   loopApi: {
+    get: vi.fn(),
     list: vi.fn(),
     listBranches: vi.fn(),
     start: vi.fn(),
     stop: vi.fn(),
     restart: vi.fn(),
-    getMetrics: vi.fn()
+    getMetrics: vi.fn(),
+    retryPush: vi.fn()
   }
 }))
 
@@ -167,6 +182,12 @@ describe('LoopsView', () => {
     vi.spyOn(Date, 'now').mockReturnValue(fixedNow)
 
     vi.mocked(loopApi.list).mockResolvedValue([])
+    vi.mocked(loopApi.get).mockResolvedValue({
+      ...baseLoop,
+      state: 'stopped',
+      processId: null,
+      endedAt: fixedNow
+    })
     vi.mocked(loopApi.listBranches).mockResolvedValue([
       { name: 'main', current: true },
       { name: 'feature/existing', current: false }
@@ -405,14 +426,30 @@ describe('LoopsView', () => {
     })
 
     await waitFor(() => {
-      // The raw chunk is stored as-is in the store; xterm.js handles ANSI/control sequences natively
       const chunks = useLoopStore.getState().outputChunksByLoop['loop-1'] ?? []
-      expect(chunks).toContain('[connecting]\r[ACTIVE]\n[iter 1/20] 00:00\n')
+      expect(chunks).toContainEqual({
+        stream: 'stdout',
+        data: '[connecting]\r[ACTIVE]\n[iter 1/20] 00:00\n',
+        timestamp: expect.any(String)
+      })
     })
   })
 
   it('refreshes final metrics on loop completion so token totals remain visible', async () => {
     vi.mocked(loopApi.list).mockResolvedValue([baseLoop])
+    vi.mocked(loopApi.get).mockResolvedValue({
+      ...baseLoop,
+      state: 'completed',
+      endedAt: fixedNow,
+      config: JSON.stringify({
+        gitBranch: {
+          mode: 'new',
+          name: 'feature/loop-1',
+          baseBranch: 'main'
+        },
+        pushed: true
+      })
+    })
 
     let metricRequestCount = 0
     vi.mocked(loopApi.getMetrics).mockImplementation(async () => {
@@ -455,6 +492,7 @@ describe('LoopsView', () => {
     })
 
     await waitFor(() => {
+      expect(loopApi.get).toHaveBeenCalledWith('loop-1')
       expect(loopApi.getMetrics).toHaveBeenCalled()
       expect(metricRequestCount).toBeGreaterThanOrEqual(2)
     })

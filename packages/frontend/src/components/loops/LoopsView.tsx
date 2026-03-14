@@ -4,7 +4,7 @@ import { LoopDetail } from '@/components/loops/LoopDetail'
 import { LoopList } from '@/components/loops/LoopList'
 import { StartLoopDialog } from '@/components/loops/StartLoopDialog'
 import { useWebSocket } from '@/hooks/useWebSocket'
-import { loopApi, type StartLoopInput } from '@/lib/loopApi'
+import { loopApi, type LoopOutputEntry, type StartLoopInput } from '@/lib/loopApi'
 import { projectApi } from '@/lib/projectApi'
 import { terminalApi } from '@/lib/terminalApi'
 import { useLoopStore } from '@/stores/loopStore'
@@ -15,7 +15,7 @@ interface LoopsViewProps {
 }
 
 const EMPTY_LOOPS: ReturnType<typeof useLoopStore.getState>['loopsByProject'][string] = []
-const EMPTY_OUTPUT: string[] = []
+const EMPTY_OUTPUT: LoopOutputEntry[] = []
 const OUTPUT_FLUSH_INTERVAL_MS = 50
 
 function asMetricNumber(value: unknown, fallback: number) {
@@ -61,7 +61,7 @@ export function LoopsView({ projectId }: LoopsViewProps) {
   const setSelectedLoop = useLoopStore((state) => state.setSelectedLoop)
   const addTerminalSession = useTerminalStore((state) => state.addSession)
   const setActiveTerminalSession = useTerminalStore((state) => state.setActiveSession)
-  const pendingOutputByLoopRef = useRef<Record<string, string[]>>({})
+  const pendingOutputByLoopRef = useRef<Record<string, LoopOutputEntry[]>>({})
   const outputFlushTimerRef = useRef<number | null>(null)
 
   const selectedLoop = useMemo(
@@ -190,6 +190,14 @@ export function LoopsView({ projectId }: LoopsViewProps) {
     [setMetrics, updateLoopById]
   )
 
+  const refreshLoopSummary = useCallback(
+    async (loopId: string) => {
+      const loop = await loopApi.get(loopId)
+      upsertLoop(projectId, loop)
+    },
+    [projectId, upsertLoop]
+  )
+
   useEffect(() => {
     if (!selectedLoop) {
       return
@@ -254,13 +262,24 @@ export function LoopsView({ projectId }: LoopsViewProps) {
       ) {
         if (message.replay === true) {
           appendOutputs({
-            [message.loopId]: [message.data]
+            [message.loopId]: [
+              {
+                stream: message.stream === 'stderr' ? 'stderr' : 'stdout',
+                data: message.data,
+                timestamp:
+                  typeof message.timestamp === 'string' ? message.timestamp : undefined
+              }
+            ]
           })
           return
         }
 
         const queue = pendingOutputByLoopRef.current[message.loopId] ?? []
-        queue.push(message.data)
+        queue.push({
+          stream: message.stream === 'stderr' ? 'stderr' : 'stdout',
+          data: message.data,
+          timestamp: typeof message.timestamp === 'string' ? message.timestamp : undefined
+        })
         pendingOutputByLoopRef.current[message.loopId] = queue
         scheduleOutputFlush()
         return
@@ -352,6 +371,7 @@ export function LoopsView({ projectId }: LoopsViewProps) {
       })
 
       if (nextState !== 'running') {
+        void refreshLoopSummary(message.loopId).catch(() => {})
         void refreshLoopMetrics(message.loopId).catch(() => {})
       }
     },
@@ -359,6 +379,7 @@ export function LoopsView({ projectId }: LoopsViewProps) {
       loops,
       metricsByLoop,
       appendOutputs,
+      refreshLoopSummary,
       refreshLoopMetrics,
       scheduleOutputFlush,
       setMetrics,

@@ -244,6 +244,7 @@ describe('StartLoopDialog', () => {
     expect(await screen.findByLabelText('Branch mode')).toHaveValue('new')
     expect(screen.getByLabelText('Base branch')).toHaveValue('main')
     expect(screen.getByRole('option', { name: 'main (current)' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Auto-push when loop completes')).toBeChecked()
 
     fireEvent.change(screen.getByLabelText('Branch name'), {
       target: { value: 'feature/branch-ui' }
@@ -251,7 +252,6 @@ describe('StartLoopDialog', () => {
     fireEvent.change(screen.getByLabelText('Base branch'), {
       target: { value: 'release/2026.03' }
     })
-    fireEvent.click(screen.getByLabelText('Auto-push when loop completes'))
     fireEvent.change(screen.getByLabelText('PROMPT.md'), {
       target: { value: 'Ship branch workflow UI' }
     })
@@ -283,6 +283,7 @@ describe('StartLoopDialog', () => {
     await waitFor(() => {
       expect(screen.queryByLabelText('Base branch')).not.toBeInTheDocument()
     })
+    expect(screen.getByLabelText('Branch name')).toHaveValue('main')
     fireEvent.change(screen.getByLabelText('Branch name'), {
       target: { value: 'feature/existing' }
     })
@@ -300,7 +301,7 @@ describe('StartLoopDialog', () => {
           mode: 'existing',
           name: 'feature/existing'
         },
-        autoPush: false
+        autoPush: true
       })
     })
   })
@@ -331,12 +332,19 @@ describe('StartLoopDialog', () => {
       target: { value: 'existing' }
     })
 
-    const branchNameInput = screen.getByLabelText('Branch name')
-    const branchOptionValues = Array.from(
-      document.querySelectorAll('#loop-git-branch-options option')
-    ).map((option) => option.getAttribute('value'))
+    const branchNameSelect = screen.getByLabelText('Branch name')
+    const branchOptionLabels = screen
+      .getAllByRole('option')
+      .map((option) => option.textContent)
+      .filter((label) =>
+        ['Select an existing branch', 'main (current)', 'release/2026.03'].includes(label ?? '')
+      )
 
-    expect(branchNameInput).toHaveAttribute('list', 'loop-git-branch-options')
-    expect(branchOptionValues).toEqual(['main', 'release/2026.03'])
+    expect(branchNameSelect.tagName).toBe('SELECT')
+    expect(branchOptionLabels).toEqual([
+      'Select an existing branch',
+      'main (current)',
+      'release/2026.03'
+    ])
   })
 })

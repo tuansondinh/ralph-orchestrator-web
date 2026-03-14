@@ -55,6 +55,31 @@ describe('GitHubConnectCard', () => {
     expect(githubApi.beginConnection).toHaveBeenCalledTimes(1)
   })
 
+  it('renders an unavailable state when GitHub projects are disabled', async () => {
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'local',
+      database: true,
+      auth: false,
+      localProjects: true,
+      githubProjects: false,
+      terminal: true,
+      preview: true,
+      localDirectoryPicker: true,
+      mcp: true
+    })
+
+    render(
+      <MemoryRouter>
+        <GitHubConnectCard />
+      </MemoryRouter>
+    )
+
+    expect(
+      await screen.findByText('GitHub connection is unavailable in this runtime.')
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect GitHub' })).not.toBeInTheDocument()
+  })
+
   it('renders the connected username and disconnect action', async () => {
     vi.mocked(githubApi.getConnection).mockResolvedValue({
       githubUserId: 42,

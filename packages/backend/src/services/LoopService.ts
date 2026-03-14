@@ -193,6 +193,10 @@ interface StopLoopInput {
   cwd: string
 }
 
+interface ResolvedLoopGitContext {
+  cwd: string
+}
+
 interface RalphListedLoop {
   id: string
   state: LoopLifecycleState
@@ -457,7 +461,10 @@ export class LoopService {
       runCwd = resolvedWorktreePath
     }
 
-    await this.prepareGitBranch(runCwd, effectiveOptions.gitBranch)
+    const resolvedGitBranch = await this.prepareGitBranch(runCwd, effectiveOptions.gitBranch)
+    const autoPush = resolvedGitBranch
+      ? effectiveOptions.autoPush ?? true
+      : false
 
     const existingLoopIds = await this.listRalphLoopIds(binaryPath, runCwd)
     const markerBefore = await this.readCurrentLoopId(runCwd)
@@ -497,8 +504,8 @@ export class LoopService {
       promptFile: effectiveOptions.promptFile ?? null,
       backend: effectiveOptions.backend ?? null,
       exclusive: Boolean(effectiveOptions.exclusive),
-      gitBranch: effectiveOptions.gitBranch ?? null,
-      autoPush: Boolean(effectiveOptions.autoPush),
+      gitBranch: resolvedGitBranch ?? null,
+      autoPush,
       worktree: effectiveOptions.worktree ?? null,
       ralphLoopId: initialRalphLoopId,
       startCommit,
@@ -832,8 +839,16 @@ export class LoopService {
       )
     }
 
-    const project = await this.requireProject(run.projectId)
-    const remoteUrl = await this.gitService.getRemoteUrl(project.path)
+    const existingPullRequest = asRecord(rawConfig.pullRequest)
+    if (existingPullRequest && asString(existingPullRequest.url)) {
+      throw new LoopServiceError(
+        'BAD_REQUEST',
+        'A pull request already exists for this loop.'
+      )
+    }
+
+    const { cwd } = await this.resolveLoopGitContext(run)
+    const remoteUrl = await this.gitService.getRemoteUrl(cwd)
     const repoRef = parseGitHubRemoteUrl(remoteUrl)
     if (!repoRef) {
       throw new LoopServiceError(
@@ -1737,20 +1752,24 @@ export class LoopService {
   private async prepareGitBranch(
     projectPath: string,
     gitBranch: PersistedGitBranchConfig | undefined
-  ): Promise<void> {
+  ): Promise<PersistedGitBranchConfig | undefined> {
     const normalizedBranch = asPersistedGitBranchConfig(gitBranch)
     if (!normalizedBranch) {
-      return
+      return undefined
     }
 
     if (normalizedBranch.mode === 'existing') {
       await this.gitService.checkoutBranch(projectPath, normalizedBranch.name)
-      return
+      return normalizedBranch
     }
 
     const baseBranch =
       normalizedBranch.baseBranch ?? await this.gitService.getCurrentBranch(projectPath)
     await this.gitService.createBranch(projectPath, normalizedBranch.name, baseBranch)
+    return {
+      ...normalizedBranch,
+      baseBranch
+    }
   }
 
   private async pushLoopBranch(
@@ -1763,11 +1782,11 @@ export class LoopService {
       return
     }
 
-    const project = await this.requireProject(run.projectId)
+    const { cwd } = await this.resolveLoopGitContext(run)
     const rawConfig = parseConfigRecord(run.config)
 
     try {
-      await this.gitService.push(project.path, gitBranch.name)
+      await this.gitService.push(cwd, gitBranch.name)
       const { pushError: _pushError, ...configWithoutPushError } = rawConfig
       await this.loopRuns.update(run.id, {
         config: JSON.stringify({
@@ -1787,6 +1806,20 @@ export class LoopService {
     }
 
     this.events.emit(`${STATE_EVENT_PREFIX}${run.id}`, stateToEmit)
+  }
+
+  private async resolveLoopGitContext(run: LoopRunRecord): Promise<ResolvedLoopGitContext> {
+    const project = await this.requireProject(run.projectId)
+    if (!run.worktree) {
+      return {
+        cwd: project.path
+      }
+    }
+
+    const worktreePath = await this.diffService.resolveWorktreePath(project.path, run.worktree)
+    return {
+      cwd: worktreePath ?? project.path
+    }
   }
 
   private async resolveHeadCommit(projectPath: string): Promise<string | null> {

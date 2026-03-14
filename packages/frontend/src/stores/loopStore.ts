@@ -1,30 +1,30 @@
 import { create } from 'zustand'
-import type { LoopMetrics, LoopSummary } from '@/lib/loopApi'
+import type { LoopMetrics, LoopOutputEntry, LoopSummary } from '@/lib/loopApi'
 
 interface LoopStoreState {
   loopsByProject: Record<string, LoopSummary[]>
-  outputChunksByLoop: Record<string, string[]>
+  outputChunksByLoop: Record<string, LoopOutputEntry[]>
   metricsByLoop: Record<string, LoopMetrics | undefined>
   selectedLoopIdByProject: Record<string, string | null | undefined>
   setLoops: (projectId: string, loops: LoopSummary[]) => void
   upsertLoop: (projectId: string, loop: LoopSummary) => void
   updateLoopById: (loopId: string, updates: Partial<LoopSummary>) => void
-  appendOutput: (loopId: string, chunk: string) => void
-  appendOutputChunk: (loopId: string, chunk: string) => void
-  appendOutputs: (outputsByLoop: Record<string, string[]>) => void
+  appendOutput: (loopId: string, chunk: LoopOutputEntry) => void
+  appendOutputChunk: (loopId: string, chunk: LoopOutputEntry) => void
+  appendOutputs: (outputsByLoop: Record<string, LoopOutputEntry[]>) => void
   setMetrics: (loopId: string, metrics: LoopMetrics) => void
   setSelectedLoop: (projectId: string, loopId: string | null) => void
 }
 
 const initialState = {
   loopsByProject: {} as Record<string, LoopSummary[]>,
-  outputChunksByLoop: {} as Record<string, string[]>,
+  outputChunksByLoop: {} as Record<string, LoopOutputEntry[]>,
   metricsByLoop: {} as Record<string, LoopMetrics | undefined>,
   selectedLoopIdByProject: {} as Record<string, string | null | undefined>
 }
 const MAX_OUTPUT_CHUNKS_PER_LOOP = 2_000
 
-function mergeChunks(current: string[], incoming: string[]) {
+function mergeChunks(current: LoopOutputEntry[], incoming: LoopOutputEntry[]) {
   if (incoming.length === 0) {
     return current
   }
@@ -53,7 +53,14 @@ export const useLoopStore = create<LoopStoreState>((set) => ({
 
       if (existingIndex >= 0) {
         const updated = [...currentLoops]
-        updated[existingIndex] = loop
+        const existingLoop = currentLoops[existingIndex]
+        updated[existingIndex] = {
+          ...existingLoop,
+          ...loop,
+          iterations: Math.max(existingLoop.iterations, loop.iterations),
+          tokensUsed: Math.max(existingLoop.tokensUsed, loop.tokensUsed),
+          errors: Math.max(existingLoop.errors, loop.errors)
+        }
         return {
           loopsByProject: {
             ...state.loopsByProject,

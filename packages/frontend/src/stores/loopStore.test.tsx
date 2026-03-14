@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { resetLoopStore, useLoopStore } from '@/stores/loopStore'
-import type { LoopMetrics, LoopSummary } from '@/lib/loopApi'
+import type { LoopMetrics, LoopOutputEntry, LoopSummary } from '@/lib/loopApi'
 
 function makeLoop(overrides: Partial<LoopSummary> = {}): LoopSummary {
   return {
@@ -29,6 +29,14 @@ function makeMetrics(overrides: Partial<LoopMetrics> = {}): LoopMetrics {
     errors: overrides.errors ?? 0,
     lastOutputSize: overrides.lastOutputSize ?? 0,
     filesChanged: overrides.filesChanged ?? []
+  }
+}
+
+function makeOutputEntry(overrides: Partial<LoopOutputEntry> = {}): LoopOutputEntry {
+  return {
+    stream: overrides.stream ?? 'stdout',
+    data: overrides.data ?? 'chunk',
+    timestamp: overrides.timestamp
   }
 }
 
@@ -63,61 +71,84 @@ describe('loopStore', () => {
   })
 
   it('appendOutput appends raw chunks to the correct loop', () => {
-    useLoopStore.getState().appendOutput('loop-1', 'chunk A')
-    useLoopStore.getState().appendOutput('loop-1', 'chunk B')
-    useLoopStore.getState().appendOutput('loop-2', 'other')
-    expect(useLoopStore.getState().outputChunksByLoop['loop-1']).toEqual(['chunk A', 'chunk B'])
-    expect(useLoopStore.getState().outputChunksByLoop['loop-2']).toEqual(['other'])
+    useLoopStore.getState().appendOutput('loop-1', makeOutputEntry({ data: 'chunk A' }))
+    useLoopStore.getState().appendOutput('loop-1', makeOutputEntry({ data: 'chunk B' }))
+    useLoopStore.getState().appendOutput('loop-2', makeOutputEntry({ data: 'other' }))
+    expect(useLoopStore.getState().outputChunksByLoop['loop-1']).toEqual([
+      makeOutputEntry({ data: 'chunk A' }),
+      makeOutputEntry({ data: 'chunk B' })
+    ])
+    expect(useLoopStore.getState().outputChunksByLoop['loop-2']).toEqual([
+      makeOutputEntry({ data: 'other' })
+    ])
   })
 
   it('appendOutput truncates output beyond MAX_OUTPUT_CHUNKS_PER_LOOP (2000)', () => {
     for (let i = 0; i < 2001; i++) {
-      useLoopStore.getState().appendOutput('loop-1', `chunk-${i}`)
+      useLoopStore
+        .getState()
+        .appendOutput('loop-1', makeOutputEntry({ data: `chunk-${i}` }))
     }
     const output = useLoopStore.getState().outputChunksByLoop['loop-1']
     expect(output.length).toBe(2000)
-    expect(output[output.length - 1]).toBe('chunk-2000')
+    expect(output[output.length - 1]?.data).toBe('chunk-2000')
     // Oldest chunk was dropped
-    expect(output[0]).toBe('chunk-1')
+    expect(output[0]?.data).toBe('chunk-1')
   })
 
   it('appendOutputs stores raw chunks without line splitting', () => {
     useLoopStore.getState().appendOutputs({
-      'loop-1': ['[connecting]\r[ACTIVE]\n', '[iter 1/20] ', '00:00\nnext\n']
+      'loop-1': [
+        makeOutputEntry({ data: '[connecting]\r[ACTIVE]\n' }),
+        makeOutputEntry({ data: '[iter 1/20] ' }),
+        makeOutputEntry({ data: '00:00\nnext\n' })
+      ]
     })
 
     expect(useLoopStore.getState().outputChunksByLoop['loop-1']).toEqual([
-      '[connecting]\r[ACTIVE]\n',
-      '[iter 1/20] ',
-      '00:00\nnext\n'
+      makeOutputEntry({ data: '[connecting]\r[ACTIVE]\n' }),
+      makeOutputEntry({ data: '[iter 1/20] ' }),
+      makeOutputEntry({ data: '00:00\nnext\n' })
     ])
   })
 
   it('appendOutputs keeps chunks isolated per loop', () => {
     useLoopStore.getState().appendOutputs({
-      'loop-1': ['alpha'],
-      'loop-2': ['beta\n']
+      'loop-1': [makeOutputEntry({ data: 'alpha' })],
+      'loop-2': [makeOutputEntry({ data: 'beta\n' })]
     })
 
-    expect(useLoopStore.getState().outputChunksByLoop['loop-1']).toEqual(['alpha'])
-    expect(useLoopStore.getState().outputChunksByLoop['loop-2']).toEqual(['beta\n'])
+    expect(useLoopStore.getState().outputChunksByLoop['loop-1']).toEqual([
+      makeOutputEntry({ data: 'alpha' })
+    ])
+    expect(useLoopStore.getState().outputChunksByLoop['loop-2']).toEqual([
+      makeOutputEntry({ data: 'beta\n' })
+    ])
 
     useLoopStore.getState().appendOutputs({
-      'loop-1': [' done\n']
+      'loop-1': [makeOutputEntry({ data: ' done\n' })]
     })
 
-    expect(useLoopStore.getState().outputChunksByLoop['loop-1']).toEqual(['alpha', ' done\n'])
+    expect(useLoopStore.getState().outputChunksByLoop['loop-1']).toEqual([
+      makeOutputEntry({ data: 'alpha' }),
+      makeOutputEntry({ data: ' done\n' })
+    ])
   })
 
   it('appendOutputs appends multiple raw chunks as-is without splitting', () => {
     useLoopStore.getState().appendOutputs({
-      'loop-1': ['\x1b[32mgreen text\x1b[0m', '\x1b[1mbold\x1b[0m\r\ncursor move']
+      'loop-1': [
+        makeOutputEntry({ data: '\x1b[32mgreen text\x1b[0m' }),
+        makeOutputEntry({ data: '\x1b[1mbold\x1b[0m\r\ncursor move', stream: 'stderr' })
+      ]
     })
 
     const chunks = useLoopStore.getState().outputChunksByLoop['loop-1']
     expect(chunks).toHaveLength(2)
-    expect(chunks[0]).toBe('\x1b[32mgreen text\x1b[0m')
-    expect(chunks[1]).toBe('\x1b[1mbold\x1b[0m\r\ncursor move')
+    expect(chunks[0]).toEqual(makeOutputEntry({ data: '\x1b[32mgreen text\x1b[0m' }))
+    expect(chunks[1]).toEqual(
+      makeOutputEntry({ data: '\x1b[1mbold\x1b[0m\r\ncursor move', stream: 'stderr' })
+    )
   })
 
   it('setMetrics stores metrics for a loop', () => {

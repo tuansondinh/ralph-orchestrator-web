@@ -118,7 +118,7 @@ export function StartLoopDialog({
   const [gitBranchMode, setGitBranchMode] = useState<GitBranchMode>('new')
   const [gitBranchName, setGitBranchName] = useState('')
   const [baseBranch, setBaseBranch] = useState('')
-  const [autoPush, setAutoPush] = useState(false)
+  const [autoPush, setAutoPush] = useState(true)
 
   const resetForm = useCallback(() => {
     setPrompt(initialPrompt)
@@ -131,7 +131,7 @@ export function StartLoopDialog({
     setGitBranchMode('new')
     setGitBranchName('')
     setBaseBranch(getDefaultBaseBranch(branches))
-    setAutoPush(false)
+    setAutoPush(true)
     setError(null)
     setStatusMessage(null)
   }, [branches, defaultPreset, initialPrompt, presets])
@@ -272,6 +272,26 @@ export function StartLoopDialog({
       setBaseBranch(defaultBaseBranch)
     }
   }, [baseBranch, branches])
+
+  useEffect(() => {
+    if (gitBranchMode !== 'existing') {
+      return
+    }
+
+    const defaultBranch = getDefaultBaseBranch(branches)
+    const selectedBranchStillExists = branches.some((branch) => branch.name === gitBranchName)
+
+    if (!defaultBranch) {
+      if (gitBranchName) {
+        setGitBranchName('')
+      }
+      return
+    }
+
+    if (gitBranchName && !selectedBranchStillExists) {
+      setGitBranchName(defaultBranch)
+    }
+  }, [branches, gitBranchMode, gitBranchName])
 
 
 
@@ -542,7 +562,17 @@ export function StartLoopDialog({
                 className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
                 value={gitBranchMode}
                 onChange={(event) => {
-                  setGitBranchMode(event.target.value as GitBranchMode)
+                  const nextMode = event.target.value as GitBranchMode
+                  setGitBranchMode(nextMode)
+                  if (nextMode === 'existing') {
+                    const defaultBranch = getDefaultBaseBranch(branches)
+                    const selectedBranchStillExists = branches.some(
+                      (branch) => branch.name === gitBranchName
+                    )
+                    if (!gitBranchName || !selectedBranchStillExists) {
+                      setGitBranchName(defaultBranch)
+                    }
+                  }
                   setError(null)
                 }}
               >
@@ -557,24 +587,38 @@ export function StartLoopDialog({
               <label className="block text-xs uppercase text-zinc-400" htmlFor="loop-git-branch-name">
                 Branch name
               </label>
-              <input
-                id="loop-git-branch-name"
-                className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-                list="loop-git-branch-options"
-                placeholder={
-                  gitBranchMode === 'new' ? 'feature/your-branch' : 'Select an existing branch'
-                }
-                value={gitBranchName}
-                onChange={(event) => {
-                  setGitBranchName(event.target.value)
-                  setError(null)
-                }}
-              />
-              <datalist id="loop-git-branch-options">
-                {branches.map((branch) => (
-                  <option key={branch.name} value={branch.name} />
-                ))}
-              </datalist>
+              {gitBranchMode === 'new' ? (
+                <input
+                  id="loop-git-branch-name"
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+                  placeholder="feature/your-branch"
+                  value={gitBranchName}
+                  onChange={(event) => {
+                    setGitBranchName(event.target.value)
+                    setError(null)
+                  }}
+                />
+              ) : (
+                <select
+                  id="loop-git-branch-name"
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+                  disabled={isBranchLoading || branches.length === 0}
+                  value={gitBranchName}
+                  onChange={(event) => {
+                    setGitBranchName(event.target.value)
+                    setError(null)
+                  }}
+                >
+                  <option value="">
+                    {isBranchLoading ? 'Loading branches...' : 'Select an existing branch'}
+                  </option>
+                  {branches.map((branch) => (
+                    <option key={branch.name} value={branch.name}>
+                      {getBranchDisplayName(branch)}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             {gitBranchMode === 'new' ? (
               <div className="mt-3 space-y-1">

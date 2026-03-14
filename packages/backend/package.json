@@ -19,7 +19,7 @@
     "db:generate:cloud": "drizzle-kit generate --config drizzle.postgres.config.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:migrate:local": "tsx src/db/migrate.ts",
-    "db:migrate:cloud": "tsx src/db/migrate.ts",
+    "db:migrate:cloud": "set -a; [ -f ../../.env.cloud ] && . ../../.env.cloud; set +a; tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {

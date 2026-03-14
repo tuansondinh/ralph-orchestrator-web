@@ -79,10 +79,6 @@ export function GitHubConnectCard() {
     }
   }, [])
 
-  if (!capabilities?.githubProjects) {
-    return null
-  }
-
   const onDisconnect = async () => {
     setIsDisconnecting(true)
     setErrorMessage(null)
@@ -100,6 +96,8 @@ export function GitHubConnectCard() {
     }
   }
 
+  const isUnavailable = !isLoading && capabilities !== null && !capabilities.githubProjects
+
   return (
     <section className="space-y-3 rounded-md border border-zinc-800 p-4">
       <div className="space-y-1">
@@ -112,8 +110,17 @@ export function GitHubConnectCard() {
       {isLoading ? <p className="text-sm text-zinc-400">Loading GitHub connection...</p> : null}
       {statusMessage ? <p className="text-sm text-emerald-300">{statusMessage}</p> : null}
       {errorMessage ? <p className="text-sm text-red-300">{errorMessage}</p> : null}
+      {isUnavailable ? (
+        <div className="space-y-2 text-sm">
+          <p className="text-zinc-100">GitHub connection is unavailable in this runtime.</p>
+          <p className="text-zinc-400">
+            Start Ralph with cloud GitHub support enabled to connect repositories and use cloud
+            workflows.
+          </p>
+        </div>
+      ) : null}
 
-      {!isLoading && connection ? (
+      {!isLoading && !isUnavailable && connection ? (
         <div className="space-y-2 text-sm">
           <p className="text-zinc-100">Connected as @{connection.githubUsername}</p>
           <p className="text-zinc-400">Connected {formatConnectedAt(connection.connectedAt)}</p>
@@ -128,7 +135,7 @@ export function GitHubConnectCard() {
         </div>
       ) : null}
 
-      {!isLoading && !connection ? (
+      {!isLoading && !isUnavailable && !connection ? (
         <div className="space-y-2 text-sm">
           <p className="text-zinc-100">GitHub is not connected.</p>
           <button

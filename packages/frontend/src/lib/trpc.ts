@@ -9,13 +9,44 @@ type RuntimeEnv = {
   VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN?: string
 }
 
-type RuntimeLocation = Pick<Location, 'hostname'>
+type RuntimeLocation = Pick<Location, 'hostname'> &
+  Partial<Pick<Location, 'port' | 'protocol'>>
 function resolveDefaultDevBackendOrigin() {
   return 'http://127.0.0.1:3003'
 }
 
 function isLocalHost(hostname: string) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+}
+
+function isDefaultBackendPort(runtimeLocation: RuntimeLocation) {
+  return runtimeLocation.port === '3003'
+}
+
+function shouldUseRelativeBackendOrigin(
+  backendOrigin: string,
+  runtimeLocation: RuntimeLocation
+) {
+  if (!isLocalHost(runtimeLocation.hostname)) {
+    return false
+  }
+
+  try {
+    const parsed = new URL(backendOrigin)
+    const backendPort =
+      parsed.port || (parsed.protocol === 'https:' ? '443' : parsed.protocol === 'http:' ? '80' : '')
+    const runtimePort =
+      runtimeLocation.port ||
+      (runtimeLocation.protocol === 'https:' ? '443' : runtimeLocation.protocol === 'http:' ? '80' : '')
+
+    return (
+      isLocalHost(parsed.hostname) &&
+      parsed.protocol === runtimeLocation.protocol &&
+      backendPort === runtimePort
+    )
+  } catch {
+    return false
+  }
 }
 
 export function resolveTrpcBaseUrl(
@@ -43,10 +74,19 @@ export function resolveBackendOrigin(
 
   const backendOrigin = env.VITE_RALPH_ORCHESTRATOR_BACKEND_ORIGIN
   if (typeof backendOrigin === 'string' && backendOrigin.trim().length > 0) {
-    return backendOrigin.replace(/\/$/, '')
+    const normalizedOrigin = backendOrigin.replace(/\/$/, '')
+    if (shouldUseRelativeBackendOrigin(normalizedOrigin, runtimeLocation)) {
+      return ''
+    }
+
+    return normalizedOrigin
   }
 
   if (isLocalHost(runtimeLocation.hostname)) {
+    if (isDefaultBackendPort(runtimeLocation)) {
+      return ''
+    }
+
     return resolveDefaultDevBackendOrigin()
   }
 

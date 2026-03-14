@@ -3,12 +3,20 @@ import { CreatePRDialog } from '@/components/loops/CreatePRDialog'
 import { DiffViewer } from '@/components/loops/DiffViewer'
 import { LoopTerminalOutput } from '@/components/loops/LoopTerminalOutput'
 import { githubApi } from '@/lib/githubApi'
-import type { LoopConfig, LoopMetrics, LoopPullRequest, LoopSummary } from '@/lib/loopApi'
+import {
+  loopApi,
+  type LoopConfig,
+  type LoopMetrics,
+  type LoopOutputEntry,
+  type LoopPullRequest,
+  type LoopSummary
+} from '@/lib/loopApi'
+import { useLoopStore } from '@/stores/loopStore'
 
 interface LoopDetailProps {
   loop: LoopSummary | null
   metrics: LoopMetrics | null
-  outputChunks: string[]
+  outputChunks: LoopOutputEntry[]
 }
 
 type LoopDetailTab = 'output' | 'review'
@@ -34,10 +42,17 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
   const [isCreatePROpen, setIsCreatePROpen] = useState(false)
   const [pullRequest, setPullRequest] = useState<LoopPullRequest | null>(null)
   const [hasGitHubConnection, setHasGitHubConnection] = useState<boolean | null>(null)
+  const [isRetryingPush, setIsRetryingPush] = useState(false)
+  const [pushActionError, setPushActionError] = useState<string | null>(null)
+  const [configOverride, setConfigOverride] = useState<string | null>(null)
+  const updateLoopById = useLoopStore((state) => state.updateLoopById)
   const showReviewTab = Boolean(loop && REVIEWABLE_STATES.has(loop.state))
-  const parsedConfig = useMemo(() => parseLoopConfig(loop?.config ?? null), [loop?.config])
+  const effectiveConfig = configOverride ?? loop?.config ?? null
+  const parsedConfig = useMemo(() => parseLoopConfig(effectiveConfig), [effectiveConfig])
   const sourceBranch = parsedConfig.gitBranch?.name ?? ''
   const canCreatePullRequest = showReviewTab && parsedConfig.pushed === true && !pullRequest
+  const pushError = parsedConfig.pushError?.trim() ?? ''
+  const canRetryPush = showReviewTab && sourceBranch.length > 0 && pushError.length > 0 && !pullRequest
   const outputEmptyMessage = ACTIVE_OUTPUT_STATES.has(loop?.state ?? '')
     ? 'Waiting for loop output...'
     : 'No persisted logs found for this loop.'
@@ -47,9 +62,16 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
   }, [loop?.id])
 
   useEffect(() => {
+    setConfigOverride(null)
     setPullRequest(parsedConfig.pullRequest ?? null)
     setIsCreatePROpen(false)
-  }, [parsedConfig.pullRequest, loop?.id])
+    setPushActionError(null)
+    setIsRetryingPush(false)
+  }, [loop?.id])
+
+  useEffect(() => {
+    setPullRequest(parsedConfig.pullRequest ?? null)
+  }, [parsedConfig.pullRequest])
 
   useEffect(() => {
     if (!showReviewTab) {
@@ -89,6 +111,43 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
         Select a loop to inspect metrics and terminal output.
       </section>
     )
+  }
+
+  const handleRetryPush = async () => {
+    setIsRetryingPush(true)
+    setPushActionError(null)
+
+    try {
+      const refreshed = await loopApi.retryPush(loop.id)
+      setConfigOverride(refreshed.config)
+      updateLoopById(loop.id, {
+        state: refreshed.state,
+        config: refreshed.config,
+        endedAt: refreshed.endedAt,
+        iterations: refreshed.iterations,
+        tokensUsed: refreshed.tokensUsed,
+        errors: refreshed.errors
+      })
+    } catch (retryError) {
+      setPushActionError(
+        retryError instanceof Error ? retryError.message : 'Failed to retry push'
+      )
+    } finally {
+      setIsRetryingPush(false)
+    }
+  }
+
+  const handlePullRequestCreated = (createdPullRequest: LoopPullRequest) => {
+    const nextConfig = JSON.stringify({
+      ...parsedConfig,
+      pushed: true,
+      pullRequest: createdPullRequest
+    })
+    setPullRequest(createdPullRequest)
+    setConfigOverride(nextConfig)
+    updateLoopById(loop.id, {
+      config: nextConfig
+    })
   }
 
   return (
@@ -147,6 +206,16 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                {canRetryPush ? (
+                  <button
+                    className="rounded-md border border-red-500/50 bg-red-500/10 px-3 py-2 text-sm text-red-100 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isRetryingPush}
+                    onClick={() => void handleRetryPush()}
+                    type="button"
+                  >
+                    {isRetryingPush ? 'Retrying push...' : 'Retry Push'}
+                  </button>
+                ) : null}
                 {pullRequest ? (
                   <a
                     className="rounded-md border border-emerald-500/60 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-500/20"
@@ -169,6 +238,14 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
                 ) : null}
               </div>
             </div>
+            {pushError ? (
+              <p className="text-sm text-red-300">
+                Push failed: {pushError}
+              </p>
+            ) : null}
+            {pushActionError ? (
+              <p className="text-sm text-red-300">{pushActionError}</p>
+            ) : null}
             {canCreatePullRequest && hasGitHubConnection === false ? (
               <p className="text-sm text-amber-200">
                 Connect GitHub in Settings before creating a pull request.
@@ -185,7 +262,7 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
                 prompt={loop.prompt}
                 sourceBranch={sourceBranch}
                 onClose={() => setIsCreatePROpen(false)}
-                onCreated={(createdPullRequest) => setPullRequest(createdPullRequest)}
+                onCreated={handlePullRequestCreated}
               />
             ) : null}
           </div>

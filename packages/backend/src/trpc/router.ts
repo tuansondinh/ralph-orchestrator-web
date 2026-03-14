@@ -60,6 +60,18 @@ function asTRPCError(error: unknown): never {
   throw error
 }
 
+function asCloudProjectCreationError(error: unknown): never {
+  if (error instanceof ServiceError) {
+    return asTRPCError(error)
+  }
+
+  throw new TRPCError({
+    code: 'BAD_REQUEST',
+    message:
+      error instanceof Error ? error.message : 'Unable to create GitHub project.'
+  })
+}
+
 function assertDangerousOperationAllowed(operation: string) {
   if (allowsDangerousOperations()) {
     return
@@ -183,7 +195,7 @@ const projectRouter = t.router({
             githubToken,
             name: input.name
           })
-          .catch((error) => asTRPCError(error))
+          .catch((error) => asCloudProjectCreationError(error))
       }
 
       return ctx.projectService
@@ -193,7 +205,7 @@ const projectRouter = t.router({
           description: input.description,
           private: input.private
         })
-        .catch((error) => asTRPCError(error))
+        .catch((error) => asCloudProjectCreationError(error))
     }),
   get: t.procedure
     .input(
@@ -497,6 +509,18 @@ const loopRouter = t.router({
     )
     .query(({ ctx, input }) =>
       ctx.loopService.getMetrics(input.loopId).catch((error) => asTRPCError(error))
+    ),
+  getRecentEvents: t.procedure
+    .input(
+      z.object({
+        loopId: z.string().min(1),
+        limit: z.number().int().positive().max(50).optional()
+      })
+    )
+    .query(({ ctx, input }) =>
+      ctx.loopService
+        .getRecentEvents(input.loopId, { limit: input.limit })
+        .catch((error) => asTRPCError(error))
     ),
   getDiff: t.procedure
     .input(

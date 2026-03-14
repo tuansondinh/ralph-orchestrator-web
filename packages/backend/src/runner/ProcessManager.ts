@@ -67,15 +67,6 @@ const NOOP_LOGGER: ProcessLogger = {
   error: () => { }
 }
 const require = createRequire(import.meta.url)
-
-function truncateOutput(data: string, limit = 200) {
-  if (data.length <= limit) {
-    return data
-  }
-
-  return `${data.slice(0, limit)}…`
-}
-
 function toPtyEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
   const ptyEnv: Record<string, string> = {}
   for (const [key, value] of Object.entries(env)) {
@@ -221,18 +212,6 @@ export class ProcessManager {
       data: text,
       timestamp: this.now()
     } satisfies OutputChunk)
-
-    console.log(`[ProcessManager] Output chunk: processId=${managed.handle.id} stream=${stream} bytes=${text.length} preview="${truncateOutput(text, 100).replace(/\n/g, '\\n')}"`)
-
-    this.logger.debug(
-      {
-        processId: managed.handle.id,
-        stream,
-        output: truncateOutput(text),
-        bytes: text.length
-      },
-      '[ProcessManager] Output chunk'
-    )
   }
 
   private markProcessClosed(
@@ -353,9 +332,6 @@ export class ProcessManager {
       })
 
       terminal.onExit(({ exitCode, signal }) => {
-        console.log(
-          `[ProcessManager] PTY closed: processId=${id} exitCode=${exitCode} signal=${signal}`
-        )
         this.markProcessClosed(id, managed, exitCode)
       })
     } else {
@@ -377,17 +353,13 @@ export class ProcessManager {
       )
 
       child.once('error', (error) => {
-        console.log(`[ProcessManager] Process error: processId=${id} error=${error.message}`)
         this.markProcessError(id, managed, error)
       })
 
       child.once('close', (code) => {
-        console.log(`[ProcessManager] Process closed: processId=${id} exitCode=${code}`)
         this.markProcessClosed(id, managed, code)
       })
     }
-
-    console.log(`[ProcessManager] Spawned process: processId=${id} pid=${handle.pid} tty=${tty} command=${command} args=${JSON.stringify(args).slice(0, 200)}`)
 
     this.logger.info(
       {

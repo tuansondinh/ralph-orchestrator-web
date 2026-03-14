@@ -12,12 +12,6 @@ const NOOP_LOGGER = {
     error: () => { }
 };
 const require = createRequire(import.meta.url);
-function truncateOutput(data, limit = 200) {
-    if (data.length <= limit) {
-        return data;
-    }
-    return `${data.slice(0, limit)}…`;
-}
 function toPtyEnvironment(env) {
     const ptyEnv = {};
     for (const [key, value] of Object.entries(env)) {
@@ -133,13 +127,6 @@ export class ProcessManager {
             data: text,
             timestamp: this.now()
         });
-        console.log(`[ProcessManager] Output chunk: processId=${managed.handle.id} stream=${stream} bytes=${text.length} preview="${truncateOutput(text, 100).replace(/\n/g, '\\n')}"`);
-        this.logger.debug({
-            processId: managed.handle.id,
-            stream,
-            output: truncateOutput(text),
-            bytes: text.length
-        }, '[ProcessManager] Output chunk');
     }
     markProcessClosed(processId, managed, exitCode) {
         const handle = managed.handle;
@@ -232,7 +219,6 @@ export class ProcessManager {
                 this.emitOutput(managed, 'stdout', data);
             });
             terminal.onExit(({ exitCode, signal }) => {
-                console.log(`[ProcessManager] PTY closed: processId=${id} exitCode=${exitCode} signal=${signal}`);
                 this.markProcessClosed(id, managed, exitCode);
             });
         }
@@ -249,15 +235,12 @@ export class ProcessManager {
             child.stdout.on('data', (data) => this.emitOutput(managed, 'stdout', data));
             child.stderr.on('data', (data) => this.emitOutput(managed, 'stderr', data));
             child.once('error', (error) => {
-                console.log(`[ProcessManager] Process error: processId=${id} error=${error.message}`);
                 this.markProcessError(id, managed, error);
             });
             child.once('close', (code) => {
-                console.log(`[ProcessManager] Process closed: processId=${id} exitCode=${code}`);
                 this.markProcessClosed(id, managed, code);
             });
         }
-        console.log(`[ProcessManager] Spawned process: processId=${id} pid=${handle.pid} tty=${tty} command=${command} args=${JSON.stringify(args).slice(0, 200)}`);
         this.logger.info({
             projectId,
             processId: id,

@@ -77,6 +77,65 @@ describe('GitService', () => {
     })
   })
 
+  it('retries checkout after removing runtime artifacts that would be overwritten', async () => {
+    const removePath = vi.fn(async () => {})
+    service = new GitService({
+      execFile: mockExec,
+      fetch: mockFetch,
+      removePath
+    })
+    mockExec
+      .mockRejectedValueOnce({
+        stderr: [
+          'error: The following untracked working tree files would be overwritten by checkout:',
+          '  .ralph/diagnostics/logs/ralph-2026-03-14T01-19-45.log',
+          '  .ralph-ui/loop-logs/90868583-e71e-47ec-ab06-ba81c2d29b33.log',
+          'Please move or remove them before you switch branches.',
+          'Aborting'
+        ].join('\n')
+      })
+      .mockResolvedValueOnce({
+        stdout: '',
+        stderr: ''
+      })
+
+    await service.checkoutBranch('/tmp/project', 'feature/existing')
+
+    expect(removePath).toHaveBeenCalledWith(
+      '/tmp/project/.ralph/diagnostics/logs/ralph-2026-03-14T01-19-45.log'
+    )
+    expect(removePath).toHaveBeenCalledWith(
+      '/tmp/project/.ralph-ui/loop-logs/90868583-e71e-47ec-ab06-ba81c2d29b33.log'
+    )
+    expect(mockExec).toHaveBeenNthCalledWith(2, ['checkout', 'feature/existing'], {
+      cwd: '/tmp/project',
+      encoding: 'utf8'
+    })
+  })
+
+  it('does not delete non-runtime files when checkout is blocked', async () => {
+    const removePath = vi.fn(async () => {})
+    service = new GitService({
+      execFile: mockExec,
+      fetch: mockFetch,
+      removePath
+    })
+    mockExec.mockRejectedValue({
+      stderr: [
+        'error: Your local changes to the following files would be overwritten by checkout:',
+        '  src/App.tsx',
+        'Please commit your changes or stash them before you switch branches.',
+        'Aborting'
+      ].join('\n')
+    })
+
+    await expect(service.checkoutBranch('/tmp/project', 'feature/existing')).rejects.toThrow(
+      'Failed to checkout branch: error: Your local changes to the following files would be overwritten by checkout:'
+    )
+    expect(removePath).not.toHaveBeenCalled()
+    expect(mockExec).toHaveBeenCalledTimes(1)
+  })
+
   it('pushes a branch with upstream tracking by default', async () => {
     mockExec.mockResolvedValue({
       stdout: '',
@@ -165,6 +224,44 @@ describe('GitService', () => {
     await expect(
       service.createBranch('/tmp/project', 'feature/new-work', 'main')
     ).rejects.toThrow("fatal: a branch named 'feature/new-work' already exists")
+  })
+
+  it('retries branch creation after removing runtime artifacts that block checkout', async () => {
+    const removePath = vi.fn(async () => {})
+    service = new GitService({
+      execFile: mockExec,
+      fetch: mockFetch,
+      removePath
+    })
+    mockExec
+      .mockRejectedValueOnce({
+        stderr: [
+          'error: Your local changes to the following files would be overwritten by checkout:',
+          '  .ralph/diagnostics/logs/ralph-2026-03-14T01-19-45.log',
+          '  debug.log',
+          'Please commit your changes or stash them before you switch branches.',
+          'Aborting'
+        ].join('\n')
+      })
+      .mockResolvedValueOnce({
+        stdout: '',
+        stderr: ''
+      })
+
+    await service.createBranch('/tmp/project', 'feature/new-work', 'main')
+
+    expect(removePath).toHaveBeenCalledWith(
+      '/tmp/project/.ralph/diagnostics/logs/ralph-2026-03-14T01-19-45.log'
+    )
+    expect(removePath).toHaveBeenCalledWith('/tmp/project/debug.log')
+    expect(mockExec).toHaveBeenNthCalledWith(
+      2,
+      ['checkout', '-b', 'feature/new-work', 'main'],
+      {
+        cwd: '/tmp/project',
+        encoding: 'utf8'
+      }
+    )
   })
 
   it('surfaces GitHub API failures when pull request creation is rejected', async () => {

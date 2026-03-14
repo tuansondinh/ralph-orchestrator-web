@@ -1,5 +1,6 @@
 import { trpcClient } from '@/lib/trpc'
 import type { RalphBackend } from '@/lib/backends'
+import type { MonitoringEvent } from '@/lib/monitoringApi'
 
 export type LoopBackend = RalphBackend
 
@@ -134,6 +135,9 @@ export const loopApi = {
   },
   getMetrics(loopId: string): Promise<LoopMetrics> {
     return trpcClient.loop.getMetrics.query({ loopId })
+  },
+  getRecentEvents(loopId: string, limit = 5): Promise<MonitoringEvent[]> {
+    return trpcClient.loop.getRecentEvents.query({ loopId, limit })
   },
   getDiff(loopId: string): Promise<LoopDiff> {
     return trpcClient.loop.getDiff.query({ loopId })

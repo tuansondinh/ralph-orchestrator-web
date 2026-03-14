@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LoopDetail } from '@/components/loops/LoopDetail'
 import { LoopList } from '@/components/loops/LoopList'
 import { StartLoopDialog } from '@/components/loops/StartLoopDialog'
 import { useWebSocket } from '@/hooks/useWebSocket'
-import { loopApi, type LoopOutputEntry, type StartLoopInput } from '@/lib/loopApi'
+import { loopApi, type StartLoopInput } from '@/lib/loopApi'
+import type { MonitoringEvent } from '@/lib/monitoringApi'
 import { projectApi } from '@/lib/projectApi'
 import { terminalApi } from '@/lib/terminalApi'
 import { useLoopStore } from '@/stores/loopStore'
@@ -15,8 +16,6 @@ interface LoopsViewProps {
 }
 
 const EMPTY_LOOPS: ReturnType<typeof useLoopStore.getState>['loopsByProject'][string] = []
-const EMPTY_OUTPUT: LoopOutputEntry[] = []
-const OUTPUT_FLUSH_INTERVAL_MS = 50
 
 function asMetricNumber(value: unknown, fallback: number) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -46,36 +45,70 @@ export function LoopsView({ projectId }: LoopsViewProps) {
   const [runningTerminalCommand, setRunningTerminalCommand] = useState<string | null>(null)
   const [promptContent, setPromptContent] = useState('')
   const [promptPath, setPromptPath] = useState('PROMPT.md')
+  const [lastEventAtByLoop, setLastEventAtByLoop] = useState<Record<string, number>>({})
+  const [recentEvents, setRecentEvents] = useState<MonitoringEvent[]>([])
 
   const loops = useLoopStore((state) => state.loopsByProject[projectId] ?? EMPTY_LOOPS)
   const selectedLoopId = useLoopStore(
     (state) => state.selectedLoopIdByProject[projectId] ?? null
   )
-  const outputChunksByLoop = useLoopStore((state) => state.outputChunksByLoop)
   const metricsByLoop = useLoopStore((state) => state.metricsByLoop)
+  const outputChunksByLoop = useLoopStore((state) => state.outputChunksByLoop)
   const setLoops = useLoopStore((state) => state.setLoops)
   const upsertLoop = useLoopStore((state) => state.upsertLoop)
   const updateLoopById = useLoopStore((state) => state.updateLoopById)
-  const appendOutputs = useLoopStore((state) => state.appendOutputs)
   const setMetrics = useLoopStore((state) => state.setMetrics)
   const setSelectedLoop = useLoopStore((state) => state.setSelectedLoop)
+  const appendOutputChunk = useLoopStore((state) => state.appendOutputChunk)
   const addTerminalSession = useTerminalStore((state) => state.addSession)
   const setActiveTerminalSession = useTerminalStore((state) => state.setActiveSession)
-  const pendingOutputByLoopRef = useRef<Record<string, LoopOutputEntry[]>>({})
-  const outputFlushTimerRef = useRef<number | null>(null)
 
   const selectedLoop = useMemo(
     () => loops.find((loop) => loop.id === selectedLoopId) ?? null,
     [loops, selectedLoopId]
   )
   const selectedLoopMetrics = selectedLoop ? metricsByLoop[selectedLoop.id] ?? null : null
-  const selectedLoopOutput = useMemo(() => {
-    if (!selectedLoop) {
-      return EMPTY_OUTPUT
+  const selectedLoopOutput = selectedLoop ? outputChunksByLoop[selectedLoop.id] ?? [] : []
+  const selectedLoopLastEventAt =
+    recentEvents[0]?.timestamp ?? (selectedLoop ? lastEventAtByLoop[selectedLoop.id] ?? null : null)
+
+  useEffect(() => {
+    let cancelled = false
+    let intervalId: number | null = null
+
+    const loadRecentEvents = async () => {
+      if (!selectedLoop) {
+        setRecentEvents([])
+        return
+      }
+
+      try {
+        const nextEvents = await loopApi.getRecentEvents(selectedLoop.id, 5)
+        if (!cancelled) {
+          setRecentEvents(nextEvents)
+        }
+      } catch {
+        if (!cancelled) {
+          setRecentEvents([])
+        }
+      }
     }
 
-    return outputChunksByLoop[selectedLoop.id] ?? EMPTY_OUTPUT
-  }, [outputChunksByLoop, selectedLoop])
+    void loadRecentEvents()
+
+    if (selectedLoop && ['running', 'queued', 'merging'].includes(selectedLoop.state)) {
+      intervalId = window.setInterval(() => {
+        void loadRecentEvents()
+      }, 3_000)
+    }
+
+    return () => {
+      cancelled = true
+      if (intervalId !== null) {
+        window.clearInterval(intervalId)
+      }
+    }
+  }, [selectedLoop])
 
   useEffect(() => {
     let cancelled = false
@@ -208,85 +241,43 @@ export function LoopsView({ projectId }: LoopsViewProps) {
 
   const channels = useMemo(
     () => {
-      const subscriptions = loops.flatMap((loop) => [
-        `loop:${loop.id}:state`,
-        `loop:${loop.id}:metrics`
-      ])
-      if (selectedLoopId) {
-        subscriptions.push(`loop:${selectedLoopId}:output`)
+      const baseChannels = loops.flatMap((loop) => [`loop:${loop.id}:state`, `loop:${loop.id}:metrics`])
+      if (selectedLoop) {
+        baseChannels.push(`loop:${selectedLoop.id}:output`)
       }
-
-      return subscriptions
+      return baseChannels
     },
-    [loops, selectedLoopId]
+    [loops, selectedLoop]
   )
-
-  const flushQueuedOutputs = useCallback(() => {
-    const pending = pendingOutputByLoopRef.current
-    pendingOutputByLoopRef.current = {}
-
-    if (Object.keys(pending).length === 0) {
-      return
-    }
-
-    appendOutputs(pending)
-  }, [appendOutputs])
-
-  const scheduleOutputFlush = useCallback(() => {
-    if (outputFlushTimerRef.current !== null) {
-      return
-    }
-
-    outputFlushTimerRef.current = window.setTimeout(() => {
-      outputFlushTimerRef.current = null
-      flushQueuedOutputs()
-    }, OUTPUT_FLUSH_INTERVAL_MS)
-  }, [flushQueuedOutputs])
-
-  useEffect(() => {
-    return () => {
-      if (outputFlushTimerRef.current !== null) {
-        window.clearTimeout(outputFlushTimerRef.current)
-        outputFlushTimerRef.current = null
-      }
-      flushQueuedOutputs()
-    }
-  }, [flushQueuedOutputs, projectId])
 
   const handleMessage = useCallback(
     (message: Record<string, unknown>) => {
       if (
         message.type === 'loop.output' &&
         typeof message.loopId === 'string' &&
+        typeof message.stream === 'string' &&
+        (message.stream === 'stdout' || message.stream === 'stderr') &&
         typeof message.data === 'string'
       ) {
-        if (message.replay === true) {
-          appendOutputs({
-            [message.loopId]: [
-              {
-                stream: message.stream === 'stderr' ? 'stderr' : 'stdout',
-                data: message.data,
-                timestamp:
-                  typeof message.timestamp === 'string' ? message.timestamp : undefined
-              }
-            ]
-          })
-          return
-        }
-
-        const queue = pendingOutputByLoopRef.current[message.loopId] ?? []
-        queue.push({
-          stream: message.stream === 'stderr' ? 'stderr' : 'stdout',
+        const loopId = message.loopId
+        setLastEventAtByLoop((state) => ({
+          ...state,
+          [loopId]: Date.now()
+        }))
+        appendOutputChunk(loopId, {
+          stream: message.stream,
           data: message.data,
           timestamp: typeof message.timestamp === 'string' ? message.timestamp : undefined
         })
-        pendingOutputByLoopRef.current[message.loopId] = queue
-        scheduleOutputFlush()
         return
       }
 
       if (message.type === 'loop.metrics' && typeof message.loopId === 'string') {
         const loopId = message.loopId
+        setLastEventAtByLoop((state) => ({
+          ...state,
+          [loopId]: Date.now()
+        }))
         const existingMetrics = metricsByLoop[loopId]
         const existingLoop = loops.find((loop) => loop.id === loopId)
         const fallbackIterations = existingMetrics?.iterations ?? existingLoop?.iterations ?? 0
@@ -334,8 +325,13 @@ export function LoopsView({ projectId }: LoopsViewProps) {
       }
 
       const nextState = typeof message.state === 'string' ? message.state : 'unknown'
-      const existingLoop = loops.find((loop) => loop.id === message.loopId)
-      const existingMetrics = metricsByLoop[message.loopId]
+      const loopId = message.loopId
+      setLastEventAtByLoop((state) => ({
+        ...state,
+        [loopId]: Date.now()
+      }))
+      const existingLoop = loops.find((loop) => loop.id === loopId)
+      const existingMetrics = metricsByLoop[loopId]
       const fallbackIterations = Math.max(
         existingLoop?.iterations ?? 0,
         existingMetrics?.iterations ?? 0
@@ -360,7 +356,7 @@ export function LoopsView({ projectId }: LoopsViewProps) {
         typeof message.errors === 'number'
           ? Math.max(fallbackErrors, Math.max(0, Math.floor(message.errors)))
           : undefined
-      updateLoopById(message.loopId, {
+      updateLoopById(loopId, {
         state: nextState,
         currentHat: typeof message.currentHat === 'string' ? message.currentHat : null,
         iterations: nextIterations,
@@ -371,17 +367,16 @@ export function LoopsView({ projectId }: LoopsViewProps) {
       })
 
       if (nextState !== 'running') {
-        void refreshLoopSummary(message.loopId).catch(() => {})
-        void refreshLoopMetrics(message.loopId).catch(() => {})
+        void refreshLoopSummary(loopId).catch(() => {})
+        void refreshLoopMetrics(loopId).catch(() => {})
       }
     },
     [
+      appendOutputChunk,
       loops,
       metricsByLoop,
-      appendOutputs,
       refreshLoopSummary,
       refreshLoopMetrics,
-      scheduleOutputFlush,
       setMetrics,
       updateLoopById
     ]
@@ -538,6 +533,8 @@ export function LoopsView({ projectId }: LoopsViewProps) {
                 loop={selectedLoop}
                 metrics={selectedLoopMetrics}
                 outputChunks={selectedLoopOutput}
+                lastEventAt={selectedLoopLastEventAt}
+                recentEvents={recentEvents}
               />
             </div>
           )}

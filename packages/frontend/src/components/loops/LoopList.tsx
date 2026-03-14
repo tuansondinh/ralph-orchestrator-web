@@ -19,7 +19,7 @@ export function LoopList({
   if (loops.length === 0) {
     return (
       <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
-        No loops yet. Start a loop to see live output here.
+        No loops yet. Start a loop to see runs here.
       </section>
     )
   }

@@ -1,16 +1,22 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoopDetail } from '@/components/loops/LoopDetail'
+import { DiffViewer } from '@/components/loops/DiffViewer'
 import { githubApi } from '@/lib/githubApi'
 import {
   loopApi,
   type LoopMetrics,
-  type LoopOutputEntry,
   type LoopSummary
 } from '@/lib/loopApi'
 
 vi.mock('@/components/loops/DiffViewer', () => ({
-  DiffViewer: ({ loopId }: { loopId: string }) => <div>DiffViewer for {loopId}</div>
+  DiffViewer: ({
+    loopId,
+    watch
+  }: {
+    loopId: string
+    watch?: boolean
+  }) => <div>{`DiffViewer ${loopId} ${watch === true ? 'watch' : 'static'}`}</div>
 }))
 
 vi.mock('@/components/loops/LoopTerminalOutput', () => ({
@@ -18,11 +24,11 @@ vi.mock('@/components/loops/LoopTerminalOutput', () => ({
     chunks,
     emptyMessage
   }: {
-    chunks: LoopOutputEntry[]
+    chunks: Array<{ data: string }>
     emptyMessage?: string
   }) => (
     <div data-testid="loop-terminal-output">
-      {chunks.length === 0 ? emptyMessage : `${chunks.length} chunks`}
+      {chunks.length > 0 ? chunks.map((chunk) => chunk.data).join('') : emptyMessage}
     </div>
   )
 }))
@@ -72,11 +78,6 @@ const metrics: LoopMetrics = {
   errors: 0,
   lastOutputSize: 10,
   filesChanged: ['src/example.ts']
-}
-
-const outputChunk: LoopOutputEntry = {
-  stream: 'stdout',
-  data: 'chunk-1'
 }
 
 describe('LoopDetail', () => {
@@ -136,52 +137,34 @@ describe('LoopDetail', () => {
   })
 
   it('renders empty selection state without crashing when no loop is selected', () => {
-    render(<LoopDetail loop={null} metrics={null} outputChunks={[]} />)
+    render(<LoopDetail loop={null} metrics={null} outputChunks={[]} lastEventAt={null} recentEvents={[]} />)
 
     expect(
-      screen.getByText('Select a loop to inspect metrics and terminal output.')
+      screen.getByText('Select a loop to inspect metrics and loop details.')
     ).toBeInTheDocument()
   })
 
-  it('hides the Review Changes tab for non-reviewable loop states', () => {
-    render(<LoopDetail loop={baseLoop} metrics={metrics} outputChunks={[outputChunk]} />)
+  it('does not render a detail panel body for non-reviewable loop states', () => {
+    render(<LoopDetail loop={baseLoop} metrics={metrics} outputChunks={[]} lastEventAt={null} recentEvents={[]} />)
 
-    expect(screen.queryByRole('tab', { name: 'Review Changes' })).not.toBeInTheDocument()
-    expect(screen.getByText('1 chunks')).toBeInTheDocument()
+    expect(screen.getByText('File Watcher')).toBeInTheDocument()
+    expect(screen.getByText('DiffViewer loop-1 watch')).toBeInTheDocument()
+    expect(screen.getByText('Live Output')).toBeInTheDocument()
   })
 
-  it('shows the Review Changes tab for reviewable loop states and renders diff viewer when selected', () => {
+  it('renders the review actions for reviewable loop states', () => {
     render(
       <LoopDetail
         loop={{ ...baseLoop, state: 'completed' }}
         metrics={metrics}
-        outputChunks={[outputChunk]}
-      />
-    )
-
-    expect(screen.getByRole('tab', { name: 'Review Changes' })).toBeInTheDocument()
-    expect(screen.queryByText('DiffViewer for loop-1')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Review Changes' }))
-    expect(screen.getByText('DiffViewer for loop-1')).toBeInTheDocument()
-  })
-
-  it('shows waiting message when active loop has no output yet', () => {
-    render(<LoopDetail loop={baseLoop} metrics={metrics} outputChunks={[]} />)
-
-    expect(screen.getByText('Waiting for loop output...')).toBeInTheDocument()
-  })
-
-  it('shows missing persisted log message when completed loop has no output', () => {
-    render(
-      <LoopDetail
-        loop={{ ...baseLoop, state: 'completed', processId: null, endedAt: 1_770_768_010_000 }}
-        metrics={metrics}
         outputChunks={[]}
+        lastEventAt={null}
+        recentEvents={[]}
       />
     )
 
-    expect(screen.getByText('No persisted logs found for this loop.')).toBeInTheDocument()
+    expect(screen.getByText('Review the loop diff before opening a pull request.')).toBeInTheDocument()
+    expect(screen.getByText('DiffViewer loop-1 static')).toBeInTheDocument()
   })
 
   it('shows a Create Pull Request action for pushed loops without an existing PR', async () => {
@@ -200,11 +183,11 @@ describe('LoopDetail', () => {
           })
         }}
         metrics={metrics}
-        outputChunks={[outputChunk]}
+        outputChunks={[]}
+        lastEventAt={null}
+        recentEvents={[]}
       />
     )
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Review Changes' }))
 
     expect(await screen.findByRole('button', { name: 'Create Pull Request' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'View Pull Request' })).not.toBeInTheDocument()
@@ -226,11 +209,12 @@ describe('LoopDetail', () => {
           })
         }}
         metrics={metrics}
-        outputChunks={[outputChunk]}
+        outputChunks={[]}
+        lastEventAt={null}
+        recentEvents={[]}
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Review Changes' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Create Pull Request' }))
 
     expect(await screen.findByRole('dialog', { name: 'Create pull request dialog' })).toBeInTheDocument()
@@ -260,11 +244,12 @@ describe('LoopDetail', () => {
           })
         }}
         metrics={metrics}
-        outputChunks={[outputChunk]}
+        outputChunks={[]}
+        lastEventAt={null}
+        recentEvents={[]}
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Review Changes' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Create Pull Request' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Create PR' }))
 
@@ -303,11 +288,12 @@ describe('LoopDetail', () => {
           })
         }}
         metrics={metrics}
-        outputChunks={[outputChunk]}
+        outputChunks={[]}
+        lastEventAt={null}
+        recentEvents={[]}
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Review Changes' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Create Pull Request' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Create PR' }))
 
@@ -331,11 +317,12 @@ describe('LoopDetail', () => {
           })
         }}
         metrics={metrics}
-        outputChunks={[outputChunk]}
+        outputChunks={[]}
+        lastEventAt={null}
+        recentEvents={[]}
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Review Changes' }))
     expect(await screen.findByText('Push failed: remote rejected')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry Push' }))
@@ -344,5 +331,36 @@ describe('LoopDetail', () => {
       expect(loopApi.retryPush).toHaveBeenCalledWith('loop-1')
     })
     expect(await screen.findByRole('button', { name: 'Create Pull Request' })).toBeInTheDocument()
+  })
+
+  it('renders live output content and last output time when chunks are present', () => {
+    render(
+      <LoopDetail
+        loop={baseLoop}
+        metrics={metrics}
+        outputChunks={[
+          {
+            stream: 'stdout',
+            data: 'still working',
+            timestamp: '2026-03-14T12:34:56.000Z'
+          }
+        ]}
+        lastEventAt={Date.UTC(2026, 2, 14, 12, 34, 59)}
+        recentEvents={[
+          {
+            topic: 'task.start',
+            sourceHat: 'planner',
+            timestamp: Date.UTC(2026, 2, 14, 12, 34, 58),
+            payload: 'create test.md'
+          }
+        ]}
+      />
+    )
+
+    expect(screen.getByTestId('loop-terminal-output')).toHaveTextContent('still working')
+    expect(screen.getByText(/Last output:/)).toBeInTheDocument()
+    expect(screen.getAllByText('task.start')).toHaveLength(2)
+    expect(screen.getByText(/Latest Ralph event:/)).toBeInTheDocument()
+    expect(screen.getByText(/create test.md/)).toBeInTheDocument()
   })
 })

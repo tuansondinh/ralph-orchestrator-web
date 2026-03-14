@@ -5,7 +5,6 @@ import { LoopsView } from '@/components/loops/LoopsView'
 import {
   loopApi,
   type LoopMetrics,
-  type LoopOutputEntry,
   type LoopSummary
 } from '@/lib/loopApi'
 import { presetApi } from '@/lib/presetApi'
@@ -16,20 +15,8 @@ import { worktreeApi } from '@/lib/worktreeApi'
 import { resetLoopStore, useLoopStore } from '@/stores/loopStore'
 import { resetTerminalStore } from '@/stores/terminalStore'
 
-vi.mock('@/components/loops/LoopTerminalOutput', () => ({
-  LoopTerminalOutput: ({
-    chunks,
-    emptyMessage
-  }: {
-    chunks: LoopOutputEntry[]
-    emptyMessage?: string
-  }) => (
-    <div data-testid="loop-terminal-output">
-      {chunks.length === 0
-        ? emptyMessage
-        : chunks.map((chunk, index) => <span key={index}>{chunk.data}</span>)}
-    </div>
-  )
+vi.mock('@/components/loops/DiffViewer', () => ({
+  DiffViewer: ({ loopId }: { loopId: string }) => <div>DiffViewer for {loopId}</div>
 }))
 
 vi.mock('@/lib/loopApi', () => ({
@@ -41,6 +28,7 @@ vi.mock('@/lib/loopApi', () => ({
     stop: vi.fn(),
     restart: vi.fn(),
     getMetrics: vi.fn(),
+    getRecentEvents: vi.fn(),
     retryPush: vi.fn()
   }
 }))
@@ -196,6 +184,7 @@ describe('LoopsView', () => {
     vi.mocked(loopApi.stop).mockResolvedValue(undefined)
     vi.mocked(loopApi.restart).mockResolvedValue(baseLoop)
     vi.mocked(loopApi.getMetrics).mockResolvedValue(metrics)
+    vi.mocked(loopApi.getRecentEvents).mockResolvedValue([])
     vi.mocked(projectApi.getPrompt).mockResolvedValue({
       projectId: 'project-1',
       path: 'PROMPT.md',
@@ -289,23 +278,14 @@ describe('LoopsView', () => {
 
           return (
             parsed.channels.includes('loop:loop-1:metrics') &&
+            parsed.channels.includes('loop:loop-1:state') &&
             parsed.channels.includes('loop:loop-1:output')
           )
         })
       ).toBe(true)
     })
 
-    socket?.emitMessage({
-      type: 'loop.output',
-      channel: 'loop:loop-1:output',
-      loopId: 'loop-1',
-      stream: 'stdout',
-      data: 'tick-1',
-      timestamp: new Date().toISOString(),
-      replay: false
-    })
-
-    expect(await screen.findByText('tick-1')).toBeInTheDocument()
+    expect(screen.queryByText(/Loop output is temporarily disabled/i)).not.toBeInTheDocument()
 
     socket?.emitMessage({
       type: 'loop.metrics',
@@ -399,12 +379,14 @@ describe('LoopsView', () => {
 
       expect(latest.channels).toContain('loop:loop-1:output')
       expect(latest.channels).not.toContain('loop:loop-2:output')
+      expect(latest.channels).toContain('loop:loop-1:state')
+      expect(latest.channels).toContain('loop:loop-1:metrics')
       expect(latest.channels).toContain('loop:loop-2:state')
       expect(latest.channels).toContain('loop:loop-2:metrics')
     })
   })
 
-  it('passes replayed loop output chunks to xterm terminal component', async () => {
+  it('stores output websocket messages for the selected loop', async () => {
     vi.mocked(loopApi.list).mockResolvedValue([baseLoop])
 
     renderLoopsView()
@@ -425,14 +407,13 @@ describe('LoopsView', () => {
       replay: true
     })
 
-    await waitFor(() => {
-      const chunks = useLoopStore.getState().outputChunksByLoop['loop-1'] ?? []
-      expect(chunks).toContainEqual({
+    expect(useLoopStore.getState().outputChunksByLoop['loop-1']).toEqual([
+      {
         stream: 'stdout',
         data: '[connecting]\r[ACTIVE]\n[iter 1/20] 00:00\n',
         timestamp: expect.any(String)
-      })
-    })
+      }
+    ])
   })
 
   it('refreshes final metrics on loop completion so token totals remain visible', async () => {

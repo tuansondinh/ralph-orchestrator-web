@@ -14,6 +14,14 @@ function toErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
 
+function openCloudProjectDialog(cloudMode: 'create' | 'clone') {
+  window.dispatchEvent(
+    new CustomEvent('ralph:new-project', {
+      detail: { cloudMode }
+    })
+  )
+}
+
 export function GitHubConnectCard() {
   const location = useLocation()
   const [capabilities, setCapabilities] = useState<RuntimeCapabilities | null>(null)
@@ -124,14 +132,30 @@ export function GitHubConnectCard() {
         <div className="space-y-2 text-sm">
           <p className="text-zinc-100">Connected as @{connection.githubUsername}</p>
           <p className="text-zinc-400">Connected {formatConnectedAt(connection.connectedAt)}</p>
-          <button
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={isDisconnecting}
-            onClick={() => void onDisconnect()}
-            type="button"
-          >
-            Disconnect GitHub
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white"
+              onClick={() => openCloudProjectDialog('clone')}
+              type="button"
+            >
+              Clone Repo
+            </button>
+            <button
+              className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900"
+              onClick={() => openCloudProjectDialog('create')}
+              type="button"
+            >
+              Create Repo
+            </button>
+            <button
+              className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isDisconnecting}
+              onClick={() => void onDisconnect()}
+              type="button"
+            >
+              Disconnect GitHub
+            </button>
+          </div>
         </div>
       ) : null}
 

@@ -12,6 +12,11 @@ interface NewProjectDialogProps {
   showTrigger?: boolean
 }
 
+interface NewProjectDialogOpenDetail {
+  cloudMode?: 'create' | 'clone'
+  localMode?: 'create' | 'open'
+}
+
 function deriveProjectName(projectPath: string) {
   const normalized = projectPath.trim().replace(/[\\/]+$/, '')
   if (!normalized) {
@@ -60,6 +65,17 @@ export function NewProjectDialog({
   const [capabilities, setCapabilities] = useState<RuntimeCapabilities | null>(null)
   const [cloudMode, setCloudMode] = useState<'create' | 'clone'>('create')
 
+  const open = useCallback((detail?: NewProjectDialogOpenDetail) => {
+    setError(null)
+    setIsOpen(true)
+    setMode(detail?.localMode ?? 'create')
+    setCloudMode(detail?.cloudMode ?? 'create')
+    setName('')
+    setCreatePath('')
+    setPath('')
+    setIsSelectingPath(false)
+  }, [])
+
   const close = useCallback(() => {
     setIsOpen(false)
     setError(null)
@@ -105,9 +121,15 @@ export function NewProjectDialog({
   }, [])
 
   useEffect(() => {
-    const handleOpen = () => {
+    const handleOpen = (event: Event) => {
       if (enableGlobalShortcut) {
-        setIsOpen(true)
+        const detail =
+          event instanceof CustomEvent &&
+          event.detail &&
+          typeof event.detail === 'object'
+            ? (event.detail as NewProjectDialogOpenDetail)
+            : undefined
+        open(detail)
       }
     }
     const handleClose = () => {
@@ -121,7 +143,7 @@ export function NewProjectDialog({
       window.removeEventListener('ralph:new-project', handleOpen)
       window.removeEventListener('ralph:close-dialogs', handleClose)
     }
-  }, [close, enableGlobalShortcut])
+  }, [close, enableGlobalShortcut, open])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -175,7 +197,7 @@ export function NewProjectDialog({
       {showTrigger ? (
         <button
           className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white"
-          onClick={() => setIsOpen(true)}
+          onClick={() => open()}
           type="button"
         >
           {triggerLabel}

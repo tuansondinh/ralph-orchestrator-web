@@ -3,9 +3,12 @@ import { loopApi, type DiffFile, type LoopDiff } from '@/lib/loopApi'
 
 interface DiffViewerProps {
   loopId: string
+  watch?: boolean
+  refreshIntervalMs?: number
 }
 
 const PREVIEW_LINES = 30
+const DEFAULT_REFRESH_INTERVAL_MS = 4_000
 
 function getDiffLineClass(line: string) {
   if (line.startsWith('+') && !line.startsWith('+++')) {
@@ -24,40 +27,72 @@ function getFileAnchorId(path: string) {
   return `diff-file-${encodeURIComponent(path)}`
 }
 
-export function DiffViewer({ loopId }: DiffViewerProps) {
+export function DiffViewer({
+  loopId,
+  watch = false,
+  refreshIntervalMs = DEFAULT_REFRESH_INTERVAL_MS
+}: DiffViewerProps) {
   const [data, setData] = useState<LoopDiff | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
+    setData(null)
     setError(null)
+    setIsRefreshing(false)
     setExpandedFiles(new Set())
 
-    loopApi
-      .getDiff(loopId)
-      .then((response) => {
-        if (!cancelled) {
-          setData(response)
-        }
-      })
-      .catch((nextError: unknown) => {
-        if (!cancelled) {
-          setError(nextError instanceof Error ? nextError.message : 'Failed to load diff')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
-      })
+    const loadDiff = async (showLoadingState: boolean) => {
+      if (showLoadingState) {
+        setIsLoading(true)
+      } else {
+        setIsRefreshing(true)
+      }
+
+      await loopApi
+        .getDiff(loopId)
+        .then((response) => {
+          if (!cancelled) {
+            setData(response)
+            setError(null)
+          }
+        })
+        .catch((nextError: unknown) => {
+          if (!cancelled) {
+            setError(nextError instanceof Error ? nextError.message : 'Failed to load diff')
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            if (showLoadingState) {
+              setIsLoading(false)
+            } else {
+              setIsRefreshing(false)
+            }
+          }
+        })
+    }
+
+    void loadDiff(true)
+
+    const intervalId =
+      watch && refreshIntervalMs > 0
+        ? window.setInterval(() => {
+          void loadDiff(false)
+        }, refreshIntervalMs)
+        : null
 
     return () => {
       cancelled = true
+      if (intervalId !== null) {
+        window.clearInterval(intervalId)
+      }
     }
-  }, [loopId])
+  }, [loopId, refreshIntervalMs, watch])
 
   const files = useMemo(() => data?.files ?? [], [data?.files])
   const stats = data?.stats
@@ -83,7 +118,7 @@ export function DiffViewer({ loopId }: DiffViewerProps) {
   if (isLoading) {
     return (
       <section className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
-        <p className="text-sm text-zinc-400">Loading diff...</p>
+        <p className="text-sm text-zinc-400">Loading file watcher...</p>
       </section>
     )
   }
@@ -108,12 +143,19 @@ export function DiffViewer({ loopId }: DiffViewerProps) {
 
   return (
     <section className="rounded-lg border border-zinc-800 bg-zinc-900/60">
-      <header className="border-b border-zinc-800 px-4 py-3 text-sm text-zinc-200">
-        <span>{stats?.filesChanged ?? files.length} files changed</span>
-        <span className="px-2 text-zinc-500">·</span>
-        <span className="text-green-300">+{stats?.additions ?? 0}</span>
-        <span className="px-2 text-zinc-500">·</span>
-        <span className="text-red-300">-{stats?.deletions ?? 0}</span>
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3 text-sm text-zinc-200">
+        <div>
+          <span>{stats?.filesChanged ?? files.length} files changed</span>
+          <span className="px-2 text-zinc-500">·</span>
+          <span className="text-green-300">+{stats?.additions ?? 0}</span>
+          <span className="px-2 text-zinc-500">·</span>
+          <span className="text-red-300">-{stats?.deletions ?? 0}</span>
+        </div>
+        {watch ? (
+          <span className="text-xs text-zinc-400">
+            {isRefreshing ? 'Refreshing…' : 'Watching for file changes'}
+          </span>
+        ) : null}
       </header>
 
       <div className="flex flex-col md:flex-row">

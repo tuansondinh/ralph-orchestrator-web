@@ -293,7 +293,11 @@ export class MonitoringService {
     options: EventQueryOptions = {}
   ): Promise<MonitoringEvent[]> {
     const project = await this.requireProject(projectId)
-    const historyPath = join(project.path, '.agent', 'event_history.jsonl')
+    const historyPath = await this.resolveEventHistoryPath(project.path)
+    if (!historyPath) {
+      return []
+    }
+
     let raw: string
     try {
       raw = await readFile(historyPath, 'utf8')
@@ -327,6 +331,52 @@ export class MonitoringService {
       .sort((a, b) => b.timestamp - a.timestamp)
 
     return maxRows ? parsed.slice(0, maxRows) : parsed
+  }
+
+  private async resolveEventHistoryPath(projectPath: string): Promise<string | null> {
+    const ralphDir = join(projectPath, '.ralph')
+    const currentEventsPath = join(ralphDir, 'current-events')
+
+    try {
+      const markerRaw = await readFile(currentEventsPath, 'utf8')
+      const marker = markerRaw.trim()
+      if (marker.length > 0) {
+        return isAbsolute(marker) ? marker : join(projectPath, marker)
+      }
+    } catch {
+      // Fall through to best-effort legacy and latest-file lookup.
+    }
+
+    try {
+      const entries = await readdir(ralphDir, { withFileTypes: true })
+      const latestEventFile = entries
+        .filter((entry) => entry.isFile() && /^events-.*\.jsonl$/i.test(entry.name))
+        .map((entry) => entry.name)
+        .sort()
+        .at(-1)
+
+      if (latestEventFile) {
+        return join(ralphDir, latestEventFile)
+      }
+    } catch {
+      // Fall through to older event history path.
+    }
+
+    const defaultEventsPath = join(ralphDir, 'events.jsonl')
+    try {
+      await stat(defaultEventsPath)
+      return defaultEventsPath
+    } catch {
+      // Fall through to legacy agent history.
+    }
+
+    const legacyHistoryPath = join(projectPath, '.agent', 'event_history.jsonl')
+    try {
+      await stat(legacyHistoryPath)
+      return legacyHistoryPath
+    } catch {
+      return null
+    }
   }
 
   watchMetrics(loopId: string, cb: (metrics: MonitoringLoopMetrics) => void) {

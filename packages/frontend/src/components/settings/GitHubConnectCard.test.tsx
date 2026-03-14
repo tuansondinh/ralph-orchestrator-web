@@ -95,7 +95,35 @@ describe('GitHubConnectCard', () => {
     )
 
     expect(await screen.findByText('Connected as @octocat')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clone Repo' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create Repo' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Disconnect GitHub' })).toBeInTheDocument()
+  })
+
+  it('opens the new project dialog on the clone tab from the connected card', async () => {
+    const handler = vi.fn()
+    window.addEventListener('ralph:new-project', handler as EventListener)
+    vi.mocked(githubApi.getConnection).mockResolvedValue({
+      githubUserId: 42,
+      githubUsername: 'octocat',
+      scope: 'repo',
+      connectedAt: Date.UTC(2026, 2, 9, 12, 0, 0)
+    })
+
+    render(
+      <MemoryRouter>
+        <GitHubConnectCard />
+      </MemoryRouter>
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Clone Repo' }))
+
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect((handler.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
+      cloudMode: 'clone'
+    })
+
+    window.removeEventListener('ralph:new-project', handler as EventListener)
   })
 
   it('disconnects and refreshes back to the disconnected state', async () => {

@@ -245,6 +245,58 @@ describe('NewProjectDialog', () => {
     })
   })
 
+  it('opens directly on the clone tab from the global dialog event', async () => {
+    vi.mocked(capabilitiesApi.get).mockResolvedValue({
+      mode: 'cloud',
+      database: true,
+      auth: true,
+      localProjects: false,
+      githubProjects: true,
+      terminal: false,
+      preview: false,
+      localDirectoryPicker: false,
+      mcp: false
+    })
+    vi.mocked(githubApi.getConnection).mockResolvedValue({
+      githubUserId: 42,
+      githubUsername: 'octocat',
+      scope: 'repo',
+      connectedAt: Date.UTC(2026, 2, 10, 8, 0, 0)
+    })
+    vi.mocked(githubApi.listRepos).mockResolvedValue({
+      repos: [
+        {
+          id: 100,
+          fullName: 'octocat/hello-world',
+          private: true,
+          defaultBranch: 'main',
+          htmlUrl: 'https://github.com/octocat/hello-world'
+        }
+      ],
+      hasMore: false
+    })
+
+    render(
+      <MemoryRouter>
+        <NewProjectDialog enableGlobalShortcut onCreated={vi.fn()} showTrigger={false} />
+      </MemoryRouter>
+    )
+
+    window.dispatchEvent(
+      new CustomEvent('ralph:new-project', {
+        detail: { cloudMode: 'clone' }
+      })
+    )
+
+    expect(
+      await screen.findByText('Choose a GitHub repository to clone onto the cloud workspace.')
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText('Repository name')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Create from octocat/hello-world' })
+    ).toBeInTheDocument()
+  })
+
   it('uses stacked mobile layout primitives inside the local project dialog', async () => {
     vi.mocked(capabilitiesApi.get).mockResolvedValue({
       mode: 'local',

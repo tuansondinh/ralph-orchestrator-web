@@ -31,7 +31,7 @@ describe('DiffViewer', () => {
 
     render(<DiffViewer loopId="loop-1" />)
 
-    expect(screen.getByText('Loading diff...')).toBeInTheDocument()
+    expect(screen.getByText('Loading file watcher...')).toBeInTheDocument()
   })
 
   it('shows an empty state when diff is unavailable', async () => {
@@ -81,5 +81,30 @@ describe('DiffViewer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Collapse' }))
     expect(screen.queryByText('+added line 40')).not.toBeInTheDocument()
+  })
+
+  it('polls for updates while watch mode is enabled', async () => {
+    vi.mocked(loopApi.getDiff).mockResolvedValue({
+      available: true,
+      baseBranch: 'main',
+      worktreeBranch: 'task/loop-1',
+      stats: {
+        filesChanged: 0,
+        additions: 0,
+        deletions: 0
+      },
+      files: []
+    })
+
+    render(<DiffViewer loopId="loop-1" watch refreshIntervalMs={50} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Watching for file changes')).toBeInTheDocument()
+    })
+    expect(loopApi.getDiff).toHaveBeenCalledTimes(1)
+
+    await waitFor(() => {
+      expect(loopApi.getDiff).toHaveBeenCalledTimes(2)
+    }, { timeout: 1000 })
   })
 })

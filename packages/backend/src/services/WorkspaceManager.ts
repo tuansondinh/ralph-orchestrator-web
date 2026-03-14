@@ -7,6 +7,20 @@ const defaultExec = promisify(execFile);
 
 type ExecFunction = typeof defaultExec;
 
+function formatExecError(error: unknown): string {
+  if (!error || typeof error !== 'object') {
+    return '';
+  }
+
+  const parts = [
+    'message' in error && typeof error.message === 'string' ? error.message : '',
+    'stdout' in error && typeof error.stdout === 'string' ? error.stdout : '',
+    'stderr' in error && typeof error.stderr === 'string' ? error.stderr : '',
+  ];
+
+  return parts.filter(Boolean).join('\n');
+}
+
 export interface PrepareWorkspaceParams {
   projectId: string;
   githubOwner: string;
@@ -63,7 +77,19 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     const workspacePath = this.resolveWorkspacePath(params);
     await fs.mkdir(path.dirname(workspacePath), { recursive: true });
     const cloneUrl = this.buildCloneUrl(params.token, params.githubOwner, params.githubRepo);
-    await this.exec('git', ['clone', '--branch', params.branch, cloneUrl, workspacePath]);
+    try {
+      await this.exec('git', ['clone', '--branch', params.branch, cloneUrl, workspacePath]);
+    } catch (error) {
+      const formattedError = formatExecError(error);
+      if (
+        !formattedError.includes('Remote branch') ||
+        !formattedError.includes('not found in upstream origin')
+      ) {
+        throw error;
+      }
+
+      await this.exec('git', ['clone', cloneUrl, workspacePath]);
+    }
     return workspacePath;
   }
 

@@ -1,4 +1,6 @@
 import { execFile as execFileCallback } from 'node:child_process'
+import { rm } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 export interface BranchInfo {
@@ -56,6 +58,7 @@ const defaultExecFile: ExecFile = async (args, options) =>
 export interface GitServiceOptions {
   execFile?: ExecFile
   fetch?: typeof fetch
+  removePath?: (targetPath: string) => Promise<void>
 }
 
 function getErrorMessage(error: unknown): string {
@@ -71,6 +74,59 @@ function getErrorMessage(error: unknown): string {
   }
 
   return 'Unknown error'
+}
+
+function extractCheckoutBlockerPaths(message: string): string[] {
+  const lines = message.split('\n')
+  const paths: string[] = []
+  let collecting = false
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\r$/, '')
+    const trimmed = line.trim()
+
+    if (
+      trimmed.includes('would be overwritten by checkout') ||
+      trimmed.includes('would be overwritten by switch')
+    ) {
+      collecting = true
+      continue
+    }
+
+    if (!collecting) {
+      continue
+    }
+
+    if (!trimmed) {
+      break
+    }
+
+    if (
+      /^Please\b/.test(trimmed) ||
+      /^Aborting\b/.test(trimmed) ||
+      /^error:/i.test(trimmed) ||
+      /^fatal:/i.test(trimmed)
+    ) {
+      break
+    }
+
+    if (/^\s/.test(line)) {
+      paths.push(trimmed)
+      continue
+    }
+
+    break
+  }
+
+  return paths
+}
+
+function isSafeRuntimeArtifactPath(targetPath: string): boolean {
+  return (
+    targetPath === 'debug.log' ||
+    targetPath.startsWith('.ralph/') ||
+    targetPath.startsWith('.ralph-ui/')
+  )
 }
 
 function parseBranchLine(line: string): BranchInfo | null {
@@ -141,10 +197,14 @@ export function parseGitHubRemoteUrl(remoteUrl: string): GitHubRepoRef | null {
 export class GitService {
   private readonly execFile: ExecFile
   private readonly fetchImpl: typeof fetch
+  private readonly removePath: (targetPath: string) => Promise<void>
 
   constructor(options: GitServiceOptions = {}) {
     this.execFile = options.execFile ?? defaultExecFile
     this.fetchImpl = options.fetch ?? fetch
+    this.removePath = options.removePath ?? (async (targetPath) => {
+      await rm(targetPath, { force: true, recursive: true })
+    })
   }
 
   async listBranches(projectPath: string): Promise<BranchInfo[]> {
@@ -182,6 +242,9 @@ export class GitService {
         encoding: 'utf8'
       })
     } catch (error) {
+      if (await this.retryCheckoutAfterRuntimeCleanup(projectPath, error, ['checkout', '-b', name, baseBranch])) {
+        return
+      }
       throw new Error(getErrorMessage(error))
     }
   }
@@ -193,6 +256,9 @@ export class GitService {
         encoding: 'utf8'
       })
     } catch (error) {
+      if (await this.retryCheckoutAfterRuntimeCleanup(projectPath, error, ['checkout', name])) {
+        return
+      }
       throw new Error(`Failed to checkout branch: ${getErrorMessage(error)}`)
     }
   }
@@ -257,5 +323,28 @@ export class GitService {
       url: data.html_url,
       title: data.title
     }
+  }
+
+  private async retryCheckoutAfterRuntimeCleanup(
+    projectPath: string,
+    error: unknown,
+    command: string[]
+  ): Promise<boolean> {
+    const paths = extractCheckoutBlockerPaths(getErrorMessage(error)).filter(isSafeRuntimeArtifactPath)
+    if (paths.length === 0) {
+      return false
+    }
+
+    await Promise.all(
+      [...new Set(paths)].map(async (targetPath) => {
+        await this.removePath(resolve(projectPath, targetPath))
+      })
+    )
+
+    await this.execFile(command, {
+      cwd: projectPath,
+      encoding: 'utf8'
+    })
+    return true
   }
 }

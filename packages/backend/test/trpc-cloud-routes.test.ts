@@ -262,4 +262,31 @@ describe('cloud tRPC routes', () => {
       private: true
     })
   })
+
+  it('returns a client error when GitHub project creation fails', async () => {
+    const createFromGitHub = vi.fn().mockRejectedValue(new Error('Repository already exists'))
+
+    const caller = appRouter.createCaller(
+      createCallerContext({
+        userId: 'user-123',
+        projectService: {
+          createFromGitHub
+        },
+        githubService: {
+          listConnectedRepos: vi.fn()
+        }
+      })
+    )
+
+    await expect(
+      caller.project.createFromGitHub({
+        name: 'Platform',
+        description: 'Cloud repo',
+        private: true
+      })
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'Repository already exists'
+    })
+  })
 })

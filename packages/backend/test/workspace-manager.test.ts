@@ -102,6 +102,49 @@ describe('WorkspaceManager', () => {
         ]
       );
     });
+
+    it('falls back to plain clone when the remote branch does not exist yet', async () => {
+      const params = {
+        projectId: 'project-empty',
+        githubOwner: 'owner',
+        githubRepo: 'repo',
+        branch: 'main',
+        token: 'test-token',
+      };
+      mockExec
+        .mockImplementationOnce(async () => {
+          const error = Object.assign(new Error('git clone failed'), {
+            stderr: 'fatal: Remote branch main not found in upstream origin',
+          });
+          throw error;
+        })
+        .mockResolvedValueOnce({ stdout: '', stderr: '' });
+      vi.spyOn(fs, 'mkdir').mockResolvedValueOnce(undefined);
+
+      const workspacePath = await workspaceManager.clone(params);
+
+      expect(workspacePath).toBe(path.join(tempDir, 'owner', 'repo', 'project-empty'));
+      expect(mockExec).toHaveBeenNthCalledWith(
+        1,
+        'git',
+        [
+          'clone',
+          '--branch',
+          'main',
+          'https://x-access-token:test-token@github.com/owner/repo.git',
+          workspacePath,
+        ]
+      );
+      expect(mockExec).toHaveBeenNthCalledWith(
+        2,
+        'git',
+        [
+          'clone',
+          'https://x-access-token:test-token@github.com/owner/repo.git',
+          workspacePath,
+        ]
+      );
+    });
   });
 
   describe('pull()', () => {

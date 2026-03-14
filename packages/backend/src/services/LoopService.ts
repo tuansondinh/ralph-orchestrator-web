@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { execFile as execFileCallback } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import type {
@@ -121,6 +121,13 @@ export interface LoopOutputSnapshot {
   summary: string
   lines: string[]
   link: string
+}
+
+export interface LoopRecentEvent {
+  topic: string
+  payload?: unknown
+  sourceHat?: string
+  timestamp: number
 }
 
 interface LoopRuntime {
@@ -485,7 +492,7 @@ export class LoopService {
     console.log(`[LoopService] Spawning loop ${loopId}: cwd=${runCwd}, command=bash -lc "${shellCommand.slice(0, 200)}..."`)
     const handle = await this.processManager.spawn(projectId, 'bash', ['-lc', shellCommand], {
       cwd: runCwd,
-      tty: true
+      tty: false
     })
     console.log(`[LoopService] Process spawned: processId=${handle.id}, pid=${handle.pid}, state=${handle.state}`)
 
@@ -931,6 +938,57 @@ export class LoopService {
       lines: chunks,
       link: `/project/${run.projectId}/loops?loopId=${run.id}`
     }
+  }
+
+  async getRecentEvents(
+    loopId: string,
+    options: { limit?: number } = {}
+  ): Promise<LoopRecentEvent[]> {
+    const run = await this.requireLoop(loopId)
+    const project = await this.requireProject(run.projectId, `Project not found for loop: ${loopId}`)
+    const { cwd } = await this.resolveLoopGitContext(run).catch(() => ({ cwd: project.path }))
+    const maxRows =
+      typeof options.limit === 'number' && options.limit > 0
+        ? Math.floor(options.limit)
+        : 5
+
+    const candidateRoots = cwd === project.path ? [project.path] : [cwd, project.path]
+    let historyPath: string | null = null
+    for (const root of candidateRoots) {
+      historyPath = await this.resolveCurrentEventsPath(root)
+      if (historyPath) {
+        break
+      }
+    }
+
+    if (!historyPath) {
+      return []
+    }
+
+    let raw: string
+    try {
+      raw = await readFile(historyPath, 'utf8')
+    } catch {
+      return []
+    }
+
+    const parsed = raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          return JSON.parse(line) as Record<string, unknown>
+        } catch {
+          return null
+        }
+      })
+      .filter((entry): entry is Record<string, unknown> => entry !== null)
+      .map((entry) => this.toRecentEvent(entry))
+      .filter((event): event is LoopRecentEvent => event !== null)
+      .sort((a, b) => b.timestamp - a.timestamp)
+
+    return parsed.slice(0, maxRows)
   }
 
   async getDiff(loopId: string): Promise<LoopDiff> {
@@ -1616,6 +1674,64 @@ export class LoopService {
       return normalized ?? null
     } catch {
       return null
+    }
+  }
+
+  private async resolveCurrentEventsPath(projectPath: string): Promise<string | null> {
+    const ralphDir = join(projectPath, '.ralph')
+
+    try {
+      const markerRaw = await readFile(join(ralphDir, 'current-events'), 'utf8')
+      const marker = markerRaw.trim()
+      if (marker.length > 0) {
+        return isAbsolute(marker) ? marker : join(projectPath, marker)
+      }
+    } catch {
+      // Fall through to fallback files.
+    }
+
+    try {
+      const entries = await readdir(ralphDir, { withFileTypes: true })
+      const latestEventFile = entries
+        .filter((entry: { isFile: () => boolean; name: string }) => entry.isFile() && /^events-.*\.jsonl$/i.test(entry.name))
+        .map((entry: { name: string }) => entry.name)
+        .sort()
+        .at(-1)
+
+      if (latestEventFile) {
+        return join(ralphDir, latestEventFile)
+      }
+    } catch {
+      // Fall through to default path.
+    }
+
+    try {
+      await readFile(join(ralphDir, 'events.jsonl'), 'utf8')
+      return join(ralphDir, 'events.jsonl')
+    } catch {
+      return null
+    }
+  }
+
+  private toRecentEvent(entry: Record<string, unknown>): LoopRecentEvent | null {
+    const topic = asString(entry.topic) ?? asString(entry.type) ?? asString(entry.event)
+    if (!topic) {
+      return null
+    }
+
+    const sourceHat = asString(entry.sourceHat) ?? asString(entry.source_hat)
+    const timestamp =
+      asNumber(entry.timestamp) ??
+      asNumber(entry.ts) ??
+      (typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : undefined) ??
+      (typeof entry.ts === 'string' ? Date.parse(entry.ts) : undefined) ??
+      this.now().getTime()
+
+    return {
+      topic,
+      payload: entry.payload,
+      sourceHat,
+      timestamp: Number.isFinite(timestamp) ? Math.floor(timestamp) : this.now().getTime()
     }
   }
 

@@ -11,18 +11,19 @@ import {
   type LoopPullRequest,
   type LoopSummary
 } from '@/lib/loopApi'
+import type { MonitoringEvent } from '@/lib/monitoringApi'
 import { useLoopStore } from '@/stores/loopStore'
 
 interface LoopDetailProps {
   loop: LoopSummary | null
   metrics: LoopMetrics | null
   outputChunks: LoopOutputEntry[]
+  lastEventAt: number | null
+  recentEvents: MonitoringEvent[]
 }
 
-type LoopDetailTab = 'output' | 'review'
-
 const REVIEWABLE_STATES = new Set(['completed', 'needs-review', 'merged', 'stopped'])
-const ACTIVE_OUTPUT_STATES = new Set(['running', 'queued', 'merging'])
+const ACTIVE_WATCH_STATES = new Set(['running', 'queued', 'merging'])
 
 function parseLoopConfig(config: string | null): LoopConfig {
   if (!config) {
@@ -37,8 +38,16 @@ function parseLoopConfig(config: string | null): LoopConfig {
   }
 }
 
-export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
-  const [activeTab, setActiveTab] = useState<LoopDetailTab>('output')
+function summarizeEventPayload(payload: unknown): string | null {
+  if (typeof payload === 'string') {
+    const normalized = payload.replace(/\s+/g, ' ').trim()
+    return normalized.length > 0 ? normalized.slice(0, 160) : null
+  }
+
+  return null
+}
+
+export function LoopDetail({ loop, metrics, outputChunks, lastEventAt, recentEvents }: LoopDetailProps) {
   const [isCreatePROpen, setIsCreatePROpen] = useState(false)
   const [pullRequest, setPullRequest] = useState<LoopPullRequest | null>(null)
   const [hasGitHubConnection, setHasGitHubConnection] = useState<boolean | null>(null)
@@ -50,16 +59,70 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
   const effectiveConfig = configOverride ?? loop?.config ?? null
   const parsedConfig = useMemo(() => parseLoopConfig(effectiveConfig), [effectiveConfig])
   const sourceBranch = parsedConfig.gitBranch?.name ?? ''
+  const watchFiles = ACTIVE_WATCH_STATES.has(loop?.state ?? '')
   const canCreatePullRequest = showReviewTab && parsedConfig.pushed === true && !pullRequest
   const pushError = parsedConfig.pushError?.trim() ?? ''
   const canRetryPush = showReviewTab && sourceBranch.length > 0 && pushError.length > 0 && !pullRequest
-  const outputEmptyMessage = ACTIVE_OUTPUT_STATES.has(loop?.state ?? '')
-    ? 'Waiting for loop output...'
-    : 'No persisted logs found for this loop.'
+  const latestOutputChunk = outputChunks.at(-1) ?? null
+  const currentHat = loop?.currentHat?.trim() ?? ''
+  const latestRalphEvent = recentEvents[0] ?? null
+  const latestRalphEventPayload = summarizeEventPayload(latestRalphEvent?.payload)
+  const lastOutputAtLabel = useMemo(() => {
+    const timestamp = latestOutputChunk?.timestamp
+    if (!timestamp) {
+      return null
+    }
 
-  useEffect(() => {
-    setActiveTab('output')
-  }, [loop?.id])
+    const parsed = new Date(timestamp)
+    if (Number.isNaN(parsed.getTime())) {
+      return null
+    }
+
+    return parsed.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+  }, [latestOutputChunk?.timestamp])
+  const lastEventAtLabel = useMemo(() => {
+    if (!lastEventAt) {
+      return null
+    }
+
+    const parsed = new Date(lastEventAt)
+    if (Number.isNaN(parsed.getTime())) {
+      return null
+    }
+
+    return parsed.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+  }, [lastEventAt])
+  const activityTone =
+    loop?.state === 'running'
+      ? lastEventAt && Date.now() - lastEventAt <= 15_000
+        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100'
+        : 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+      : 'border-zinc-700 bg-zinc-950/40 text-zinc-200'
+  const activityMessage =
+    loop?.state === 'running'
+      ? lastEventAt && Date.now() - lastEventAt <= 15_000
+        ? 'Loop is actively sending updates.'
+        : 'Loop is running but has not sent a recent update.'
+      : 'Loop is not actively running.'
+  const latestRalphEventLabel = useMemo(() => {
+    if (!latestRalphEvent) {
+      return null
+    }
+
+    return new Date(latestRalphEvent.timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+  }, [latestRalphEvent])
 
   useEffect(() => {
     setConfigOverride(null)
@@ -72,12 +135,6 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
   useEffect(() => {
     setPullRequest(parsedConfig.pullRequest ?? null)
   }, [parsedConfig.pullRequest])
-
-  useEffect(() => {
-    if (!showReviewTab) {
-      setActiveTab('output')
-    }
-  }, [showReviewTab])
 
   useEffect(() => {
     let cancelled = false
@@ -108,7 +165,7 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
   if (!loop) {
     return (
       <section className="flex h-full min-h-[360px] items-center rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
-        Select a loop to inspect metrics and terminal output.
+        Select a loop to inspect metrics and loop details.
       </section>
     )
   }
@@ -159,42 +216,9 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
         <p>Errors: {metrics?.errors ?? loop.errors}</p>
       </div>
 
-      {showReviewTab ? (
-        <div
-          aria-label="Loop detail sections"
-          className="inline-flex gap-1 rounded-md border border-zinc-800 bg-zinc-900/50 p-1"
-          role="tablist"
-        >
-          <button
-            aria-selected={activeTab === 'output'}
-            className={`rounded px-3 py-1.5 text-sm transition-colors ${activeTab === 'output'
-              ? 'bg-zinc-200 text-zinc-900'
-              : 'text-zinc-300 hover:bg-zinc-800'
-              }`}
-            onClick={() => setActiveTab('output')}
-            role="tab"
-            type="button"
-          >
-            Output
-          </button>
-          <button
-            aria-selected={activeTab === 'review'}
-            className={`rounded px-3 py-1.5 text-sm font-semibold transition-colors ${activeTab === 'review'
-              ? 'bg-amber-300 text-amber-950 shadow-sm'
-              : 'border border-amber-500/60 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25'
-              }`}
-            onClick={() => setActiveTab('review')}
-            role="tab"
-            type="button"
-          >
-            Review Changes
-          </button>
-        </div>
-      ) : null}
-
       <div className="min-h-0 flex-1 overflow-hidden">
-        {showReviewTab && activeTab === 'review' ? (
-          <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+        <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+          {showReviewTab ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-2">
               <div className="text-sm text-zinc-400">
                 {sourceBranch ? (
@@ -238,37 +262,91 @@ export function LoopDetail({ loop, metrics, outputChunks }: LoopDetailProps) {
                 ) : null}
               </div>
             </div>
-            {pushError ? (
-              <p className="text-sm text-red-300">
-                Push failed: {pushError}
-              </p>
-            ) : null}
-            {pushActionError ? (
-              <p className="text-sm text-red-300">{pushActionError}</p>
-            ) : null}
-            {canCreatePullRequest && hasGitHubConnection === false ? (
-              <p className="text-sm text-amber-200">
-                Connect GitHub in Settings before creating a pull request.
-              </p>
-            ) : null}
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <DiffViewer loopId={loop.id} />
+          ) : null}
+          {pushError ? (
+            <p className="text-sm text-red-300">
+              Push failed: {pushError}
+            </p>
+          ) : null}
+          {pushActionError ? (
+            <p className="text-sm text-red-300">{pushActionError}</p>
+          ) : null}
+          {canCreatePullRequest && hasGitHubConnection === false ? (
+            <p className="text-sm text-amber-200">
+              Connect GitHub in Settings before creating a pull request.
+            </p>
+          ) : null}
+          <section className={`rounded-md border px-3 py-2 text-sm ${activityTone}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <span>{activityMessage}</span>
+                {latestRalphEvent ? (
+                  <div className="text-xs text-zinc-100">
+                    <span className="font-medium">Latest Ralph event:</span>{' '}
+                    <code>{latestRalphEvent.topic}</code>
+                    {latestRalphEventPayload ? <span> {latestRalphEventPayload}</span> : null}
+                  </div>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs opacity-90">
+                <span>State: {loop.state}</span>
+                {currentHat ? <span>Hat: {currentHat}</span> : null}
+                {lastEventAtLabel ? <span>Last event: {lastEventAtLabel}</span> : null}
+              </div>
             </div>
-            {isCreatePROpen && sourceBranch ? (
-              <CreatePRDialog
-                defaultTargetBranch={parsedConfig.gitBranch?.baseBranch}
-                loopId={loop.id}
-                projectId={loop.projectId}
-                prompt={loop.prompt}
-                sourceBranch={sourceBranch}
-                onClose={() => setIsCreatePROpen(false)}
-                onCreated={handlePullRequestCreated}
-              />
+            {latestRalphEvent ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs opacity-90">
+                <span>Event details:</span>
+                <code>{latestRalphEvent.topic}</code>
+                {latestRalphEvent.sourceHat ? <span>Hat: {latestRalphEvent.sourceHat}</span> : null}
+                {latestRalphEventLabel ? <span>{latestRalphEventLabel}</span> : null}
+              </div>
             ) : null}
-          </div>
-        ) : (
-          <LoopTerminalOutput chunks={outputChunks} emptyMessage={outputEmptyMessage} />
-        )}
+          </section>
+          <section className="flex min-h-[220px] flex-col overflow-hidden rounded-md border border-zinc-800 bg-zinc-950/30">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-3 py-2 text-sm">
+              <div className="text-zinc-200">Live Output</div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                <span>{watchFiles ? 'Streaming selected loop output' : 'Replay from selected loop'}</span>
+                {lastOutputAtLabel ? <span>Last output: {lastOutputAtLabel}</span> : null}
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden p-3">
+              <LoopTerminalOutput
+                chunks={outputChunks}
+                emptyMessage={
+                  watchFiles
+                    ? 'Waiting for loop output. If the loop is active but quiet, the next chunk will appear here.'
+                    : 'No saved loop output for this run.'
+                }
+              />
+            </div>
+          </section>
+          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-zinc-800 bg-zinc-950/30">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-3 py-2 text-sm">
+              <div className="text-zinc-200">File Watcher</div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                <span>{loop.worktree ? `Worktree: ${loop.worktree}` : 'Primary workspace'}</span>
+                {sourceBranch ? <span>Branch: {sourceBranch}</span> : null}
+                <span>{watchFiles ? 'Live diff' : 'Snapshot diff'}</span>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              <DiffViewer loopId={loop.id} watch={watchFiles} />
+            </div>
+          </section>
+          {isCreatePROpen && sourceBranch ? (
+            <CreatePRDialog
+              defaultTargetBranch={parsedConfig.gitBranch?.baseBranch}
+              loopId={loop.id}
+              projectId={loop.projectId}
+              prompt={loop.prompt}
+              sourceBranch={sourceBranch}
+              onClose={() => setIsCreatePROpen(false)}
+              onCreated={handlePullRequestCreated}
+            />
+          ) : null}
+        </div>
       </div>
     </section>
   )

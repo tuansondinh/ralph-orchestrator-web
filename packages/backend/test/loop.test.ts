@@ -449,10 +449,8 @@ describe('loop tRPC routes', () => {
     expect(stopArgs).toEqual(['loops', 'stop', '--loop-id', started.id])
   })
 
-  it('starts loops under a PTY so TTY-dependent backends can complete', async () => {
-    const { caller, connection, processManager, loopService, tempDir } = await setupCaller({
-      requireTty: true
-    })
+  it('starts loops without a PTY by default', async () => {
+    const { caller, connection, processManager, loopService, tempDir } = await setupCaller()
     const projectPath = join(tempDir, 'project')
     await mkdir(projectPath, { recursive: true })
     const projectId = await createProject(connection, projectPath)
@@ -464,7 +462,7 @@ describe('loop tRPC routes', () => {
     })
 
     const handle = processManager.list().find((proc) => proc.id === started.processId)
-    expect(handle?.tty).toBe(true)
+    expect(handle?.tty).toBe(false)
 
     await waitFor(() => {
       const row = connection.db
